@@ -1,0 +1,61 @@
+---
+- name: Create environment
+  ansible.builtin.include_tasks: environment.yml
+
+- name: Create container
+  community.docker.docker_container:
+    name: traefik
+    image: traefik:latest
+    pull: true
+    state: started
+    # recreate: yes
+    restart_policy: unless-stopped
+    security_opts:
+      - "no-new-privileges:true"
+    networks:
+      - name: proxy
+      - name: bridge
+    etc_hosts:
+      "host.docker.internal": "host-gateway"
+    ports:
+      - '80:80'
+      - '443:443'
+    env:
+      CF_API_EMAIL={{ cloudflare.account }}
+      CF_DNS_API_TOKEN={{ cloudflare.api_token }}
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./data/traefik/traefik.yml:/traefik.yml:ro
+      - ./data/traefik/acme.json:/acme.json
+      - ./data/traefik/rules:/rules
+      - ./data/traefik/logs:/var/log/traefik
+    labels: >
+      {
+        "traefik.enable": "true",
+        "traefik.http.routers.traefik.entrypoints": "http",
+        "traefik.http.routers.traefik.rule": "{{ traefik_links.name.host }}",
+        "traefik.http.middlewares.traefik-auth.basicauth.users": "{{ traefik.basic_auth }}",
+        "traefik.http.middlewares.traefik-https-redirect.redirectscheme.scheme": "https",
+        "traefik.http.middlewares.sslheader.headers.customrequestheaders.X-Forwarded-Proto": "https",
+        "traefik.http.routers.traefik.middlewares": "traefik-https-redirect",
+        "traefik.http.routers.traefik-metrics.entrypoints": "https",
+        "traefik.http.routers.traefik-metrics.rule": "{{ node.traefik.host }}",
+        "traefik.http.routers.traefik-metrics.middlewares": "basic-auth@file",
+        "traefik.http.routers.traefik-metrics.service": "prometheus@internal",
+        "traefik.http.routers.traefik-metrics.tls": "true",
+        "traefik.http.routers.traefik-secure.entrypoints": "https",
+        "traefik.http.routers.traefik-secure.rule": "{{ traefik_links.name.host }}",
+        "traefik.http.routers.traefik-secure.middlewares": "chain-auth@file",
+        "traefik.http.routers.traefik-secure.service": "api@internal",
+        "traefik.http.routers.traefik-secure.tls": "true",
+        "traefik.http.routers.traefik-secure.tls.certresolver": "cloudflare",
+        "traefik.http.routers.traefik-secure.tls.domains[0].main": "{{ traefik_links.zero.main }}",
+        "traefik.http.routers.traefik-secure.tls.domains[0].sans": "{{ traefik_links.zero.sans }}",
+        {% if 'server' == current_host %}
+        "traefik.http.routers.traefik-secure.tls.domains[1].main": "{{ traefik_links.one.main }}",
+        "traefik.http.routers.traefik-secure.tls.domains[1].sans": "{{ traefik_links.one.sans }}",
+        "traefik.http.routers.traefik-secure.tls.domains[2].main": "{{ traefik_links.two.main }}",
+        "traefik.http.routers.traefik-secure.tls.domains[2].sans": "{{ traefik_links.two.sans }}",
+      {% endif %}
+      }

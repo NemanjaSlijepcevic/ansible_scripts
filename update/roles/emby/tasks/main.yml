@@ -1,0 +1,25 @@
+---
+- name: Deploy Emby container
+  community.docker.docker_container:
+    name: emby
+    image: emby/embyserver:latest
+    restart_policy: unless-stopped
+    networks:
+      - name: proxy
+      - name: streamingMedia
+        ipv4_address: "{{ emby.ip }}"
+    env:
+      UID: "{{ puid }}"
+      GID: "{{ pgid }}"
+    volumes:
+      - "{{ data_drive }}/Muzika:/music"
+      - "{{ data_drive }}/Slike:/pictures"
+      - "{{ data_drive }}/Snimci:/videos"
+      - "{{ movie_drive }}/Filmovi:/Filmovi"
+      - "{{ download_drive }}/Download/Watch:/tv"
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.emby.entrypoints: "https"
+      traefik.http.routers.emby.rule: "{{ emby.host }}"
+      traefik.http.routers.emby.tls: "true"
+      traefik.http.services.emby.loadbalancer.server.port: "{{ emby.port }}"

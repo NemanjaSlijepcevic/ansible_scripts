@@ -1,0 +1,6 @@
+http:
+  middlewares:
+    redirectregex-admin:
+      redirectRegex:
+        regex: "/admin/(.*)"
+        replacement: /

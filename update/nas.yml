@@ -1,0 +1,24 @@
+---
+- name: "Update NAS"
+  hosts: nass
+  gather_facts: true
+  remote_user: "{{ user.name }}"
+  become: true
+  vars:
+    current_host: "nas"
+  roles:
+    - common
+    - authelia
+    - traefik
+    - crowdsec
+    - node_exporter
+    - transmission
+    - prowlarr
+    - radarr
+    - sonarr
+    - lidarr
+    - bazarr
+    - emby
+    - plex
+    - netboot
+    - watchtower

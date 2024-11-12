@@ -1,0 +1,21 @@
+---
+- name: "Update Server"
+  hosts: servers
+  gather_facts: true
+  remote_user: "{{ user.name }}"
+  become: true
+  vars:
+    current_host: "server"
+  roles:
+    - common
+    - authelia
+    - traefik
+    - crowdsec
+    - public_ip_whitelist_updater
+    - node_exporter
+    - sql
+    - nextcloud
+    - family_trees
+    - ghost
+    - kavita
+    - watchtower

@@ -1,0 +1,9 @@
+http:
+  middlewares:
+    chain-auth:
+      chain:
+        middlewares:
+          - default-whitelist
+          - crowdsec-bouncer
+          - rate-limit
+          - authelia

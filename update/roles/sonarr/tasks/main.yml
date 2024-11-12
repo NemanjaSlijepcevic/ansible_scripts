@@ -1,0 +1,30 @@
+---
+- name: Create directory if they don't exist
+  ansible.builtin.file:
+    path: ./data/sonarr
+    state: directory
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0755"
+
+- name: Deploy sonarr container
+  community.docker.docker_container:
+    name: sonarr
+    image: lscr.io/linuxserver/sonarr:latest
+    restart_policy: unless-stopped
+    networks:
+      - name: proxy
+    env:
+      PUID: "{{ puid }}"
+      PGID: "{{ pgid }}"
+      TZ: "Europe/Belgrade"
+    volumes:
+      - ./data/sonarr/config:/config
+      - "{{ download_drive }}/Download/Watch:/tv"
+      - "{{ download_drive }}/Download:/downloads"
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.sonarr.entrypoints: "https"
+      traefik.http.routers.sonarr.rule: "{{ sonarr.host }}"
+      traefik.http.routers.sonarr.tls: "true"
+      traefik.http.services.sonarr.loadbalancer.server.port: "{{ sonarr.port }}"

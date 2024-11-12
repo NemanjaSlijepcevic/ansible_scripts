@@ -1,0 +1,15 @@
+---
+- name: Clean packages
+  ansible.builtin.apt:
+    autoclean: true
+    autoremove: true
+
+- name: Check if a reboot is needed
+  register: reboot_required_file
+  ansible.builtin.stat:
+    path: /var/run/reboot-required
+
+- name: Reboot the system if needed
+  ansible.builtin.reboot:
+    reboot_timeout: 600
+  when: reboot_required_file.stat.exists

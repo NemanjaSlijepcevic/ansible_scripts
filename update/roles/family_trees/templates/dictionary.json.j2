@@ -1,0 +1,5 @@
+{
+{% for serbian, english in dictionary.items() %}
+  "{{ serbian }}": "{{ english }}"{% if not loop.last %},{% endif %}
+{% endfor %}
+}

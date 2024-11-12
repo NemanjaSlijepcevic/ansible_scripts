@@ -1,0 +1,10 @@
+---
+users:
+  {{ authelia.user }}:
+    disable: false
+    displayname: "{{ authelia.display_name }}"
+    password: "{{ authelia.password }}"
+    email: "{{ default.mail }}"
+    groups:
+      - admins
+      - dev

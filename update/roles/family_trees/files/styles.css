@@ -1,0 +1,103 @@
+/* Global Reset */
+* {
+    padding: 0;
+    margin: 0;
+    border: 0;
+    box-sizing: border-box;
+}
+
+/* Modal Styles */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1;
+    padding-top: 2%;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background-color: rgba(0, 0, 0, 0.4); /* Black with 40% opacity */
+}
+
+.modal-content {
+    background-color: #fefefe;
+    margin: auto;
+    padding: 10px;
+    border: 1px solid #888;
+    width: 70%;
+    height: 87%;
+}
+
+/* Content within the modal */
+#modalContent, .modal-frame {
+    border: 0;
+    width: 100%;
+    height: 98%; /* Adjust to fit within modal */
+}
+
+/* Close, Back, Tree Buttons */
+.close, .back, .tree {
+    color: #aaaaaa;
+    float: right;
+    font-size: 28px;
+    font-weight: bold;
+    margin-right: 10px;
+    cursor: pointer;
+}
+
+.close:hover, .close:focus, .back:hover, .back:focus, .tree:hover, .tree:focus {
+    color: #000;
+    text-decoration: none;
+}
+
+/* Round Button for Language Toggle */
+.button-round {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 1000; /* Ensure it appears above other content */
+    width: 60px;
+    height: 60px;
+    background-color: rgba(255, 255, 255, 0.5); /* White with 50% transparency */
+    border: none;
+    border-radius: 50%;
+    box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.1); /* Subtle shadow */
+    cursor: pointer;
+    transition: background-color 0.3s ease, transform 0.3s ease;
+}
+
+.button-round:hover {
+    background-color: rgba(255, 255, 255, 0.8); /* Less transparent on hover */
+    transform: scale(1.1); /* Slightly enlarge on hover */
+}
+
+.button-round:active {
+    transform: scale(0.95); /* Slightly shrink on click */
+}
+
+/* Responsive Design Adjustments */
+@media (max-width: 600px) {
+    .modal-content {
+        width: 90%; /* Increase width to nearly full screen */
+        height: 80%; /* Adjust height to fit better on small screens */
+        padding: 10px; /* Increase padding for better spacing */
+    }
+
+    #modalContent, .modal-frame {
+        height: 90%; /* Adjust height to ensure no overflow */
+    }
+
+    .close, .back, .tree {
+        font-size: 24px; /* Decrease font size for smaller screens */
+    }
+}
+
+/* Ensure body and html take up the full height */
+html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow-x: auto; /* Allows horizontal scrolling if needed */
+    overflow-y: auto; /* Ensures vertical scrolling */
+}

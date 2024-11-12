@@ -1,0 +1,46 @@
+---
+- name: Create directory if they don't exist
+  ansible.builtin.file:
+    path: "./data/kavita"
+    state: directory
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0755"
+
+- name: Synchronize books
+  ansible.posix.synchronize:
+    src: "{{ kavita.source_directory }}"
+    dest: /media/Knjige/
+
+- name: Change ownership to "{{ user.name }}"
+  ansible.builtin.file:
+    path: /media/Knjige
+    state: directory
+    recurse: true
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0777"
+
+- name: Install kavita
+  community.docker.docker_container:
+    name: kavita
+    image: lscr.io/linuxserver/kavita:latest
+    pull: true
+    restart_policy: unless-stopped
+    networks:
+      - name: proxy
+    dns_servers:
+      - "{{ default.dns }}"
+    volumes:
+      - ./data/kavita/config:/config
+      - /media/Knjige:/data
+    env:
+      TZ: "Europe/Belgrade"
+      PUID: "1002"
+      PGUID: "998"
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.kavita.entrypoints: "https"
+      traefik.http.routers.kavita.rule: "{{ kavita.host }}"
+      traefik.http.routers.kavita.tls: "true"
+      traefik.http.services.kavita.loadbalancer.server.port: "{{ kavita.port }}"

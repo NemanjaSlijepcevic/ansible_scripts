@@ -1,0 +1,60 @@
+---
+- name: Create environment
+  ansible.builtin.include_tasks: environment.yml
+
+- name: Create container
+  community.docker.docker_container:
+    name: authelia
+    image: authelia/authelia
+    pull: true
+    # recreate: yes
+    restart_policy: unless-stopped
+    networks:
+      - name: proxy
+    volumes:
+      - ./data/authelia/config:/config
+      - ./data/authelia/logs:/var/log/
+    env:
+      TZ: "Europe/Belgrade"
+      AUTHELIA_SERVER_ADDRESS: "tcp://0.0.0.0:9091/"
+      AUTHELIA_THEME: dark
+      AUTHELIA_LOG_LEVEL: debug
+      AUTHELIA_LOG_FORMAT: json
+      AUTHELIA_LOG_FILE_PATH: "/var/log/authelia.log"
+      AUTHELIA_LOG_KEEP_STDOUT: "true"
+      AUTHELIA_IDENTITY_VALIDATION_RESET_PASSWORD_JWT_SECRET_FILE: "/config/authelia_jwt_secret"
+      AUTHELIA_TOTP_ISSUER: "{{ traefik_links.zero.main }}"
+      AUTHELIA_TOTP_SKEW: "1"
+      AUTHELIA_AUTHENTICATION_BACKEND_FILE_PATH: "/config/users_database.yml"
+      AUTHELIA_SESSION_NAME: authelia_session
+      AUTHELIA_SESSION_EXPIRATION: "3600"
+      AUTHELIA_SESSION_INACTIVITY: "300"
+      AUTHELIA_SESSION_SECRET_FILE: "/config/authelia_session_secret"
+      AUTHELIA_REGULATION_MAX_RETRIES: "3"
+      AUTHELIA_REGULATION_FIND_TIME: "120"
+      AUTHELIA_REGULATION_BAN_TIME: "300"
+      AUTHELIA_STORAGE_LOCAL_PATH: /config/db.sqlite3
+      AUTHELIA_STORAGE_ENCRYPTION_KEY_FILE: "/config/authelia_storage_encryption_key"
+      AUTHELIA_NOTIFIER_SMTP_ADDRESS: "submissions://smtp.gmail.com:465"
+      AUTHELIA_NOTIFIER_SMTP_USERNAME: "{{ authelia.mail.user }}"
+      AUTHELIA_NOTIFIER_SMTP_SENDER: "{{ authelia.mail.user }}"
+      AUTHELIA_NOTIFIER_SMTP_PASSWORD_FILE: "/config/authelia_smtp_password"
+
+    labels: >
+      {
+        "traefik.enable": "true",
+        "traefik.http.routers.authelia.entrypoints": "https",
+        "traefik.http.routers.authelia.rule": "{{ authelia_links.host }}",
+        "traefik.http.routers.authelia.tls": "true",
+        "traefik.http.routers.middlewares": "chain-no-auth@file",
+        {% if 'server' == current_host %}
+        "traefik.http.routers.authelia-2.rule": "{{ authelia_links.host_2 }}",
+        "traefik.http.routers.authelia-2.tls": "true",
+        "traefik.http.routers.authelia-2.tls.certresolver": "cloudflare",
+        "traefik.http.routers.authelia-2.entryPoints": "https",
+        "traefik.http.routers.authelia-3.rule": "{{ authelia_links.host_3 }}",
+        "traefik.http.routers.authelia-3.tls": "true",
+        "traefik.http.routers.authelia-3.tls.certresolver": "cloudflare",
+        "traefik.http.routers.authelia-3.entryPoints": "https",
+        {% endif %}
+      }

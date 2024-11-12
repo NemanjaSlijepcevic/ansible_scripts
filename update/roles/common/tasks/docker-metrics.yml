@@ -1,0 +1,40 @@
+---
+- name: Check if /etc/docker/daemon.json exists
+  ansible.builtin.stat:
+    path: /etc/docker/daemon.json
+  register: daemon_json_stat
+
+- name: Read /etc/docker/daemon.json content
+  ansible.builtin.slurp:
+    src: /etc/docker/daemon.json
+  register: daemon_json_content
+  ignore_errors: true
+  when: daemon_json_stat.stat.exists
+
+- name: Decode JSON content
+  ansible.builtin.set_fact:
+    daemon_json_decoded: "{{ daemon_json_content['content'] | b64decode | from_json | default({}) }}"
+  when: daemon_json_stat.stat.exists
+
+- name: Add metrics-addr to JSON if it does not exist
+  ansible.builtin.set_fact:
+    updated_json: "{{ daemon_json_decoded | combine({'metrics-addr': '172.17.0.1:9323'}, recursive=True) }}"
+  when: daemon_json_stat.stat.exists
+
+- name: Write updated JSON to /etc/docker/daemon.json
+  ansible.builtin.copy:
+    dest: /etc/docker/daemon.json
+    content: "{{ updated_json | to_nice_json }}"
+    mode: '0644'
+  when: daemon_json_stat.stat.exists
+
+- name: Create /etc/docker/daemon.json with default content if it does not exist
+  ansible.builtin.copy:
+    dest: /etc/docker/daemon.json
+    content: |
+      {
+        "metrics-addr": "172.17.0.1:9323"
+      }
+    mode: '0644'
+  when: not daemon_json_stat.stat.exists
+  notify: Restart Docker

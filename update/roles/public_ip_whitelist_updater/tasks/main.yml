@@ -1,0 +1,42 @@
+---
+- name: Create directory if they don't exist
+  ansible.builtin.file:
+    path: ./data/public_ip_whitelist_updater
+    state: directory
+    mode: "0744"
+
+- name: Synchronize files
+  ansible.posix.synchronize:
+    src: ./
+    dest: ./data/public_ip_whitelist_updater/
+
+- name: Change ownership to "{{ user.name }}"
+  ansible.builtin.file:
+    path: ./data/public_ip_whitelist_updater/
+    state: directory
+    recurse: true
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0744"
+
+- name: Touch current_ip.txt file
+  ansible.builtin.file:
+    path: ./data/public_ip_whitelist_updater/current_ip.txt
+    state: touch
+    mode: "0600"
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+
+- name: Run Docker container from built image
+  community.docker.docker_container:
+    name: public_ip_whitelist_updater
+    image: nemanjaslijepcevic/public_ip_updater:latest
+    state: started
+    pull: true
+    env:
+      API_IP_TOKEN: "{{ api_ip_token }}"
+      NODE_IP_DOMAIN: "{{ public_ip_url }}"
+      TZ: "Europe/Belgrade"
+    volumes:
+      - ./data/traefik/rules/default-whitelist.yml:/app/configuration.yml:rw
+    restart_policy: unless-stopped

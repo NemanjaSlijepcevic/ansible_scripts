@@ -1,0 +1,17 @@
+- name: "Update and upgrade apt packages"
+  ansible.builtin.apt:
+    update_cache: true
+    upgrade: "dist"
+    autoclean: true
+    autoremove: true
+
+- name: "Create directory if they don't exist"
+  ansible.builtin.file:
+    path: ./data
+    state: directory
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0755"
+
+- name: Prepare docker networks
+  ansible.builtin.include_tasks: docker-networks.yml

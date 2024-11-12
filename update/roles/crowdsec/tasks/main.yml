@@ -1,0 +1,65 @@
+---
+- name: Create directory if they don't exist
+  ansible.builtin.file:
+    path: "./data/crowdsec"
+    state: directory
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0755"
+
+- name: Copy acquis.yaml file
+  ansible.builtin.copy:
+    src: acquis.yaml
+    dest: ./data/crowdsec/acquis.yaml
+    mode: "0755"
+
+- name: Create container
+  community.docker.docker_container:
+    name: crowdsec
+    image: crowdsecurity/crowdsec:latest
+    pull: true
+    state: started
+    restart_policy: unless-stopped
+    security_opts:
+      - "no-new-privileges:true"
+    networks:
+      - name: proxy
+    env:
+      TZ: "Europe/Belgrade"
+      GID: "${GID-1000}"
+      COLLECTIONS: "crowdsecurity/traefik crowdsecurity/http-cve LePresidente/authelia"
+    volumes:
+      - ./data/crowdsec/acquis.yaml:/etc/crowdsec/acquis.yaml
+      - ./data/crowdsec/db:/var/lib/crowdsec/data/
+      - ./data/crowdsec/config:/etc/crowdsec/
+      - ./data/traefik/logs:/var/log/traefik/:ro
+      - ./data/authelia/logs:/var/log/authelia/:ro
+      - /var/log/auth.log:/var/log/auth.log
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.crowdsec-metrics.entrypoints: "https"
+      traefik.http.routers.crowdsec-metrics.rule: "{{ node.crowdsec.host }}"
+      traefik.http.routers.crowdsec-metrics.tls: "true"
+      traefik.http.routers.crowdsec-metrics.middlewares: "basic-auth@file"
+      traefik.http.services.crowdsec-metrics.loadbalancer.server.port: "{{ node.crowdsec.port }}"
+
+- name: Update
+  community.docker.docker_container_exec:
+    container: crowdsec
+    command: cscli hub update
+
+- name: Create bouncer-traefik
+  community.docker.docker_container:
+    name: bouncer-traefik
+    image: fbonalair/traefik-crowdsec-bouncer:latest
+    pull: true
+    state: started
+    restart_policy: unless-stopped
+    security_opts:
+      - "no-new-privileges:true"
+    networks:
+      - name: proxy
+    env:
+      TZ: "Europe/Belgrade"
+      CROWDSEC_BOUNCER_API_KEY: "{{ crowdsec_bouncer_key }}"
+      CROWDSEC_AGENT_HOST: "crowdsec:8080"

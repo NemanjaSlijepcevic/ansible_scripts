@@ -1,0 +1,17 @@
+http:
+ #region routers
+  routers:
+    docker-metrics:
+      entryPoints:
+        - "https"
+      rule: "{{ node.docker.host }}"
+      middlewares:
+        - basic-auth
+      tls: {}
+      service: docker-metrics
+  services:     
+    docker-metrics:
+      loadBalancer:
+        servers:
+          - url: "{{ node.docker.url }}"
+        #passHostHeader: true

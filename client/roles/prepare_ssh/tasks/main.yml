@@ -1,0 +1,45 @@
+- name: Create group for ssh
+  ansible.builtin.group:
+    name: ssh
+    state: present
+
+- name: Enable service ssh service
+  ansible.builtin.service:
+    name: ssh
+    enabled: true
+    state: started
+
+- name: "Add user to ssh group"
+  ansible.builtin.user:
+    name: "{{ new_user }}"
+    groups: ssh
+    append: true
+
+- name: "Generate ssh keys"
+  ansible.builtin.include_tasks: generate_ssh_key.yml
+
+- name: "Switch to {{ new_user }}"
+  ansible.builtin.set_fact:
+    ansible_username: "{{ new_user }}"
+
+- name: Disable root login over SSH
+  ansible.builtin.lineinfile:
+    path: "/etc/ssh/sshd_config"
+    regexp: "^PermitRootLogin"
+    line: "PermitRootLogin no"
+    state: present
+  register: root_disabled
+
+- name: Disable password login
+  ansible.builtin.lineinfile:
+    path: "/etc/ssh/sshd_config"
+    regexp: "^PasswordAuthentication"
+    line: "PasswordAuthentication no"
+    state: present
+  register: password_disabled
+
+- name: Restart ssh service
+  ansible.builtin.service:
+    name: ssh
+    state: restarted
+  when: root_disabled.changed or password_disabled.changed4

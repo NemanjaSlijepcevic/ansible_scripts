@@ -1,0 +1,8 @@
+http:
+  middlewares:
+    chain-no-auth:
+      chain:
+        middlewares:
+          - default-whitelist
+          - crowdsec-bouncer
+          - rate-limit

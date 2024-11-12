@@ -1,0 +1,6 @@
+http:
+  middlewares:
+    basic-auth:
+      basicAuth:
+        users:
+          - "{{ traefik.basic_auth }}"

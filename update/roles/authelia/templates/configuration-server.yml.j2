@@ -1,0 +1,33 @@
+access_control:
+  default_policy: deny
+  rules:
+    - domain: 
+      - "{{ authelia_links.domain }}" 
+      - "{{ family_trees[0].domain }}"
+      - "{{ family_trees[1].domain }}"
+      - "{{ ghost_sites[0].domain }}" 
+      - "{{ ghost_sites[0].domain_www }}" 
+      - "{{ ghost_sites[1].domain }}" 
+      - "{{ ghost_sites[1].domain_www }}" 
+      - "{{ kavita.domain }}" 
+      - "{{ nextcloud.domain }}" 
+      - "{{ node.exporter.domain }}" 
+      - "{{ node.crowdsec.domain }}"   
+      - "{{ node.docker.domain }}"  
+      - "{{ node.traefik.domain }}" 
+      policy: bypass
+    - domain: 
+      - "{{ adminer.domain }}" 
+      policy: one_factor
+    - domain:
+      - "{{ traefik_links.name.link }}" 
+      policy: two_factor
+
+session:
+  cookies:
+  - domain: "{{ default.domain }}" 
+    authelia_url: "{{ authelia_links.url }}" 
+  - domain: "{{ ghost_sites[0].domain }}" 
+    authelia_url: "{{ authelia_links.url_2 }}" 
+  - domain: "{{ ghost_sites[1].domain }}" 
+    authelia_url: "{{ authelia_links.url_3 }}" 

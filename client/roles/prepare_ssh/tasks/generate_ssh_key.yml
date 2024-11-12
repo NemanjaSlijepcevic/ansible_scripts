@@ -1,0 +1,49 @@
+---
+- name: Debug new_user variable
+  ansible.builtin.debug:
+    msg: "The new_user is {{ new_user }}"
+
+- name: "Create .ssh for {{ new_user }}"
+  ansible.builtin.file:
+    mode: "0700"
+    owner: "{{ new_user }}"
+    group: "{{ new_user }}"
+    path: /home/{{ new_user }}/.ssh
+    state: directory
+
+- name: Generate SSH key pair for the new user
+  community.crypto.openssh_keypair:
+    path: /home/{{ new_user }}/.ssh/id_rsa
+
+- name: Ensure SSH key permissions are correct
+  ansible.builtin.file:
+    path: /home/{{ new_user }}/.ssh/id_rsa
+    owner: "{{ new_user }}"
+    group: "{{ new_user }}"
+    mode: '0600'
+
+
+- name: Ensure public SSH key permissions are correct
+  ansible.builtin.file:
+    path: /home/{{ new_user }}/.ssh/id_rsa.pub
+    owner: "{{ new_user }}"
+    group: "{{ new_user }}"
+    mode: '0644'
+
+- name: Ensure public SSH key has proper name
+  ansible.builtin.command: mv /home/{{ new_user }}/.ssh/id_rsa.pub /home/{{ new_user }}/.ssh/authorized_keys
+  register: my_output
+  changed_when: my_output.rc != 0
+
+- name: Fetch keys to local machine
+  ansible.builtin.fetch:
+    src: /home/{{ new_user }}/.ssh/{{ item }}
+    dest: /tmp/{{ item }}
+    flat: true
+  loop:
+    - "authorized_keys"
+    - "id_rsa"
+
+- name: Save ssh key
+  ansible.builtin.set_fact:
+    ansible_private_key_file: /tmp/id_rsa

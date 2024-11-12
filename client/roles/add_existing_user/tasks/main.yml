@@ -1,0 +1,37 @@
+- name: Create user "{{ default_user }}"
+  ansible.builtin.user:
+    name: "{{ default_user }}"
+    password: "{{ default_password }}"
+    update_password: on_create
+    create_home: true
+    groups: sudo, ssh, docker
+    state: present
+    shell: /bin/bash
+
+- name: Create .ssh for "{{ default_user }}"
+  ansible.builtin.file:
+    mode: "0700"
+    owner: "{{ default_user }}"
+    group: "{{ default_user }}"
+    path: "/home/{{ default_user }}/.ssh"
+    state: directory
+
+- name: Copy authorized_keys to .ssh folder for "{{ default_user }}"
+  ansible.builtin.copy:
+    src: "{{ ssh.public.path }}"
+    dest: "/home/{{ default_user }}/.ssh/authorized_keys"
+    owner: "{{ default_user }}"
+    group: "{{ default_user }}"
+    mode: "0600"
+
+- name: Sudo nopasswd for the new user
+  ansible.builtin.lineinfile:
+    path: "/etc/sudoers"
+    line: "{{ default_user }} ALL={{ default_user }} NOPASSWD: ALL"
+    state: "present"
+    backup: true
+
+- name: Restart ssh service
+  ansible.builtin.service:
+    name: ssh
+    state: restarted

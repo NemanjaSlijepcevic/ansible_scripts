@@ -1,0 +1,37 @@
+global:
+  scrape_interval: 60s
+  scrape_timeout: 60s
+  external_labels:
+    monitor: 'node'
+
+scrape_configs:
+  - job_name: 'locals'
+    scheme: http
+    static_configs:
+      - targets:
+        - "crowdsec:6060"
+        - "traefik:8080"
+        - "prometheus:9090"
+
+  - job_name: 'router'
+    scheme: https
+    static_configs:
+      - targets:
+        - "{{ ext_node_domain.router.node }}"
+
+  - job_name: 'public'
+    scheme: https
+    basic_auth:
+      username: "{{ basic_auth.user }}"
+      password: "{{ basic_auth.password }}"
+    static_configs:
+      - targets:
+        - "{{ node.exporter.domain }}"
+        - "{{ ext_node_domain.nas.node }}"
+        - "{{ ext_node_domain.nas.cs }}"
+        - "{{ ext_node_domain.nas.t }}"
+        - "{{ ext_node_domain.nas.d }}"
+        - "{{ ext_node_domain.server.node }}"
+        - "{{ ext_node_domain.server.cs }}"
+        - "{{ ext_node_domain.server.t }}"
+        - "{{ ext_node_domain.server.d }}"

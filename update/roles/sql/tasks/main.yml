@@ -1,0 +1,35 @@
+---
+- name: Add ghost-skup-db
+  community.docker.docker_container:
+    name: skup-ghost-db
+    image: mysql:8.4.1
+    pull: true
+    state: started
+    restart_policy: unless-stopped
+    command: --mysql-native-password=ON
+    networks:
+      - name: proxy
+    volumes:
+      - ServerDataBase:/var/lib/mysql
+    env:
+      TZ: "Europe/Belgrade"
+      MYSQL_ROOT_PASSWORD: "{{ db_pass }}"
+
+- name: Install Adminer
+  community.docker.docker_container:
+    name: adminer
+    image: adminer
+    pull: true
+    state: started
+    restart_policy: unless-stopped
+    networks:
+      - name: proxy
+    env:
+      TZ: "Europe/Belgrade"
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.adminer.entrypoints: "https"
+      traefik.http.routers.adminer.rule: "{{ adminer.host }}"
+      traefik.http.routers.adminer.tls: "true"
+      traefik.http.routers.adminer.middlewares: "chain-tunnel@file"
+      traefik.http.services.adminer.loadbalancer.server.port: "{{ adminer.port }}"

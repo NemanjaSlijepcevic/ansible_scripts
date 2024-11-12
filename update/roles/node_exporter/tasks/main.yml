@@ -1,0 +1,40 @@
+---
+- name: Create directory if they don't exist
+  ansible.builtin.file:
+    path: "./data/node-exporter"
+    state: directory
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0755"
+
+- name: "Generate config"
+  ansible.builtin.template:
+    src: web.yml.j2
+    dest: ./data/node-exporter/web.yml
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: '0775'
+
+- name: Deploy node-exporter container
+  community.docker.docker_container:
+    name: node-exporter
+    image: quay.io/prometheus/node-exporter:latest
+    restart_policy: unless-stopped
+    # recreate: yes
+    networks:
+      - name: proxy
+    pid_mode: host
+    command:
+      - '--path.rootfs=/host'
+      - "--web.config.file=/etc/prometheus/web.yml"
+    env:
+      TZ: "Europe/Belgrade"
+    volumes:
+      - '/:/host:ro,rslave'
+      - ./data/node-exporter/web.yml:/etc/prometheus/web.yml
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.node-exporter.entrypoints: "https"
+      traefik.http.routers.node-exporter.rule: "{{ node.exporter.host }}"
+      traefik.http.routers.node-exporter.tls: "true"
+      traefik.http.services.node-exporter.loadbalancer.server.port: "{{ node.exporter.port }}"

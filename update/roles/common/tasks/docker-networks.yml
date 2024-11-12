@@ -1,0 +1,20 @@
+- name: Create proxy network
+  community.docker.docker_network:
+    name: proxy
+    driver: bridge
+    ipam_config:
+      - subnet: "{{ docker.subnet }}"
+        gateway: "{{ docker.gateway }}"
+        iprange: "{{ docker.net_range }}"
+
+- name: Create streamingMedia network
+  community.docker.docker_network:
+    name: streamingMedia
+    state: present
+    driver: macvlan
+    driver_options:
+      parent: ens18
+    ipam_config:
+      - subnet: "{{ default.subnet }}"
+        gateway: "{{ default.gateway }}"
+  when: current_host == 'nas'

@@ -1,0 +1,13 @@
+---
+- name: Install Watchtower
+  community.docker.docker_container:
+    name: watchtower
+    image: containrrr/watchtower
+    command: --debug --cleanup --schedule "0 0 1 * * *"
+    env:
+      TZ: Europe/Belgrade
+    pull: true
+    state: started
+    restart_policy: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock

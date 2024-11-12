@@ -1,0 +1,15 @@
+http:
+ #region routers
+  routers:
+    openmediavault:
+      entryPoints:
+        - "https"
+      rule: "{{ nas.host }}"
+      tls: {}
+      service: openmediavault
+  services:     
+    openmediavault:
+      loadBalancer:
+        servers:
+          - url: "{{ nas.url }}"
+        passHostHeader: true

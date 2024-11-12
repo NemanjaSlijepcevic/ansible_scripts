@@ -1,0 +1,35 @@
+---
+- name: Create directories if they don't exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0755"
+  loop:
+    - "./data/grafana"
+    - "./data/grafana/lib"
+
+- name: Add grafana
+  community.docker.docker_container:
+    name: grafana
+    image: grafana/grafana-oss:latest
+    pull: true
+    state: started
+    restart_policy: always
+    user: "{{ puid }}:{{ pgid }}"
+    networks:
+      - name: proxy
+    dns_servers:
+      - "{{ default.dns }}"
+    env:
+      TZ: "Europe/Belgrade"
+      GF_SERVER_ROOT_URL: "{{ grafana.url }}"
+    volumes:
+      - ./data/grafana:/var/lib/grafana
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.grafana.entrypoints: "https"
+      traefik.http.routers.grafana.rule: "{{ grafana.host }}"
+      traefik.http.routers.grafana.tls: "true"
+      traefik.http.services.grafana.loadbalancer.server.port: "{{ grafana.port }}"

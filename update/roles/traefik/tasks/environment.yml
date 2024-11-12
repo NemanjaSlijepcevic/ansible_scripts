@@ -1,0 +1,59 @@
+---
+- name: Create directory if they don't exist
+  ansible.builtin.file:
+    path: "./data/traefik"
+    state: directory
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0755"
+
+- name: Synchronize files
+  ansible.posix.synchronize:
+    src: ./
+    dest: ./data/traefik/
+
+- name: Change ownership
+  ansible.builtin.file:
+    path: ./data/traefik/
+    state: directory
+    recurse: true
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0755"
+
+- name: Touch acme.json file
+  ansible.builtin.file:
+    path: ./data/traefik/acme.json
+    state: touch
+    mode: "0600"
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+
+- name: "Generate traefik.yml"
+  ansible.builtin.template:
+    src: traefik.yml.j2
+    dest: ./data/traefik/traefik.yml
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: '0775'
+
+- name: "Generate rules"
+  ansible.builtin.template:
+    src: "{{ item }}.yml.j2"
+    dest: ./data/traefik/rules/{{ item }}.yml
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: '0775'
+  loop:
+    - basic-auth
+    - default-whitelist
+    - docker-metrics
+
+- name: "Generate nas.yml"
+  ansible.builtin.template:
+    src: nas.yml.j2
+    dest: ./data/traefik/rules/nas.yml
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: '0775'
+  when: current_host == 'nas'

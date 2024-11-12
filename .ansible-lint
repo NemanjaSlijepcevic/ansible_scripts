@@ -1,0 +1,5 @@
+exclude_paths:
+  - client/inventories/production/group_vars
+  - client/inventories/production/host_vars
+  - update/inventories/production/group_vars
+  - update/inventories/production/host_vars

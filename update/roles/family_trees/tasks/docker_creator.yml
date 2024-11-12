@@ -1,0 +1,28 @@
+---
+- name: Set Traefik labels
+  ansible.builtin.set_fact:
+    traefik_labels: >-
+      {{
+        {
+          'traefik.enable': 'true',
+          ('traefik.http.routers.' ~ container_name ~ '.entrypoints'): 'https',
+          ('traefik.http.routers.' ~ container_name ~ '.rule'): host_domain,
+          ('traefik.http.routers.' ~ container_name ~ '.tls'): 'true',
+          ('traefik.http.services.' ~ container_name ~ '.loadbalancer.server.port'): '80'
+        }
+      }}
+
+- name: Create Docker container
+  community.docker.docker_container:
+    name: "{{ container_name }}"
+    image: nginx:latest
+    pull: true
+    state: started
+    restart_policy: unless-stopped
+    networks:
+      - name: proxy
+    volumes:
+      - "{{ volume }}:/usr/share/nginx/html:ro"
+    env:
+      TZ: Europe/Belgrade
+    labels: "{{ traefik_labels }}"

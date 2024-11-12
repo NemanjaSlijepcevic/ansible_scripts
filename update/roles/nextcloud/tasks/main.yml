@@ -1,0 +1,26 @@
+---
+- name: Install nextcloud
+  community.docker.docker_container:
+    name: nextcloud
+    image: nextcloud:latest
+    pull: true
+    restart_policy: unless-stopped
+    networks:
+      - name: proxy
+    dns_servers:
+      - "{{ default.dns }}"
+    volumes:
+      - nextcloud:/var/www/html
+      - apps:/var/www/html/custom_apps
+      - config:/var/www/html/config
+      - data:/var/www/html/data
+      - theme:/var/www/html/themes
+      - "{{ nextcloud.sync_directory }}"
+    env:
+      TZ: "Europe/Belgrade"
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.nextcloud.entrypoints: "https"
+      traefik.http.routers.nextcloud.rule: "{{ nextcloud.host }}"
+      traefik.http.routers.nextcloud.tls: "true"
+      traefik.http.services.nextcloud.loadbalancer.server.port: "{{ nextcloud.port }}"

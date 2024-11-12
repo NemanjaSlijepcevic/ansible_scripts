@@ -1,0 +1,30 @@
+---
+- name: Create directory if they don't exist
+  ansible.builtin.file:
+    path: ./data/bazarr
+    state: directory
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0755"
+
+- name: Deploy Bazarr container
+  community.docker.docker_container:
+    name: bazarr
+    image: lscr.io/linuxserver/bazarr:latest
+    restart_policy: unless-stopped
+    networks:
+      - name: proxy
+    env:
+      PUID: "{{ puid }}"
+      PGID: "{{ pgid }}"
+      TZ: "Europe/Belgrade"
+    volumes:
+      - ./data/bazarr/config:/config
+      - "{{ movie_drive }}/Filmovi:/Filmovi"
+      - "{{ download_drive }}/Download/Watch:/tv"
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.bazarr.entrypoints: "https"
+      traefik.http.routers.bazarr.rule: "{{ bazarr.host }}"
+      traefik.http.routers.bazarr.tls: "true"
+      traefik.http.services.bazarr.loadbalancer.server.port: "{{ bazarr.port }}"

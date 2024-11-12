@@ -1,0 +1,30 @@
+---
+- name: Create directory if they don't exist
+  ansible.builtin.file:
+    path: ./data/radarr
+    state: directory
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0755"
+
+- name: Deploy radarr container
+  community.docker.docker_container:
+    name: radarr
+    image: lscr.io/linuxserver/radarr:latest
+    restart_policy: unless-stopped
+    networks:
+      - name: proxy
+    env:
+      PUID: "{{ puid }}"
+      PGID: "{{ pgid }}"
+      TZ: "Europe/Belgrade"
+    volumes:
+      - ./data/radarr/config:/config
+      - "{{ movie_drive }}/Filmovi:/Filmovi"
+      - "{{ download_drive }}/Download:/downloads"
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.radarr.entrypoints: "https"
+      traefik.http.routers.radarr.rule: "{{ radarr.host }}"
+      traefik.http.routers.radarr.tls: "true"
+      traefik.http.services.radarr.loadbalancer.server.port: "{{ radarr.port }}"

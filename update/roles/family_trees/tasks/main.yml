@@ -1,0 +1,16 @@
+---
+- name: Generate Family Trees
+  ansible.builtin.include_tasks: generate_family_tree.yml
+  loop: "{{ family_trees }}"
+  loop_control:
+    loop_var: family
+
+- name: Create Family Trees
+  ansible.builtin.include_tasks: docker_creator.yml
+  loop: "{{ family_trees }}"
+  loop_control:
+    loop_var: family
+  vars:
+    container_name: "{{ family.container_name }}"
+    volume: "{{ family.volume }}"
+    host_domain: "{{ family.host_domain }}"

@@ -1,0 +1,43 @@
+---
+- name: Create directory if they don't exist
+  ansible.builtin.file:
+    path: "./data/prometheus"
+    state: directory
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0755"
+
+- name: "Generate configuration File"
+  ansible.builtin.template:
+    src: prometheus.yml.j2
+    dest: ./data/prometheus/prometheus.yml
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: '0775'
+
+- name: Add prometheus
+  community.docker.docker_container:
+    name: prometheus
+    image: prom/prometheus:latest
+    pull: true
+    state: started
+    recreate: true
+    restart_policy: always
+    dns_servers:
+      - "{{ default.dns }}"
+    etc_hosts:
+      "host.docker.internal": "host-gateway"
+    networks:
+      - name: proxy
+      - name: bridge
+    env:
+      TZ: "Europe/Belgrade"
+    volumes:
+      - ./data/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./data/prometheus/config:/config
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.prometheus.entrypoints: "https"
+      traefik.http.routers.prometheus.rule: "{{ prometheus.host }}"
+      traefik.http.routers.prometheus.tls: "true"
+      traefik.http.services.prometheus.loadbalancer.server.port: "{{ prometheus.port }}"

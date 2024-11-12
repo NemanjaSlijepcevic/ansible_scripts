@@ -1,0 +1,45 @@
+---
+- name: Create group for docker
+  ansible.builtin.group:
+    name: docker
+    state: present
+
+- name: Add user to docker group
+  ansible.builtin.user:
+    name: "{{ new_user }}"
+    group: docker
+    append: true
+
+- name: Download Docker shell script
+  ansible.builtin.get_url:
+    url: https://get.docker.com
+    dest: /tmp/docker.sh
+    mode: "0755"
+
+- name: Execute shell script
+  ansible.builtin.command: /tmp/docker.sh
+  register: my_output
+  changed_when: my_output.rc != 0
+
+- name: Install related Ubuntu packages
+  ansible.builtin.apt:
+    name: "{{ packages }}"
+    state: "present"
+  vars:
+    packages:
+      - software-properties-common
+      - python3-pip
+      - virtualenv
+      - python3-setuptools
+      - python3-docker
+      - mc
+
+- name: Remove EXTERNALLY-MANAGED if we're on debian12
+  ansible.builtin.file:
+    path: /usr/lib/python3.11/EXTERNALLY-MANAGED
+    state: absent
+  when: ansible_facts['distribution'] == 'Debian'
+
+- name: Install python packages
+  ansible.builtin.pip:
+    name: docker

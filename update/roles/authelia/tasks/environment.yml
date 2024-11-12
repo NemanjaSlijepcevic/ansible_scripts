@@ -1,0 +1,55 @@
+---
+- name: Create directories if they don't exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0755"
+  loop:
+    - "./data/authelia"
+    - "./data/authelia/config"
+
+- name: Check if db.sqlite3 file exists
+  ansible.builtin.stat:
+    path: ./data/authelia/config/db.sqlite3
+  register: file_stat
+
+- name: "Copy SQLite database file"
+  ansible.builtin.copy:
+    src: ./db.sqlite3
+    dest: ./data/authelia/config/db.sqlite3
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0755"
+  when: not file_stat.stat.exists
+
+- name: "Generate user database file"
+  ansible.builtin.template:
+    src: ./users_database.yml.j2
+    dest: ./data/authelia/config/users_database.yml
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: '0775'
+
+- name: "Generate configuration File"
+  ansible.builtin.template:
+    src: configuration-{{ current_host }}.yml.j2
+    dest: ./data/authelia/config/configuration.yml
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: '0775'
+
+- name: "Generate secret files"
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: ./data/authelia/config/{{ item }}
+    owner: root
+    group: root
+    mode: '0600'
+  loop:
+    - authelia_hmac
+    - authelia_jwt_secret
+    - authelia_session_secret
+    - authelia_smtp_password
+    - authelia_storage_encryption_key

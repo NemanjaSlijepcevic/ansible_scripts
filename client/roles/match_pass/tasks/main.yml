@@ -1,0 +1,11 @@
+---
+- name: Check if passwords match
+  ansible.builtin.assert:
+    that:
+      - user_password == user_password_confirm
+    fail_msg: "Passwords do not match. Please run the playbook again and ensure the passwords match."
+    success_msg: "Passwords match."
+
+- name: Create hashed password
+  ansible.builtin.set_fact:
+    hashed_password: "{{ user_password | password_hash('sha512') }}"

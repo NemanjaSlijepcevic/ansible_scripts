@@ -1,0 +1,17 @@
+---
+- name: "Create user: {{ new_user }}"
+  ansible.builtin.user:
+    name: "{{ new_user }}"
+    password: "{{ hashed_password }}"
+    update_password: on_create
+    create_home: true
+    groups: sudo
+    state: present
+    shell: /bin/bash
+
+- name: Sudo nopasswd for the new user
+  ansible.builtin.lineinfile:
+    path: "/etc/sudoers"
+    line: "{{ new_user }} ALL=(ALL) NOPASSWD: ALL"
+    state: "present"
+    backup: true

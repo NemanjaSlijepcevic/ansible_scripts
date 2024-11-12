@@ -1,0 +1,34 @@
+---
+- name: Create directory if they don't exist
+  ansible.builtin.file:
+    path: ./data/transmission
+    state: directory
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0755"
+
+- name: Deploy transmission container
+  community.docker.docker_container:
+    name: transmission
+    image: ghcr.io/linuxserver/transmission:latest
+    restart_policy: unless-stopped
+    networks:
+      - name: proxy
+    env:
+      PUID: "{{ puid }}"
+      PGID: "{{ pgid }}"
+      TZ: "Europe/Belgrade"
+      TRANSMISSION_RPC_AUTHENTICATION_REQUIRED: "false"
+    volumes:
+      - ./data/transmission/config:/config
+      - "{{ download_drive }}/Download:/downloads"
+      - "{{ download_drive }}/Download/Watch:/watch"
+    ports:
+      - "51413:51413"
+      - "51413:51413/udp"
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.transmission.entrypoints: "https"
+      traefik.http.routers.transmission.rule: "{{ transmission.host }}"
+      traefik.http.routers.transmission.tls: "true"
+      traefik.http.services.transmission.loadbalancer.server.port: "{{ transmission.port }}"

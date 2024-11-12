@@ -1,0 +1,32 @@
+---
+- name: Create directory if they don't exist
+  ansible.builtin.file:
+    path: ./data/netboot
+    state: directory
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0755"
+
+- name: Create container
+  community.docker.docker_container:
+    name: netbootxyz
+    image: ghcr.io/netbootxyz/netbootxyz
+    restart_policy: unless-stopped
+    networks:
+      - name: proxy
+      - name: streamingMedia
+        ipv4_address: "{{ netboot.ip }}"
+    env:
+      MENU_VERSION: "2.0.59"
+    volumes:
+      - ./data/netboot/config:/config
+      - ./data/netboot/assets:/assets
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.netbootxyz.entrypoints: "https"
+      traefik.http.routers.netbootxyz.rule: "{{ netboot.host }}"
+      traefik.http.routers.netbootxyz.tls: "true"
+      traefik.http.services.netbootxyz.loadbalancer.server.port: "{{ netboot.port }}"
+    ports:
+      - "69:69/udp"
+      - "8080:80"

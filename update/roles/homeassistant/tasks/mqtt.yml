@@ -1,0 +1,42 @@
+---
+- name: Create directories if they don't exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0755"
+  loop:
+    - "./data/mosquitto"
+    - "./data/mosquitto/data"
+    - "./data/mosquitto/log"
+    - "./data/mosquitto/config"
+
+- name: "Copy mosquitto.conf"
+  ansible.builtin.copy:
+    src: ./mosquitto.conf
+    dest: ./data/mosquitto/config/mosquitto.conf
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: '0775'
+
+- name: Deploy MQTT container
+  community.docker.docker_container:
+    name: mosquitto
+    image: eclipse-mosquitto
+    restart_policy: unless-stopped
+    networks:
+      - name: proxy
+    ports:
+      - "1883:1883"
+    env:
+      TZ: "Europe/Belgrade"
+    volumes:
+      - ./data/mosquitto:/mosquitto
+      - ./data/mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.mosquitto.entrypoints: "https"
+      traefik.http.routers.mosquitto.rule: "{{ mqtt.host }}"
+      traefik.http.routers.mosquitto.tls: "true"
+      traefik.http.services.mosquitto.loadbalancer.server.port: "{{ mqtt.port }}"

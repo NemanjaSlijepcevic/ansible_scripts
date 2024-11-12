@@ -1,0 +1,23 @@
+---
+- name: Update and upgrade apt packages
+  ansible.builtin.apt:
+    update_cache: true
+    upgrade: "dist"
+    autoclean: true
+    autoremove: true
+
+- name: Install dependencies
+  ansible.builtin.apt:
+    name: "{{ packages }}"
+    state: "present"
+  vars:
+    packages:
+      - sudo
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - software-properties-common
+      - gnupg
+      - wget
+      - nano
+      - iputils-ping

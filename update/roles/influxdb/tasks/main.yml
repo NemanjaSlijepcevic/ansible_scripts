@@ -1,0 +1,29 @@
+---
+- name: Create directory if they don't exist
+  ansible.builtin.file:
+    path: "./data/influx"
+    state: directory
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0755"
+
+- name: Install container
+  community.docker.docker_container:
+    name: influxdb
+    image: influxdb:latest
+    pull: true
+    restart_policy: unless-stopped
+    networks:
+      - name: proxy
+    dns_servers:
+      - "{{ default.dns }}"
+    volumes:
+      - ./data/influxdb:/var/lib/influxdb2
+    env:
+      TZ: "Europe/Belgrade"
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.influxdb.entrypoints: "https"
+      traefik.http.routers.influxdb.rule: "{{ influxdb.host }}"
+      traefik.http.routers.influxdb.tls: "true"
+      traefik.http.services.influxdb.loadbalancer.server.port: "{{ influxdb.port }}"

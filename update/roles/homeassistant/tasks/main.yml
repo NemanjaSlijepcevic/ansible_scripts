@@ -1,0 +1,36 @@
+---
+- name: Create directories if they don't exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0755"
+  loop:
+    - "./data/homeassistant"
+    - "./data/homeassistant/config"
+
+- name: Add MQTT
+  ansible.builtin.include_tasks: mqtt.yml
+
+- name: Deploy container
+  community.docker.docker_container:
+    name: homeassistant
+    image: ghcr.io/home-assistant/home-assistant:stable
+    # privileged: true
+    restart_policy: unless-stopped
+    networks:
+      - name: proxy
+    env:
+      TZ: "Europe/Belgrade"
+    volumes:
+      - ./data/homeassistant/config:/config
+      - /run/dbus:/run/dbus:ro
+    devices:
+      - /dev/ttyUSB0:/dev/ttyUSB0
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.homeassistant.entrypoints: "https"
+      traefik.http.routers.homeassistant.rule: "{{ homeassistant.host }}"
+      traefik.http.routers.homeassistant.tls: "true"
+      traefik.http.services.homeassistant.loadbalancer.server.port: "{{ homeassistant.port }}"

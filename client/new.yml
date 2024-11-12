@@ -1,0 +1,23 @@
+---
+- name: Create new users on remote machine
+  hosts: new
+  gather_facts: true
+  remote_user: "{{ ansible_user }}"
+  become: true
+  vars_prompt:
+    - name: "new_user"
+      prompt: "Enter the username"
+      private: false
+    - name: "user_password"
+      prompt: "Enter the password for the new users"
+      private: true
+    - name: "user_password_confirm"
+      prompt: "Confirm the password for the new users"
+      private: true
+  roles:
+    - match_pass
+    - install_packages
+    - create_default_user
+    - prepare_ssh
+    - install_docker
+    - clean_up

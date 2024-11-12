@@ -1,0 +1,74 @@
+- name: Create directory if they don't exist
+  ansible.builtin.file:
+    path: /opt/{{ family.name }}
+    state: directory
+    mode: "0755"
+
+- name: Synchronize files for "{{ family.name }}"
+  ansible.posix.synchronize:
+    src: "{{ source_directory }}/{{ family.name }}/"
+    dest: "/opt/{{ family.name }}/"
+
+- name: Synchronize translation files
+  ansible.posix.synchronize:
+    src: ./
+    dest: "/opt/{{ family.name }}/"
+
+- name: Generate translations template
+  ansible.builtin.template:
+    src: "dictionary.json.j2"
+    dest: "/opt/{{ family.name }}/dictionary.json"
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0755"
+
+
+- name: Change ownership to "{{ user.name }}"
+  ansible.builtin.file:
+    path: /opt/{{ family.name }}
+    state: directory
+    recurse: true
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0755"
+
+- name: Check if old index.html exists
+  ansible.builtin.stat:
+    path: /opt/{{ family.name }}/index.html
+  register: index_html_stat
+
+- name: Remove old index.html
+  ansible.builtin.file:
+    path: /opt/{{ family.name }}/index.html
+    state: absent
+  when: index_html_stat.stat.exists
+
+- name: Remove the entire <style> block from the HTML file
+  ansible.builtin.replace:
+    path: "/opt/{{ family.name }}/{{ family.name }}.html"
+    regexp: '<style[^>]*>.*?</style>'
+    replace: ''
+
+- name: Insert the link to the external CSS file
+  ansible.builtin.blockinfile:
+    path: "/opt/{{ family.name }}/{{ family.name }}.html"
+    insertafter: '<meta http-equiv="X-UA-Compatible" content="IE=9">'
+    block: |
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <link rel="stylesheet" href="styles.css">
+    marker: ""
+
+- name: Insert translation lines after </script> in the HTML file
+  ansible.builtin.blockinfile:
+    path: "/opt/{{ family.name }}/{{ family.name }}.html"
+    insertafter: '</script>'
+    block: |
+      <script>var reset = 0;</script>
+      <script src="cyr_to_lat.js"></script>
+      <button class="button-round" onclick="toggleCyrLat()"><b>Ср/En</b></button>
+    marker: ""
+
+- name: "Rename file to index.html for {{ family.name }}"
+  ansible.builtin.command: mv /opt/{{ family.name }}/{{ family.name }}.html /opt/{{ family.name }}/index.html
+  register: rename_result
+  changed_when: rename_result.rc == 0

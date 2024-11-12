@@ -1,0 +1,43 @@
+---
+- name: Set Traefik labels
+  ansible.builtin.set_fact:
+    traefik_labels: >-
+      {{
+        {
+          'traefik.enable': 'true',
+          ('traefik.http.routers.' ~ container_name ~ '.entrypoints'): 'https',
+          ('traefik.http.routers.' ~ container_name ~ '.rule'): host_domain,
+          ('traefik.http.routers.' ~ container_name ~ '.tls'): 'true',
+          ('traefik.http.services.' ~ container_name ~ '.loadbalancer.server.port'): '2368'
+        }
+      }}
+
+- name: Add ghost {{ container_name }}
+  community.docker.docker_container:
+    name: "{{ container_name }}"
+    image: ghost:alpine
+    pull: true
+    state: started
+    restart_policy: unless-stopped
+    networks:
+      - name: proxy
+        links:
+          - skup-ghost-db:db
+    volumes:
+      - "{{ volume_name }}:/var/lib/ghost/content"
+    env:
+      TZ: Europe/Belgrade
+      database__client: mysql
+      database__connection__host: db
+      database__connection__user: "{{ db_user }}"
+      database__connection__password: "{{ db_pass }}"
+      database__connection__database: "{{ db_name }}"
+      mail__transport: "SMTP"
+      mail__from: "{{ mail_user }}"
+      mail__options__service: "Gmail"
+      mail__options__host: "smtp.gmail.com"
+      mail__options__port: "465"
+      mail__options__auth__user: "{{ mail_user }}"
+      mail__options__auth__pass: "{{ mail_pass }}"
+      url: "{{ url }}"
+    labels: "{{ traefik_labels }}"

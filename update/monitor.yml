@@ -1,0 +1,22 @@
+---
+- name: "Update Monitor"
+  hosts: monitors
+  gather_facts: true
+  remote_user: "{{ user.name }}"
+  become: true
+  vars:
+    current_host: "monitor"
+  roles:
+    - common
+    - authelia
+    - traefik
+    - crowdsec
+    - public_ip_tracker
+    - kuma
+    - influxdb
+    - telegraf
+    - prometheus
+    - grafana
+    - homeassistant
+    - node_exporter
+    - watchtower

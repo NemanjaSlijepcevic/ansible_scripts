@@ -1,0 +1,16 @@
+---
+- name: Deploy Ghost sites
+  ansible.builtin.include_tasks: ghost_creator.yml
+  loop: "{{ ghost_sites }}"
+  loop_control:
+    loop_var: site
+  vars:
+    container_name: "{{ site.container_name }}"
+    db_user: "{{ site.db_user }}"
+    db_pass: "{{ site.db_pass }}"
+    db_name: "{{ site.db_name }}"
+    mail_user: "{{ site.mail_user }}"
+    mail_pass: "{{ site.mail_pass }}"
+    url: "{{ site.url }}"
+    host_domain: "{{ site.host }}"
+    volume_name: "{{ site.volume_name }}"
