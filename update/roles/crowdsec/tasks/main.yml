@@ -47,6 +47,10 @@
   community.docker.docker_container_exec:
     container: crowdsec
     command: cscli hub update
+  register: hub_update_result
+  changed_when: >
+    hub_update_result.rc != 0 or
+    'hub index is up to date' not in hub_update_result.stderr
 
 - name: Create bouncer-traefik
   community.docker.docker_container:

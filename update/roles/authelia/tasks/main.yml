@@ -5,7 +5,7 @@
 - name: Create container
   community.docker.docker_container:
     name: authelia
-    image: authelia/authelia
+    image: authelia/authelia:latest
     pull: true
     # recreate: yes
     restart_policy: unless-stopped

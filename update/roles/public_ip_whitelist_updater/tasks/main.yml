@@ -3,29 +3,23 @@
   ansible.builtin.file:
     path: ./data/public_ip_whitelist_updater
     state: directory
-    mode: "0744"
-
-- name: Synchronize files
-  ansible.posix.synchronize:
-    src: ./
-    dest: ./data/public_ip_whitelist_updater/
-
-- name: Change ownership to "{{ user.name }}"
-  ansible.builtin.file:
-    path: ./data/public_ip_whitelist_updater/
-    state: directory
-    recurse: true
     owner: "{{ user.name }}"
     group: "{{ user.group }}"
     mode: "0744"
 
-- name: Touch current_ip.txt file
+- name: Check if the file exists
+  ansible.builtin.stat:
+    path: ./data/public_ip_whitelist_updater/app.log
+  register: file_check
+
+- name: Touch app.log file
   ansible.builtin.file:
-    path: ./data/public_ip_whitelist_updater/current_ip.txt
+    path: ./data/public_ip_whitelist_updater/app.log
     state: touch
-    mode: "0600"
+    mode: "0755"
     owner: "{{ user.name }}"
     group: "{{ user.group }}"
+  when: not file_check.stat.exists
 
 - name: Run Docker container from built image
   community.docker.docker_container:
@@ -39,4 +33,5 @@
       TZ: "Europe/Belgrade"
     volumes:
       - ./data/traefik/rules/default-whitelist.yml:/app/configuration.yml:rw
+      - ./data/public_ip_whitelist_updater/app.log:/app/app.log:rw
     restart_policy: unless-stopped

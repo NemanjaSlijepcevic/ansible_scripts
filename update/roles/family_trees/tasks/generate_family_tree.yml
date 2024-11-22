@@ -8,26 +8,22 @@
   ansible.posix.synchronize:
     src: "{{ source_directory }}/{{ family.name }}/"
     dest: "/opt/{{ family.name }}/"
+    rsync_opts:
+    - "--chown={{ user.name }}:{{ user.group }}" 
+    - "--chmod=755"
 
 - name: Synchronize translation files
   ansible.posix.synchronize:
     src: ./
     dest: "/opt/{{ family.name }}/"
+    rsync_opts:
+    - "--chown={{ user.name }}:{{ user.group }}" 
+    - "--chmod=755"
 
 - name: Generate translations template
   ansible.builtin.template:
     src: "dictionary.json.j2"
     dest: "/opt/{{ family.name }}/dictionary.json"
-    owner: "{{ user.name }}"
-    group: "{{ user.group }}"
-    mode: "0755"
-
-
-- name: Change ownership to "{{ user.name }}"
-  ansible.builtin.file:
-    path: /opt/{{ family.name }}
-    state: directory
-    recurse: true
     owner: "{{ user.name }}"
     group: "{{ user.group }}"
     mode: "0755"

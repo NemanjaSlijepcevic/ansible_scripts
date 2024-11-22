@@ -3,8 +3,8 @@
   ansible.builtin.file:
     path: "{{ item }}"
     state: directory
-    owner: "{{ user.name }}"
-    group: "{{ user.group }}"
+    owner: "1883"
+    group: "1883"
     mode: "0755"
   loop:
     - "./data/mosquitto"
@@ -16,14 +16,14 @@
   ansible.builtin.copy:
     src: ./mosquitto.conf
     dest: ./data/mosquitto/config/mosquitto.conf
-    owner: "{{ user.name }}"
-    group: "{{ user.group }}"
-    mode: '0775'
+    owner: "1883"
+    group: "1883"
+    mode: '0755'
 
 - name: Deploy MQTT container
   community.docker.docker_container:
     name: mosquitto
-    image: eclipse-mosquitto
+    image: eclipse-mosquitto:latest
     restart_policy: unless-stopped
     networks:
       - name: proxy

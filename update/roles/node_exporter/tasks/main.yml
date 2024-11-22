@@ -13,7 +13,7 @@
     dest: ./data/node-exporter/web.yml
     owner: "{{ user.name }}"
     group: "{{ user.group }}"
-    mode: '0775'
+    mode: '0755'
 
 - name: Deploy node-exporter container
   community.docker.docker_container:

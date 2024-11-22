@@ -12,7 +12,7 @@
     dest: ./data/telegraf/telegraf.conf
     owner: "{{ user.name }}"
     group: "{{ user.group }}"
-    mode: '0775'
+    mode: '0755'
 
 - name: Deploy container
   community.docker.docker_container:

@@ -30,7 +30,7 @@
     dest: ./data/authelia/config/users_database.yml
     owner: "{{ user.name }}"
     group: "{{ user.group }}"
-    mode: '0775'
+    mode: '0755'
 
 - name: "Generate configuration File"
   ansible.builtin.template:
@@ -38,7 +38,7 @@
     dest: ./data/authelia/config/configuration.yml
     owner: "{{ user.name }}"
     group: "{{ user.group }}"
-    mode: '0775'
+    mode: '0755'
 
 - name: "Generate secret files"
   ansible.builtin.template:

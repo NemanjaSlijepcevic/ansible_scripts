@@ -11,15 +11,15 @@
   ansible.posix.synchronize:
     src: ./
     dest: ./data/traefik/
+    times: false
+    rsync_opts:
+    - "--chown={{ user.name }}:{{ user.group }}" 
+    - "--chmod=755"
 
-- name: Change ownership
-  ansible.builtin.file:
-    path: ./data/traefik/
-    state: directory
-    recurse: true
-    owner: "{{ user.name }}"
-    group: "{{ user.group }}"
-    mode: "0755"
+- name: Check if acme.json exists
+  ansible.builtin.stat:
+    path: ./data/public_ip_tracker/app.log
+  register: file_check
 
 - name: Touch acme.json file
   ansible.builtin.file:
@@ -28,6 +28,7 @@
     mode: "0600"
     owner: "{{ user.name }}"
     group: "{{ user.group }}"
+  when: not file_check.stat.exists
 
 - name: "Generate traefik.yml"
   ansible.builtin.template:
@@ -35,7 +36,7 @@
     dest: ./data/traefik/traefik.yml
     owner: "{{ user.name }}"
     group: "{{ user.group }}"
-    mode: '0775'
+    mode: '0755'
 
 - name: "Generate rules"
   ansible.builtin.template:
@@ -43,7 +44,7 @@
     dest: ./data/traefik/rules/{{ item }}.yml
     owner: "{{ user.name }}"
     group: "{{ user.group }}"
-    mode: '0775'
+    mode: '0755'
   loop:
     - basic-auth
     - default-whitelist
@@ -55,5 +56,5 @@
     dest: ./data/traefik/rules/nas.yml
     owner: "{{ user.name }}"
     group: "{{ user.group }}"
-    mode: '0775'
+    mode: '0755'
   when: current_host == 'nas'

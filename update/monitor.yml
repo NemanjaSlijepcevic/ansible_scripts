@@ -18,5 +18,6 @@
     - prometheus
     - grafana
     - homeassistant
+    - log_notification
     - node_exporter
     - watchtower
