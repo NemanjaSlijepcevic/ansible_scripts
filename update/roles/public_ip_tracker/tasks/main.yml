@@ -28,8 +28,6 @@
     state: started
     pull: true
     env:
-      TELEGRAM_BOT_TOKEN: "{{ telegram_ip.host }}"
-      TELEGRAM_CHAT_ID: "{{ telegram_ip.id }}"
       API_IP_TOKEN: "{{ api_ip_token }}"
       TZ: "Europe/Belgrade"
     volumes:

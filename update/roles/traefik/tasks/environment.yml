@@ -13,12 +13,12 @@
     dest: ./data/traefik/
     times: false
     rsync_opts:
-    - "--chown={{ user.name }}:{{ user.group }}" 
-    - "--chmod=755"
+      - "--chown={{ user.name }}:{{ user.group }}"
+      - "--chmod=755"
 
 - name: Check if acme.json exists
   ansible.builtin.stat:
-    path: ./data/public_ip_tracker/app.log
+    path: ./data/traefik/acme.json
   register: file_check
 
 - name: Touch acme.json file

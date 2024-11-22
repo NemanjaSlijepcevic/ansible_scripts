@@ -11,15 +11,9 @@
   ansible.posix.synchronize:
     src: "{{ kavita.source_directory }}"
     dest: /media/Knjige/
-
-- name: Change ownership to "{{ user.name }}"
-  ansible.builtin.file:
-    path: /media/Knjige
-    state: directory
-    recurse: true
-    owner: "{{ user.name }}"
-    group: "{{ user.group }}"
-    mode: "0777"
+    rsync_opts:
+      - "--chown={{ user.name }}:{{ user.group }}"
+      - "--chmod=755"
 
 - name: Install kavita
   community.docker.docker_container:

@@ -5,25 +5,18 @@
     state: directory
     mode: "0744"
 
-- name: Change ownership to "{{ user.name }}"
-  ansible.builtin.file:
-    path: ./data/log_notification/
-    state: directory
-    recurse: true
-    owner: "{{ user.name }}"
-    group: "{{ user.group }}"
-    mode: "0744"
-
-- name: Generate volume mounts for server
+- name: Generate volume mounts and notify patterns for server
   ansible.builtin.set_fact:
     volume_to_mount: "./data/public_ip_whitelist_updater/app.log"
     mount_point: "/app/logs/whitelist.log"
+    patterns: 'WARNING, EXCEPTION, ERROR, INFO'
   when: current_host == 'server'
 
-- name: Generate volume mounts for monitor
+- name: Generate volume mounts and notify patterns for monitor
   ansible.builtin.set_fact:
     volume_to_mount: "./data/public_ip_tracker/app.log"
     mount_point: "/app/logs/public_ip.log"
+    patterns: 'WARNING, EXCEPTION, ERROR, IP has changed'
   when: current_host == 'monitor'
 
 - name: Run Docker container from built image
@@ -35,7 +28,7 @@
     env:
       TELEGRAM_BOT_TOKEN: "{{ log_notification.telegram_bot }}"
       TELEGRAM_CHAT_ID: "{{ log_notification.chat_id }}"
-      NOTIFICATION_PATTERNS: 'WARNING, EXCEPTION, ERROR, IP has changed'
+      NOTIFICATION_PATTERNS: "{{ patterns }}"
       TZ: "Europe/Belgrade"
     restart_policy: unless-stopped
     volumes:

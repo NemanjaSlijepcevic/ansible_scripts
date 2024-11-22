@@ -4,21 +4,32 @@
     state: directory
     mode: "0755"
 
+- name: Copy a index file
+  ansible.builtin.copy:
+    src: "{{ source_directory }}/{{ family.name }}/{{ family.name }}.html"
+    dest: "/opt/{{ family.name }}/{{ family.name }}.html"
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0755"
+  changed_when: false
+
 - name: Synchronize files for "{{ family.name }}"
   ansible.posix.synchronize:
     src: "{{ source_directory }}/{{ family.name }}/"
     dest: "/opt/{{ family.name }}/"
+    times: false
     rsync_opts:
-    - "--chown={{ user.name }}:{{ user.group }}" 
-    - "--chmod=755"
+      - "--chown={{ user.name }}:{{ user.group }}"
+      - "--chmod=755"
 
 - name: Synchronize translation files
   ansible.posix.synchronize:
     src: ./
     dest: "/opt/{{ family.name }}/"
+    times: false
     rsync_opts:
-    - "--chown={{ user.name }}:{{ user.group }}" 
-    - "--chmod=755"
+      - "--chown={{ user.name }}:{{ user.group }}"
+      - "--chmod=755"
 
 - name: Generate translations template
   ansible.builtin.template:
@@ -38,12 +49,14 @@
     path: /opt/{{ family.name }}/index.html
     state: absent
   when: index_html_stat.stat.exists
+  changed_when: false
 
 - name: Remove the entire <style> block from the HTML file
   ansible.builtin.replace:
     path: "/opt/{{ family.name }}/{{ family.name }}.html"
     regexp: '<style[^>]*>.*?</style>'
     replace: ''
+  changed_when: false
 
 - name: Insert the link to the external CSS file
   ansible.builtin.blockinfile:
@@ -53,6 +66,7 @@
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <link rel="stylesheet" href="styles.css">
     marker: ""
+  changed_when: false
 
 - name: Insert translation lines after </script> in the HTML file
   ansible.builtin.blockinfile:
@@ -63,8 +77,9 @@
       <script src="cyr_to_lat.js"></script>
       <button class="button-round" onclick="toggleCyrLat()"><b>Ср/En</b></button>
     marker: ""
+  changed_when: false
 
 - name: "Rename file to index.html for {{ family.name }}"
   ansible.builtin.command: mv /opt/{{ family.name }}/{{ family.name }}.html /opt/{{ family.name }}/index.html
   register: rename_result
-  changed_when: rename_result.rc == 0
+  changed_when: false
