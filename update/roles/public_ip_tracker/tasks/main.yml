@@ -27,6 +27,8 @@
     image: nemanjaslijepcevic/public_ip_tracker:latest
     state: started
     pull: true
+    networks:
+      - name: proxy
     env:
       API_IP_TOKEN: "{{ api_ip_token }}"
       TZ: "Europe/Belgrade"

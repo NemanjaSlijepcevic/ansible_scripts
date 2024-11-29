@@ -27,6 +27,10 @@
     image: nemanjaslijepcevic/public_ip_updater:latest
     state: started
     pull: true
+    networks:
+      - name: proxy
+    dns_servers:
+      - "{{ default.dns }}"
     env:
       API_IP_TOKEN: "{{ api_ip_token }}"
       NODE_IP_DOMAIN: "{{ public_ip_url }}"
