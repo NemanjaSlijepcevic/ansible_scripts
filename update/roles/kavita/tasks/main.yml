@@ -23,6 +23,7 @@
     restart_policy: unless-stopped
     networks:
       - name: proxy
+        ipv4_address: "{{ kavita.static }}"
     dns_servers:
       - "{{ default.dns }}"
     volumes:

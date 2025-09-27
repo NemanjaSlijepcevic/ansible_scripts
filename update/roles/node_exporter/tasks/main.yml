@@ -23,6 +23,7 @@
     # recreate: yes
     networks:
       - name: proxy
+        ipv4_address: "{{ node.exporter.static }}"
     pid_mode: host
     command:
       - '--path.rootfs=/host'

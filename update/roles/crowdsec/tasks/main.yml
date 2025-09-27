@@ -7,13 +7,49 @@
     group: "{{ user.group }}"
     mode: "0755"
 
-- name: Copy acquis.yaml file
-  ansible.builtin.copy:
-    src: acquis.yaml
+- name: "Generate acquis.yaml file"
+  ansible.builtin.template:
+    src: ./acquis.yaml.j2
     dest: ./data/crowdsec/acquis.yaml
-    mode: "0755"
+    mode: '0755'
 
-- name: Create container
+- name: Set default CrowdSec collections
+  ansible.builtin.set_fact:
+    crowdsec_collections:
+      - "crowdsecurity/traefik"
+      - "crowdsecurity/http-cve"
+      - "LePresidente/authelia"
+      - "crowdsecurity/wordpress"
+
+- name: Add Nextcloud collection if on 'server'
+  ansible.builtin.set_fact:
+    crowdsec_collections: "{{ crowdsec_collections + ['crowdsecurity/nextcloud'] }}"
+  when: current_host == "server"
+
+- name: Convert collections list to space-separated string
+  ansible.builtin.set_fact:
+    crowdsec_collections_str: "{{ crowdsec_collections | join(' ') }}"
+
+- name: Set default CrowdSec volumes
+  ansible.builtin.set_fact:
+    crowdsec_volumes:
+      - ./data/crowdsec/acquis.yaml:/etc/crowdsec/acquis.yaml
+      - ./data/crowdsec/db:/var/lib/crowdsec/data/
+      - ./data/crowdsec/config:/etc/crowdsec/
+      - ./data/traefik/logs:/var/log/traefik/:ro
+      - ./data/authelia/logs:/var/log/authelia/:ro
+      - /var/log/auth.log:/var/log/auth.log:ro
+      - /var/log/syslog:/var/log/syslog:ro
+      - /var/log/kern.log:/var/log/kern.log:ro
+      - /var/log/ufw.log:/var/log/ufw.log:ro
+      - /var/log/mail.log:/var/log/mail.log:ro
+
+- name: Add Nextcloud log volume if on 'server'
+  ansible.builtin.set_fact:
+    crowdsec_volumes: "{{ crowdsec_volumes + ['./data/nextcloud/nextcloud.log:/var/log/nextcloud.log:ro'] }}"
+  when: current_host == "server"
+
+- name: Create CrowdSec container
   community.docker.docker_container:
     name: crowdsec
     image: crowdsecurity/crowdsec:latest
@@ -24,17 +60,12 @@
       - "no-new-privileges:true"
     networks:
       - name: proxy
+        ipv4_address: "{{ crowdsec.static }}"
     env:
       TZ: "Europe/Belgrade"
       GID: "${GID-1000}"
-      COLLECTIONS: "crowdsecurity/traefik crowdsecurity/http-cve LePresidente/authelia"
-    volumes:
-      - ./data/crowdsec/acquis.yaml:/etc/crowdsec/acquis.yaml
-      - ./data/crowdsec/db:/var/lib/crowdsec/data/
-      - ./data/crowdsec/config:/etc/crowdsec/
-      - ./data/traefik/logs:/var/log/traefik/:ro
-      - ./data/authelia/logs:/var/log/authelia/:ro
-      - /var/log/auth.log:/var/log/auth.log
+      COLLECTIONS: "{{ crowdsec_collections_str }}"
+    volumes: "{{ crowdsec_volumes }}"
     labels:
       traefik.enable: "true"
       traefik.http.routers.crowdsec-metrics.entrypoints: "https"
@@ -42,6 +73,7 @@
       traefik.http.routers.crowdsec-metrics.tls: "true"
       traefik.http.routers.crowdsec-metrics.middlewares: "basic-auth@file"
       traefik.http.services.crowdsec-metrics.loadbalancer.server.port: "{{ node.crowdsec.port }}"
+
 
 - name: Update
   community.docker.docker_container_exec:
@@ -52,18 +84,18 @@
     hub_update_result.rc != 0 or
     'hub index is up to date' not in hub_update_result.stderr
 
-- name: Create bouncer-traefik
-  community.docker.docker_container:
-    name: bouncer-traefik
-    image: fbonalair/traefik-crowdsec-bouncer:latest
-    pull: true
-    state: started
-    restart_policy: unless-stopped
-    security_opts:
-      - "no-new-privileges:true"
-    networks:
-      - name: proxy
-    env:
-      TZ: "Europe/Belgrade"
-      CROWDSEC_BOUNCER_API_KEY: "{{ crowdsec_bouncer_key }}"
-      CROWDSEC_AGENT_HOST: "crowdsec:8080"
+- name: Upgrade CrowdSec Hub
+  community.docker.docker_container_exec:
+    container: crowdsec
+    command: cscli hub upgrade
+  register: hub_update_result
+  changed_when: >
+    hub_update_result.rc != 0 or
+    hub_update_result.stderr | length > 0
+
+- name: Create CloudFlare bouncer
+  ansible.builtin.include_tasks: bouncer-cloudflare.yml
+  when: current_host == "server"
+
+- name: Create Traefik bouncer
+  ansible.builtin.include_tasks: bouncer-traefik.yml

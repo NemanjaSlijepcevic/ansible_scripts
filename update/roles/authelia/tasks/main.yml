@@ -11,6 +11,7 @@
     restart_policy: unless-stopped
     networks:
       - name: proxy
+        ipv4_address: "{{ authelia_links.static }}"
     volumes:
       - ./data/authelia/config:/config
       - ./data/authelia/logs:/var/log/
@@ -58,3 +59,14 @@
         "traefik.http.routers.authelia-3.entryPoints": "https",
         {% endif %}
       }
+
+- name: Create logrotate config for authelia
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/templates/logrotate.j2"
+    dest: "/etc/logrotate.d/authelia"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+  vars:
+    log_path: "{{ ansible_env.PWD }}/data/authelia/logs/authelia.log"
+    log_permissions: 644

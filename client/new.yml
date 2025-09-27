@@ -19,5 +19,6 @@
     - install_packages
     - create_default_user
     - prepare_ssh
+    - prepare_firewall
     - install_docker
     - clean_up

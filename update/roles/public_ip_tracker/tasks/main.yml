@@ -41,3 +41,14 @@
       traefik.http.routers.public_ip_tracker.rule: "{{ node.ip.host }}"
       traefik.http.routers.public_ip_tracker.tls: "true"
       traefik.http.services.public_ip_tracker.loadbalancer.server.port: "{{ node.ip.port }}"
+
+- name: Create logrotate config for public_ip_tracker
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/templates/logrotate.j2"
+    dest: "/etc/logrotate.d/public_ip_tracker"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+  vars:
+    log_path: "{{ ansible_env.PWD }}/data/public_ip_tracker/app.log"
+    log_permissions: "0755"

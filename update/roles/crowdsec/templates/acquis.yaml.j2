@@ -10,5 +10,16 @@ labels:
 ---
 filenames:
   - /var/log/auth.log
+  - /var/log/syslog
+  - /var/log/kern.log
+  - /var/log/ufw.log
+  - /var/log/mail.log
 labels:
   type: syslog
+{% if current_host == 'server' %}
+---
+filenames:
+ - /var/log/nextcloud.log
+labels:
+  type: Nextcloud
+{% endif %}

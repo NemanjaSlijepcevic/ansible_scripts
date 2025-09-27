@@ -14,6 +14,7 @@
       - "no-new-privileges:true"
     networks:
       - name: proxy
+        ipv4_address: "{{ traefik_links.static }}"
       - name: bridge
     etc_hosts:
       "host.docker.internal": "host-gateway"
@@ -59,3 +60,25 @@
         "traefik.http.routers.traefik-secure.tls.domains[2].sans": "{{ traefik_links.two.sans }}",
       {% endif %}
       }
+
+- name: Create logrotate config for traefik
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/templates/logrotate.j2"
+    dest: "/etc/logrotate.d/traefik"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+  vars:
+    log_path: "{{ ansible_env.PWD }}/data/traefik/logs/traefik.log"
+    log_permissions: 755
+
+- name: Create logrotate config for access
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/templates/logrotate.j2"
+    dest: "/etc/logrotate.d/traefik-access"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+  vars:
+    log_path: "{{ ansible_env.PWD }}/data/traefik/logs/access.log"
+    log_permissions: 644

@@ -7,6 +7,7 @@
     restart_policy: unless-stopped
     networks:
       - name: proxy
+        ipv4_address: "{{ nextcloud.static }}"
     dns_servers:
       - "{{ default.dns }}"
     volumes:
@@ -16,6 +17,7 @@
       - data:/var/www/html/data
       - theme:/var/www/html/themes
       - "{{ nextcloud.sync_directory }}"
+      - ./data/nextcloud/nextcloud.log:/var/www/nextcloud/data/nextcloud.log
     env:
       TZ: "Europe/Belgrade"
     labels:

@@ -1,0 +1,39 @@
+---
+- name: Reset UFW to defaults
+  ansible.builtin.shell: |
+    ufw --force reset
+  changed_when: true
+  # noqa: risky-shell-pipe
+
+- name: Set default incoming policy to deny
+  ansible.builtin.shell: |
+    ufw default deny incoming
+  register: deny_incoming
+  changed_when: "'already set' not in deny_incoming.stdout"
+  # noqa: risky-shell-pipe
+
+
+- name: Set default outgoing policy to allow
+  ansible.builtin.shell: |
+    ufw default allow outgoing
+  register: allow_outgoing
+  changed_when: "'already set' not in allow_outgoing.stdout"
+  # noqa: risky-shell-pipe
+
+
+- name: Apply UFW rules from inventory
+  ansible.builtin.shell: |
+    ufw status | grep -q '{{ item.port }}/{{ item.protocol }}' \
+      || ufw allow {{ item.port }}/{{ item.protocol }} comment '{{ item.comment | default("") }}'
+  loop: "{{ ufw_rules }}"
+  register: ufw_rule_result
+  changed_when: ufw_rule_result.rc == 0 and "skipped" not in ufw_rule_result.stdout
+  # noqa: risky-shell-pipe
+
+- name: Enable UFW with logging
+  ansible.builtin.shell: |
+    ufw status | grep -q "Status: active" \
+      || (echo "y" | ufw enable && ufw logging on)
+  register: ufw_enable_result
+  changed_when: "'active' not in ufw_enable_result.stdout"
+  # noqa: risky-shell-pipe

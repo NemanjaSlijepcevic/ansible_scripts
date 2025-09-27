@@ -14,3 +14,4 @@
     container_name: "{{ family.container_name }}"
     volume: "{{ family.volume }}"
     host_domain: "{{ family.host_domain }}"
+    static: "{{ family.static }}"

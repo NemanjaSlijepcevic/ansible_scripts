@@ -38,6 +38,23 @@
     group: "{{ user.group }}"
     mode: '0755'
 
+- name: Catch public IP
+  ansible.builtin.uri:
+    url: "{{ public_ip_url }}"
+    return_content: true
+    headers:
+      Authorization: "Bearer {{ api_ip_token }}"
+  register: public_ip
+  run_once: true
+  changed_when: false
+  check_mode: false
+  when: current_host == 'server'
+
+- name: Add public IP to private_ips list
+  ansible.builtin.set_fact:
+    private_ips: "{{ (private_ips | default([])) + [public_ip.json.ip] }}"
+  when: current_host == 'server'
+
 - name: "Generate rules"
   ansible.builtin.template:
     src: "{{ item }}.yml.j2"

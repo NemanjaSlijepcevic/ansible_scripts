@@ -1,0 +1,51 @@
+---
+- name: Create directory if they don't exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0755"
+  loop:
+    - "./data/bibliography"
+    - "./data/bibliography/staticfiles"
+
+- name: Check if db.sqlite3 file exists
+  ansible.builtin.stat:
+    path: ./data/bibliography/db.sqlite3
+  register: file_stat
+
+- name: "Copy SQLite database file"
+  ansible.builtin.copy:
+    src: ./db.sqlite3
+    dest: ./data/bibliography/db.sqlite3
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0755"
+  when: not file_stat.stat.exists
+
+- name: Deploy bibliography container
+  community.docker.docker_container:
+    name: bibliography
+    image: nemanjaslijepcevic/bibliography:latest
+    restart_policy: unless-stopped
+    pull: true
+    dns_servers:
+      - "{{ default.dns }}"
+    networks:
+      - name: proxy
+        ipv4_address: "{{ bibliography.static }}"
+    env:
+      TZ: "Europe/Belgrade"
+      DEFAULT_DOMAIN: "{{ bibliography.domain }}"
+      EXTRA_DOMAIN: "{{ bibliography.extra_domain }}"
+      SECRET_KEY: "{{ bibliography.secret_key }}"
+    volumes:
+      - "./data/bibliography/db.sqlite3:/app/db.sqlite3"
+      - "./data/bibliography/staticfiles:/app/staticfiles"
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.emby.entrypoints: "https"
+      traefik.http.routers.emby.rule: "{{ bibliography.host }}"
+      traefik.http.routers.emby.tls: "true"
+      traefik.http.services.emby.loadbalancer.server.port: "{{ bibliography.port }}"

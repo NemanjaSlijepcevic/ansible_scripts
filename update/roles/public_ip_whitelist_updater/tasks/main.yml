@@ -29,6 +29,7 @@
     pull: true
     networks:
       - name: proxy
+        ipv4_address: "{{ public_ip_whitelist_updater.static }}"
     dns_servers:
       - "{{ default.dns }}"
     env:
@@ -39,3 +40,14 @@
       - ./data/traefik/rules/default-whitelist.yml:/app/configuration.yml:rw
       - ./data/public_ip_whitelist_updater/app.log:/app/app.log:rw
     restart_policy: unless-stopped
+
+- name: Create logrotate config for whitlist_updater
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/templates/logrotate.j2"
+    dest: "/etc/logrotate.d/whitlist_updater"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+  vars:
+    log_path: "{{ ansible_env.PWD }}/data/public_ip_whitelist_updater/app.log"
+    log_permissions: "0755"

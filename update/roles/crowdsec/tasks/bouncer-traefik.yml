@@ -1,0 +1,16 @@
+- name: Create bouncer-traefik
+  community.docker.docker_container:
+    name: bouncer-traefik
+    image: fbonalair/traefik-crowdsec-bouncer:latest
+    pull: true
+    state: started
+    restart_policy: unless-stopped
+    security_opts:
+      - "no-new-privileges:true"
+    networks:
+      - name: proxy
+        ipv4_address: "{{ crowdsec.traefik.static }}"
+    env:
+      TZ: "Europe/Belgrade"
+      CROWDSEC_BOUNCER_API_KEY: "{{ crowdsec.traefik.bouncer_key }}"
+      CROWDSEC_AGENT_HOST: "crowdsec:8080"

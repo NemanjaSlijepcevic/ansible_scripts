@@ -9,15 +9,15 @@ http:
         accessControlMaxAge: 100
         hostsProxyHeaders:
           - "X-Forwarded-Host"
-        stsSeconds: 63072000
+        sslRedirect: true
+        stsSeconds: 31536000 # 1 year
         stsIncludeSubdomains: true
         stsPreload: true
-        # forceSTSHeader: true # This is a good thing but it can be tricky. Enable after everything works.
-        customFrameOptionsValue: SAMEORIGIN # https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Frame-Options
+        forceSTSHeader: true
         contentTypeNosniff: true
         browserXssFilter: true
-        referrerPolicy: "same-origin"
-        permissionsPolicy: "camera=(), microphone=(), geolocation=(), payment=(), usb=(), vr=()"
+        referrerPolicy: "strict-origin-when-cross-origin"
+        permissionsPolicy: "camera=(), microphone=(), geolocation=()"
+        featurePolicy: "vibrate 'none'; geolocation 'none'"
         customResponseHeaders:
-          # X-Robots-Tag: "none,noarchive,nosnippet,notranslate,noimageindex," # disable search engines from indexing home server
-          server: "" # hide server info from visitors
+          server: "" # hide server info

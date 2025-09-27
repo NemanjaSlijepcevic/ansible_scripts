@@ -5,5 +5,6 @@ http:
         middlewares:
           - default-whitelist
           - crowdsec-bouncer
+          - secure-headers
           - rate-limit
           - authelia

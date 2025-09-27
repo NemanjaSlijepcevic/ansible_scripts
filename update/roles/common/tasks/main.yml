@@ -5,6 +5,26 @@
     autoclean: true
     autoremove: true
 
+- name: Enable unattended upgrades
+  ansible.builtin.apt:
+    name: unattended-upgrades
+    state: present
+
+- name: Configure automatic upgrades
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+      APT::Periodic::AutocleanInterval "7";
+      APT::Periodic::Unattended-Upgrade::InstallOnShutdown "0";
+    owner: "root"
+    group: "root"
+    mode: "0644"
+
+- name: Update firewall rules
+  ansible.builtin.include_tasks: ufw.yml
+
 - name: "Create directory if they don't exist"
   ansible.builtin.file:
     path: ./data

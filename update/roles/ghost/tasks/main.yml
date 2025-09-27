@@ -14,3 +14,4 @@
     url: "{{ site.url }}"
     host_domain: "{{ site.host }}"
     volume_name: "{{ site.volume_name }}"
+    static: "{{ site.static }}"

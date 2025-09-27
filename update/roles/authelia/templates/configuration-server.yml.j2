@@ -3,6 +3,9 @@ access_control:
   rules:
     - domain: 
       - "{{ authelia_links.domain }}" 
+      - "{{ authelia_links.domain_2 }}" 
+      - "{{ authelia_links.domain_3 }}" 
+      - "{{ bibliography.domain }}"
       - "{{ family_trees[0].domain }}"
       - "{{ family_trees[1].domain }}"
       - "{{ ghost_sites[0].domain }}" 
@@ -16,6 +19,12 @@ access_control:
       - "{{ node.docker.domain }}"  
       - "{{ node.traefik.domain }}" 
       policy: bypass
+    - domain:
+        - "{{ ghost_sites[0].domain }}"
+        - "{{ ghost_sites[1].domain }}"
+      resources:
+        - "^/ghost/.*"
+      policy: two_factor
     - domain: 
       - "{{ adminer.domain }}" 
       policy: one_factor

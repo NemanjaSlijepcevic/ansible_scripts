@@ -21,6 +21,7 @@
     restart_policy: unless-stopped
     networks:
       - name: proxy
+        ipv4_address: "{{ static }}"
         links:
           - skup-ghost-db:db
     volumes:

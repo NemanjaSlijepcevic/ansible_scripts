@@ -1,0 +1,19 @@
+- name: "Generate configuration file"
+  ansible.builtin.template:
+    src: ./cfg.yaml.j2
+    dest: ./data/crowdsec/cfg.yaml
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: '0755'
+
+- name: Create bouncer-cloudflare
+  community.docker.docker_container:
+    name: cloudflare-bouncer
+    image: crowdsecurity/cloudflare-bouncer
+    state: started
+    restart_policy: unless-stopped
+    networks:
+      - name: proxy
+        ipv4_address: "{{ crowdsec.cloudflare.static }}"
+    volumes:
+      - ./data/crowdsec/cfg.yaml:/etc/crowdsec/bouncers/crowdsec-cloudflare-bouncer.yaml
