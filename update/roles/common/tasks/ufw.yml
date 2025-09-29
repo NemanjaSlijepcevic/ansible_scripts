@@ -1,39 +1,28 @@
----
-- name: Reset UFW to defaults
-  ansible.builtin.shell: |
-    ufw --force reset
-  changed_when: true
-  # noqa: risky-shell-pipe
+- name: Ensure SSH rule exists to prevent lockout
+  ansible.builtin.assert:
+    that:
+      - ufw_rules | selectattr('comment','equalto', 'SSH') | list | length > 0
+    fail_msg: "No SSH rule found in ufw_rules! You might lock yourself out."
 
 - name: Set default incoming policy to deny
-  ansible.builtin.shell: |
-    ufw default deny incoming
-  register: deny_incoming
-  changed_when: "'already set' not in deny_incoming.stdout"
-  # noqa: risky-shell-pipe
-
+  community.general.ufw:
+    direction: incoming
+    policy: deny
 
 - name: Set default outgoing policy to allow
-  ansible.builtin.shell: |
-    ufw default allow outgoing
-  register: allow_outgoing
-  changed_when: "'already set' not in allow_outgoing.stdout"
-  # noqa: risky-shell-pipe
-
+  community.general.ufw:
+    direction: outgoing
+    policy: allow
 
 - name: Apply UFW rules from inventory
-  ansible.builtin.shell: |
-    ufw status | grep -q '{{ item.port }}/{{ item.protocol }}' \
-      || ufw allow {{ item.port }}/{{ item.protocol }} comment '{{ item.comment | default("") }}'
+  community.general.ufw:
+    rule: allow
+    proto: "{{ item.protocol }}"
+    port: "{{ item.port }}"
+    comment: "{{ item.comment }}"
   loop: "{{ ufw_rules }}"
-  register: ufw_rule_result
-  changed_when: ufw_rule_result.rc == 0 and "skipped" not in ufw_rule_result.stdout
-  # noqa: risky-shell-pipe
 
 - name: Enable UFW with logging
-  ansible.builtin.shell: |
-    ufw status | grep -q "Status: active" \
-      || (echo "y" | ufw enable && ufw logging on)
-  register: ufw_enable_result
-  changed_when: "'active' not in ufw_enable_result.stdout"
-  # noqa: risky-shell-pipe
+  community.general.ufw:
+    state: enabled
+    logging: 'on'

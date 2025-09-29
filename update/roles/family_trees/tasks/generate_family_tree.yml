@@ -17,7 +17,6 @@
   ansible.posix.synchronize:
     src: "{{ source_directory }}/{{ family.name }}/"
     dest: "/opt/{{ family.name }}/"
-    times: false
     rsync_opts:
       - "--chown={{ user.name }}:{{ user.group }}"
       - "--chmod=755"
@@ -26,7 +25,6 @@
   ansible.posix.synchronize:
     src: ./
     dest: "/opt/{{ family.name }}/"
-    times: false
     rsync_opts:
       - "--chown={{ user.name }}:{{ user.group }}"
       - "--chmod=755"

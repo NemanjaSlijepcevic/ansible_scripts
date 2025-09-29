@@ -1,9 +1,11 @@
 collections:
   - name: ansible.posix
-    version: 1.6.2
+    version: "*"
   - name: community.crypto
-    version: 2.22.3
+    version: "*"
   - name: community.docker
-    version: 3.13.2
-  - name: community.library_inventory_filtering_v1
-    version: 1.0.2
+    version: "*"
+  - name: community.general
+    version: "*"
+  - name: community.mysql
+    version: "*"

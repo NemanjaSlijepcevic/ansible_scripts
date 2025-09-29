@@ -11,7 +11,7 @@
   ansible.posix.synchronize:
     src: ./
     dest: ./data/traefik/
-    times: false
+    times: true
     rsync_opts:
       - "--chown={{ user.name }}:{{ user.group }}"
       - "--chmod=755"

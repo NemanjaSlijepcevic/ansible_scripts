@@ -3,3 +3,5 @@ exclude_paths:
   - client/inventories/production/host_vars
   - update/inventories/production/group_vars
   - update/inventories/production/host_vars
+skip_list:
+  - var-naming[no-role-prefix]
