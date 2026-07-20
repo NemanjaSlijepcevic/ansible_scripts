@@ -1,0 +1,46 @@
+---
+- name: Get existing notifications
+  ansible.builtin.uri:
+    url: "{{ lidarr.url }}/api/v1/notification"
+    method: GET
+    headers:
+      X-Api-Key: "{{ lidarr.api_key }}"
+    return_content: true
+  register: existing_notifications
+
+- name: Add Telegram notification
+  ansible.builtin.uri:
+    url: "{{ lidarr.url }}/api/v1/notification"
+    method: POST
+    headers:
+      X-Api-Key: "{{ lidarr.api_key }}"
+    body_format: json
+    body:
+      name: "Telegram"
+      implementation: "Telegram"
+      configContract: "TelegramSettings"
+      onGrab: true
+      onDownload: true
+      onUpgrade: true
+      onRename: false
+      onArtistDelete: false
+      onAlbumDelete: false
+      onHealthIssue: true
+      onApplicationUpdate: false
+      fields:
+        - name: botToken
+          value: "{{ log_notification.telegram_bot }}"
+        - name: chatId
+          value: "{{ log_notification.chat_id }}"
+    status_code: 201
+  when: "existing_notifications.json | selectattr('name', 'equalto', 'Telegram') | list | length == 0"
+
+- name: Verify Telegram notification exists
+  ansible.builtin.uri:
+    url: "{{ lidarr.url }}/api/v1/notification"
+    method: GET
+    headers:
+      X-Api-Key: "{{ lidarr.api_key }}"
+    return_content: true
+  register: verify_notifications
+  failed_when: "verify_notifications.json | selectattr('name', 'equalto', 'Telegram') | list | length == 0"

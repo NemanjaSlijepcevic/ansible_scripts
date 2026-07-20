@@ -1,4 +1,12 @@
 ---
+- name: Set permissions on download drive
+  ansible.builtin.file:
+    path: "{{ download_drive }}"
+    owner: "{{ puid }}"
+    group: "{{ pgid }}"
+    mode: "0755"
+    state: directory
+
 - name: Create directory if they don't exist
   ansible.builtin.file:
     path: ./data/transmission
@@ -31,4 +39,12 @@
       traefik.http.routers.transmission.entrypoints: "https"
       traefik.http.routers.transmission.rule: "{{ transmission.host }}"
       traefik.http.routers.transmission.tls: "true"
+      traefik.http.routers.transmission.middlewares: "chain-auth@file"
       traefik.http.services.transmission.loadbalancer.server.port: "{{ transmission.port }}"
+    healthcheck:
+      test: curl --fail http://localhost:9091/transmission/web/ || exit 1
+      interval: 1m30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+      start_interval: 10s

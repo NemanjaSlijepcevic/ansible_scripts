@@ -1,0 +1,21 @@
+---
+- name: Create Immich PostgreSQL container
+  community.docker.docker_container:
+    name: immich-postgres
+    image: ghcr.io/immich-app/postgres:14-vectorchord0.3.0-pgvectors0.2.0
+    restart_policy: unless-stopped
+    networks:
+      - name: proxy
+    env:
+      POSTGRES_USER: "{{ immich.db.user }}"
+      POSTGRES_PASSWORD: "{{ immich.db.password }}"
+      POSTGRES_DB: "{{ immich.db.name }}"
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    volumes:
+      - ./data/immich/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d {{ immich.db.name }} -U {{ immich.db.user }}"]
+      interval: 1m
+      timeout: 10s
+      retries: 3
+      start_period: 30s

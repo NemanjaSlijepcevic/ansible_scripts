@@ -1,0 +1,20 @@
+http:
+  middlewares:
+    crowdsec-bouncer:
+      plugin:
+        crowdsec-bouncer-traefik-plugin:
+          enabled: "true"
+          logLevel: INFO
+          crowdsecMode: stream
+          updateIntervalSeconds: 60
+          defaultDecisionSeconds: 60
+          httpTimeoutSeconds: 10
+          crowdsecLapiScheme: http
+          crowdsecLapiHost: crowdsec:8080
+          crowdsecLapiKey: "{{ crowdsec.traefik.bouncer_key }}"
+          forwardedHeadersTrustedIPs:
+            - "{{ docker.subnet }}"
+          clientTrustedIPs:
+{% for ip in private_ips %}
+            - "{{ ip }}"
+{% endfor %}

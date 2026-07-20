@@ -1,0 +1,24 @@
+---
+# Documentation-only defaults for the family_trees role.
+# family_trees is a list; each entry generates a static site and container.
+# Copy the shape into host_vars/group_vars and replace with real values,
+# then keep the real inventory encrypted. Values below are placeholders.
+
+user:
+  name: "deploy"
+  group: "docker"
+
+# Local path (on the controller) holding the per-family source HTML folders.
+source_directory: "/path/to/family_tree_sources"
+
+# Serbian -> Latin/English translation map rendered into dictionary.json.
+dictionary:
+  "Реч": "Word"
+  "Пример": "Example"
+
+family_trees:
+  - name: "example_family"
+    container_name: "tree_example"
+    volume: "/opt/example_family"
+    host_domain: "Host(`tree.example.com`)"
+    static: "172.20.0.151"

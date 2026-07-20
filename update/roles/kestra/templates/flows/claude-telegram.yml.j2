@@ -1,0 +1,47 @@
+# Managed by Ansible (kestra role, templates/flows/) — UI edits to this
+# flow id are overwritten on the next playbook run.
+# NOTE: square-bracket delimiters are Ansible/Jinja (rendered at deploy
+# time); curly-brace expressions are Kestra's own and reach the server
+# untouched.
+#
+# Worker flow: runs a prompt through Claude Code in the sandbox and posts
+# the answer to Telegram. Called as a Subflow by grafana-alert-triage and
+# kestra-failure-triage; kestra-failure-triage deliberately ignores THIS
+# flow's failures to prevent a retrigger loop, so a failure here surfaces
+# only in the UI (the raw alert still reaches Telegram directly from
+# Grafana).
+id: claude-telegram
+namespace: automation
+description: Run a prompt through sandboxed Claude Code and send the result to Telegram.
+
+inputs:
+  - id: prompt
+    type: STRING
+
+tasks:
+  # The ansible repo (synced by the update flows into the ansible-runner
+  # workspace) is mounted read-only at /repo so Claude has the full
+  # infrastructure context (CLAUDE.md, docs/, roles).
+  # Prompt and Telegram creds travel via env vars — nothing user-supplied
+  # touches the shell command line. If Claude itself fails, a stub message
+  # is sent instead and the task still succeeds.
+  - id: analyze_and_send
+    type: io.kestra.plugin.scripts.shell.Commands
+    containerImage: [[ claude_runner.image ]]
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      networkMode: [[ claude_runner.network ]]
+      memory:
+        memory: [[ claude_runner.memory ]]
+      volumes:
+        - "[[ ansible_env.PWD ]]/data/claude-runner/home:/home/node"
+        - "[[ ansible_env.PWD ]]/data/ansible-runner/workspace/ansible_scripts:/repo:ro"
+    env:
+      PROMPT: "{{ inputs.prompt }}"
+      TG_TOKEN: "{{ secret('TELEGRAM_BOT_TOKEN') }}"
+      TG_CHAT: "{{ secret('TELEGRAM_CHAT_ID') }}"
+    commands:
+      - printenv PROMPT > /tmp/prompt.txt
+      - claude -p "$(cat /tmp/prompt.txt)" --dangerously-skip-permissions > /tmp/analysis.txt 2>&1 || echo "(Claude analysis failed — check the claude-telegram execution log in Kestra)" > /tmp/analysis.txt
+      - head -c 3900 /tmp/analysis.txt > /tmp/tg.txt
+      - curl -sf -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" --data-urlencode "chat_id=${TG_CHAT}" --data-urlencode "text@/tmp/tg.txt" > /dev/null

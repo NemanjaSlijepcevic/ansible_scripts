@@ -1,0 +1,45 @@
+---
+- name: Get existing Prowlarr applications
+  ansible.builtin.uri:
+    url: "{{ prowlarr.url }}/api/v1/applications"
+    method: GET
+    headers:
+      X-Api-Key: "{{ prowlarr.api_key }}"
+    return_content: true
+  register: existing_apps
+
+- name: Add Lidarr to Prowlarr
+  ansible.builtin.uri:
+    url: "{{ prowlarr.url }}/api/v1/applications"
+    method: POST
+    headers:
+      X-Api-Key: "{{ prowlarr.api_key }}"
+    body_format: json
+    body:
+      name: "Lidarr"
+      implementation: "Lidarr"
+      implementationName: "Lidarr"
+      configContract: "LidarrSettings"
+      enable: true
+      syncLevel: "fullSync"
+      fields:
+        - name: prowlarrUrl
+          value: "http://prowlarr:9696"
+        - name: baseUrl
+          value: "http://lidarr:8686"
+        - name: apiKey
+          value: "{{ lidarr.api_key }}"
+        - name: syncCategories
+          value: [3000, 3010, 3020, 3030, 3040]
+    status_code: 201
+  when: "existing_apps.json | selectattr('name', 'equalto', 'Lidarr') | list | length == 0"
+
+- name: Verify Lidarr exists in Prowlarr
+  ansible.builtin.uri:
+    url: "{{ prowlarr.url }}/api/v1/applications"
+    method: GET
+    headers:
+      X-Api-Key: "{{ prowlarr.api_key }}"
+    return_content: true
+  register: verify_apps
+  failed_when: "verify_apps.json | selectattr('name', 'equalto', 'Lidarr') | list | length == 0"

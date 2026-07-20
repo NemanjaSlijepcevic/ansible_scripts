@@ -1,0 +1,38 @@
+---
+- name: Enable languages in Bazarr
+  community.postgresql.postgresql_query:
+    login_host: "{{ postgres.ip }}"
+    login_port: "{{ postgres.port }}"
+    login_user: "{{ postgres.user }}"
+    login_password: "{{ postgres.password }}"
+    login_db: bazarr
+    query: |
+      UPDATE table_settings_languages
+      SET enabled = 1
+      WHERE code3 IN ('bos', 'hrv', 'hbs', 'srp')
+  environment:
+    PGSSLMODE: "verify-ca"
+    PGSSLCERT: "./data/certs/bazarr.crt"
+    PGSSLKEY: "./data/certs/bazarr.key"
+    PGSSLROOTCERT: "./data/certs/ca.crt"
+
+- name: Add Serbian language profile to Bazarr
+  community.postgresql.postgresql_query:
+    login_host: "{{ postgres.ip }}"
+    login_port: "{{ postgres.port }}"
+    login_user: "{{ postgres.user }}"
+    login_password: "{{ postgres.password }}"
+    login_db: bazarr
+    query: |
+      INSERT INTO table_languages_profiles ("profileId", cutoff, "originalFormat", items, name, "mustContain", "mustNotContain", tag)
+      SELECT 1, NULL, 0,
+        '[{"id": 1, "language": "sr", "audio_exclude": "False", "audio_only_include": "False", "hi": "False", "forced": "False"}]',
+        'Srpski', '[]', '[]', NULL
+      WHERE NOT EXISTS (
+        SELECT 1 FROM table_languages_profiles WHERE "profileId" = 1
+      )
+  environment:
+    PGSSLMODE: "verify-ca"
+    PGSSLCERT: "./data/certs/bazarr.crt"
+    PGSSLKEY: "./data/certs/bazarr.key"
+    PGSSLROOTCERT: "./data/certs/ca.crt"

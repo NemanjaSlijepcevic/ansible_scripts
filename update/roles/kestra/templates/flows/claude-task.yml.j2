@@ -1,0 +1,34 @@
+# Managed by Ansible (kestra role, templates/flows/) — UI edits to this
+# flow id are overwritten on the next playbook run.
+# NOTE: square-bracket delimiters are Ansible/Jinja (rendered at deploy
+# time); curly-brace expressions are Kestra's own and reach the server
+# untouched.
+id: claude-task
+namespace: automation
+description: Run a sandboxed Claude Code task; output is the CLI's JSON result.
+
+inputs:
+  - id: prompt
+    type: STRING
+
+tasks:
+  # The prompt goes through an env var, not shell interpolation, so quotes
+  # or backticks in it can't break out of the command line.
+  # --dangerously-skip-permissions is required for headless runs and is
+  # acceptable only because this container IS the sandbox (isolated
+  # network, workspace-only mounts) — see the claude_runner role.
+  - id: claude
+    type: io.kestra.plugin.scripts.shell.Commands
+    containerImage: [[ claude_runner.image ]]
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      networkMode: [[ claude_runner.network ]]
+      memory:
+        memory: [[ claude_runner.memory ]]
+      volumes:
+        - "[[ ansible_env.PWD ]]/data/claude-runner/home:/home/node"
+        - "[[ ansible_env.PWD ]]/data/claude-runner/workspace:/workspace"
+    env:
+      PROMPT: "{{ inputs.prompt }}"
+    commands:
+      - cd /workspace && claude -p "$PROMPT" --output-format json --dangerously-skip-permissions

@@ -1,0 +1,39 @@
+---
+traefik_links:
+  static: "172.20.0.6"
+  name:
+    link: "proxy.example.com"
+    host: "Host(`proxy.example.com`)"
+    url: "https://proxy.example.com"
+    port: "80"
+  zero:
+    main: "example.com"
+    sans: "*.example.com"
+  one:
+    main: "example2.com"
+    sans: "*.example2.com"
+  two:
+    main: "example3.com"
+    sans: "*.example3.com"
+
+cloudflare:
+  account: "user@example.com"
+  api_token: "changeme"
+
+# CrowdSec Traefik bouncer API key.
+crowdsec:
+  traefik:
+    bouncer_key: "changeme"
+
+# Extra routers Traefik renders (host-specific; only where used).
+node:
+  docker:
+    host: "Host(`docker.example.com`)"
+    url: "http://node-exporter:9323"
+
+nas:
+  host: "Host(`nas.example.com`)"
+  url: "http://192.0.2.20:80"
+
+# ISO country codes blocked by the geoblock middleware. Empty = disabled.
+geoblock_blocked_countries: []

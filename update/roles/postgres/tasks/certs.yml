@@ -1,0 +1,72 @@
+---
+- name: Create certificate directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0750"
+  loop:
+    - "{{ postgres_tls_dir }}"
+    - "{{ postgres_tls_client_dir }}"
+
+- name: Generate CA key
+  ansible.builtin.command:
+    cmd: openssl genrsa -out {{ postgres_tls_ca_key }} 4096
+    creates: "{{ postgres_tls_ca_key }}"
+
+- name: Generate CA certificate
+  ansible.builtin.command:
+    cmd: openssl req -x509 -new -nodes -key {{ postgres_tls_ca_key }} -sha256 -days 3650 -subj "/CN=postgres-ca" -out {{ postgres_tls_ca_cert }}
+    creates: "{{ postgres_tls_ca_cert }}"
+
+- name: Generate server key
+  ansible.builtin.command:
+    cmd: openssl genrsa -out {{ postgres_tls_server_key }} 2048
+    creates: "{{ postgres_tls_server_key }}"
+
+- name: Write server cert extensions config
+  ansible.builtin.copy:
+    dest: "{{ postgres_tls_dir }}/server_ext.cnf"
+    mode: "0600"
+    content: |
+      [v3_req]
+      subjectAltName = IP:{{ ansible_host }},DNS:localhost
+
+- name: Generate server CSR
+  ansible.builtin.command:
+    cmd: >
+      openssl req -new -key {{ postgres_tls_server_key }}
+      -subj "/CN={{ ansible_host }}"
+      -out {{ postgres_tls_dir }}/server.csr
+    creates: "{{ postgres_tls_dir }}/server.csr"
+
+- name: Sign server certificate with SANs
+  ansible.builtin.command:
+    cmd: >
+      openssl x509 -req -in {{ postgres_tls_dir }}/server.csr
+      -CA {{ postgres_tls_ca_cert }} -CAkey {{ postgres_tls_ca_key }} -CAcreateserial
+      -out {{ postgres_tls_server_cert }} -days 3650 -sha256
+      -extfile {{ postgres_tls_dir }}/server_ext.cnf -extensions v3_req
+    creates: "{{ postgres_tls_server_cert }}"
+
+- name: Set CA key permissions
+  ansible.builtin.file:
+    path: "{{ postgres_tls_ca_key }}"
+    mode: "0600"
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+
+- name: Set server key permissions
+  ansible.builtin.file:
+    path: "{{ postgres_tls_server_key }}"
+    mode: "0600"
+    owner: "999"
+    group: "999"
+
+- name: Set server cert permissions
+  ansible.builtin.file:
+    path: "{{ postgres_tls_server_cert }}"
+    mode: "0644"
+    owner: root
+    group: root

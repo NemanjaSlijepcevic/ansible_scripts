@@ -1,11 +1,15 @@
 ---
 - name: Create directory if they don't exist
   ansible.builtin.file:
-    path: "./data/traefik"
+    path: "{{ item }}"
     state: directory
     owner: "{{ user.name }}"
     group: "{{ user.group }}"
     mode: "0755"
+  loop:
+    - "./data/traefik"
+    - "./data/traefik/rules"
+    - "./data/traefik/logs"
 
 - name: Synchronize files
   ansible.posix.synchronize:
@@ -30,30 +34,34 @@
     group: "{{ user.group }}"
   when: not file_check.stat.exists
 
-- name: "Generate traefik.yml"
+# - name: Catch public IP
+#   ansible.builtin.uri:
+#     url: "{{ public_ip_url }}"
+#     return_content: true
+#     headers:
+#       Authorization: "Bearer {{ api_ip_token }}"
+#   register: public_ip
+#   run_once: true
+#   changed_when: false
+#   check_mode: false
+#   when: current_host == 'server'
+
+# - name: Add public IP to private_ips list
+#   ansible.builtin.set_fact:
+#     private_ips: "{{ (private_ips | default([])) + [public_ip.json.ip] }}"
+#   when: current_host == 'server'
+
+- name: "Generate configuration"
   ansible.builtin.template:
-    src: traefik.yml.j2
-    dest: ./data/traefik/traefik.yml
+    src: "{{ item }}.yml.j2"
+    dest: ./data/traefik/{{ item }}.yml
     owner: "{{ user.name }}"
     group: "{{ user.group }}"
     mode: '0755'
+  loop:
+    - traefik
+  register: traefik_static_config
 
-- name: Catch public IP
-  ansible.builtin.uri:
-    url: "{{ public_ip_url }}"
-    return_content: true
-    headers:
-      Authorization: "Bearer {{ api_ip_token }}"
-  register: public_ip
-  run_once: true
-  changed_when: false
-  check_mode: false
-  when: current_host == 'server'
-
-- name: Add public IP to private_ips list
-  ansible.builtin.set_fact:
-    private_ips: "{{ (private_ips | default([])) + [public_ip.json.ip] }}"
-  when: current_host == 'server'
 
 - name: "Generate rules"
   ansible.builtin.template:
@@ -63,15 +71,44 @@
     group: "{{ user.group }}"
     mode: '0755'
   loop:
-    - basic-auth
     - default-whitelist
-    - docker-metrics
+    - tunnel-whitelist
+    - crowdsec-bouncer
+    - chain-auth
+    - chain-no-auth
+    - chain-basic-auth
+    - chain-tunnel
 
-- name: "Generate nas.yml"
+- name: "Generate server-only rules (Cloudflare RealIP + GeoBlock)"
   ansible.builtin.template:
-    src: nas.yml.j2
-    dest: ./data/traefik/rules/nas.yml
+    src: "{{ item }}.yml.j2"
+    dest: ./data/traefik/rules/{{ item }}.yml
     owner: "{{ user.name }}"
     group: "{{ user.group }}"
     mode: '0755'
-  when: current_host == 'nas'
+  loop:
+    - cloudflarewarp
+    - geoblock
+  when: current_host == 'server'
+
+- name: Create logrotate config for traefik
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/templates/logrotate.j2"
+    dest: "/etc/logrotate.d/traefik"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+  vars:
+    log_path: "{{ ansible_env.PWD }}/data/traefik/logs/traefik.log"
+    copytruncate: true
+
+- name: Create logrotate config for access
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/templates/logrotate.j2"
+    dest: "/etc/logrotate.d/traefik-access"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+  vars:
+    log_path: "{{ ansible_env.PWD }}/data/traefik/logs/access.log"
+    copytruncate: true

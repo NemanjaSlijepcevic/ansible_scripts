@@ -1,0 +1,60 @@
+---
+- name: Get existing notifications
+  ansible.builtin.uri:
+    url: "{{ sonarr.url }}/api/v3/notification"
+    method: GET
+    headers:
+      X-Api-Key: "{{ sonarr.api_key }}"
+    return_content: true
+  register: existing_notifications
+
+- name: Add Jellyfin connection
+  ansible.builtin.uri:
+    url: "{{ sonarr.url }}/api/v3/notification"
+    method: POST
+    headers:
+      X-Api-Key: "{{ sonarr.api_key }}"
+    body_format: json
+    body:
+      name: "Jellyfin"
+      implementation: "MediaBrowser"
+      configContract: "MediaBrowserSettings"
+      onGrab: false
+      onDownload: true
+      onUpgrade: true
+      onRename: true
+      onSeriesAdd: false
+      onSeriesDelete: false
+      onEpisodeFileDelete: false
+      onEpisodeFileDeleteForUpgrade: false
+      onHealthIssue: false
+      onApplicationUpdate: false
+      fields:
+        - name: host
+          value: "jellyfin"
+        - name: port
+          value: 8096
+        - name: useSsl
+          value: false
+        - name: apiKey
+          value: "{{ jellyfin.api_key }}"
+        - name: urlBase
+          value: ""
+        - name: notify
+          value: true
+        - name: updateLibrary
+          value: true
+        - name: sendOnGrab
+          value: false
+    status_code: 201
+  when: "existing_notifications.json | selectattr('name', 'equalto', 'Jellyfin') | list | length == 0"
+
+- name: Verify Jellyfin connection exists
+  ansible.builtin.uri:
+    url: "{{ sonarr.url }}/api/v3/notification"
+    method: GET
+    headers:
+      X-Api-Key: "{{ sonarr.api_key }}"
+    return_content: true
+  register: verify_notifications
+  failed_when: "verify_notifications.json | selectattr('name', 'equalto', 'Jellyfin') | list | length == 0"

@@ -45,7 +45,7 @@
       - "./data/bibliography/staticfiles:/app/staticfiles"
     labels:
       traefik.enable: "true"
-      traefik.http.routers.emby.entrypoints: "https"
-      traefik.http.routers.emby.rule: "{{ bibliography.host }}"
-      traefik.http.routers.emby.tls: "true"
-      traefik.http.services.emby.loadbalancer.server.port: "{{ bibliography.port }}"
+      traefik.http.routers.bibliography.entrypoints: "https"
+      traefik.http.routers.bibliography.rule: "{{ bibliography.host }}"
+      traefik.http.routers.bibliography.tls: "true"
+      traefik.http.services.bibliography.loadbalancer.server.port: "{{ bibliography.port }}"

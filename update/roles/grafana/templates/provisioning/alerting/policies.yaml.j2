@@ -1,0 +1,24 @@
+apiVersion: 1
+
+policies:
+  - orgId: 1
+    receiver: Telegram
+    group_by:
+      - alertname
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 4h
+    # Fan-out: every alert (all provisioned rules carry a severity label)
+    # goes to Telegram directly (raw, immediate) AND to Kestra for Claude
+    # triage. The Kestra route repeats daily, not 4-hourly — one diagnosis
+    # per firing alert is enough; unlabeled built-ins fall back to the
+    # root Telegram receiver.
+    routes:
+      - receiver: Telegram
+        object_matchers:
+          - ["severity", "=~", ".+"]
+        continue: true
+      - receiver: Kestra
+        object_matchers:
+          - ["severity", "=~", ".+"]
+        repeat_interval: 24h

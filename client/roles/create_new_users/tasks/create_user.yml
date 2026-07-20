@@ -1,0 +1,56 @@
+- name: Create user {{ user_item.name }}
+  ansible.builtin.user:
+    name: "{{ user_item.name }}"
+    password: "{{ user_item.password }}"
+    create_home: true
+    groups: "sudo,ssh"
+    shell: /bin/bash
+    state: present
+
+- name: Deploy sudoers (human)
+  ansible.builtin.copy:
+    content: "{{ user_item.name }} ALL=(ALL) ALL"
+    dest: "/etc/sudoers.d/{{ user_item.name }}"
+    owner: root
+    group: root
+    mode: "0440"
+  when: not user_item.robot
+  notify: Validate sudoers
+
+- name: Deploy sudoers (bot)
+  ansible.builtin.copy:
+    content: "{{ user_item.name }} ALL=(ALL) NOPASSWD:ALL"
+    dest: "/etc/sudoers.d/{{ user_item.name }}"
+    owner: root
+    group: root
+    mode: "0440"
+  when: user_item.robot
+  notify: Validate sudoers
+
+- name: Ensure .ssh directory exists
+  ansible.builtin.file:
+    path: "/home/{{ user_item.name }}/.ssh"
+    state: directory
+    owner: "{{ user_item.name }}"
+    group: "{{ user_item.name }}"
+    mode: "0700"
+
+- name: Upload public key
+  ansible.builtin.copy:
+    src: "{{ user_item.key_path }}"
+    dest: "/home/{{ user_item.name }}/.ssh/authorized_keys"
+    owner: "{{ user_item.name }}"
+    group: "{{ user_item.name }}"
+    mode: "0644"
+  when: user_item.key_path is defined
+
+- name: Deploy shell aliases
+  ansible.builtin.copy:
+    src: bash_aliases
+    dest: "/home/{{ user_item.name }}/.bash_aliases"
+    owner: "{{ user_item.name }}"
+    group: "{{ user_item.name }}"
+    mode: "0644"
+
+- name: Install Oh My Bash
+  ansible.builtin.include_tasks: install_ohmybash.yml

@@ -1,0 +1,24 @@
+---
+# Documentation-only defaults for the create_new_users role.
+# Copy the shape into group_vars/host_vars and replace with real values,
+# then keep the real inventory encrypted. Values below are placeholders.
+
+# Users created on every host. password = SHA-512 crypt hash (mkpasswd -m sha-512).
+# robot: true  -> NOPASSWD sudo (automation account)
+# robot: false -> password-prompt sudo (human account)
+default_user:
+  - name: "botuser"
+    password: "$6$rounds=656000$EXAMPLEEXAMPLE$0000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    key_path: "botuser.pub"
+    robot: true
+  - name: "adminuser"
+    password: "$6$rounds=656000$EXAMPLEEXAMPLE$1111111111111111111111111111111111111111111111111111111111111111111111111111111111"
+    key_path: "adminuser.pub"
+    robot: false
+
+# Optional: interactively add one extra user at runtime.
+# Leave empty to skip. When set, the role prompts for the two vars below,
+# generates an ed25519 keypair, and appends the user to default_user.
+new_user: ""
+user_password: ""
+user_password_confirm: ""

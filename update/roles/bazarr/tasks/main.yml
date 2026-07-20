@@ -1,11 +1,23 @@
 ---
 - name: Create directory if they don't exist
   ansible.builtin.file:
-    path: ./data/bazarr
+    path: "{{ item }}"
     state: directory
     owner: "{{ user.name }}"
     group: "{{ user.group }}"
     mode: "0755"
+  loop:
+    - "./data/bazarr"
+    - "./data/bazarr/config"
+    - "./data/bazarr/config/config"
+
+- name: Configure Bazarr
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: ./data/bazarr/config/config/config.yaml
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: '0644'
 
 - name: Deploy Bazarr container
   community.docker.docker_container:
@@ -18,13 +30,44 @@
       PUID: "{{ puid }}"
       PGID: "{{ pgid }}"
       TZ: "Europe/Belgrade"
+      PGSSLMODE: "verify-ca"
+      PGSSLCERT: "/postgres-certs/bazarr.crt"
+      PGSSLKEY: "/postgres-certs/bazarr.key"
+      PGSSLROOTCERT: "/postgres-certs/ca.crt"
     volumes:
       - ./data/bazarr/config:/config
-      - "{{ movie_drive }}/Filmovi:/Filmovi"
-      - "{{ download_drive }}/Download/Watch:/tv"
+      - ./data/certs:/postgres-certs:ro
+      - "{{ movie_drive }}:/movies"
+      - "{{ tv_drive }}/Serije:/tv"
     labels:
       traefik.enable: "true"
       traefik.http.routers.bazarr.entrypoints: "https"
       traefik.http.routers.bazarr.rule: "{{ bazarr.host }}"
       traefik.http.routers.bazarr.tls: "true"
+      traefik.http.routers.bazarr.middlewares: "chain-auth@file"
       traefik.http.services.bazarr.loadbalancer.server.port: "{{ bazarr.port }}"
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail -H 'X-API-KEY: {{ bazarr.api_key }}' http://localhost:6767/api/system/ping || exit 1"]
+      interval: 1m30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+      start_interval: 10s
+
+- name: Wait for Bazarr to be ready
+  ansible.builtin.uri:
+    url: "{{ bazarr.url }}/api/system/ping"
+    method: GET
+    headers:
+      X-API-KEY: "{{ bazarr.api_key }}"
+    status_code: 200
+  register: result
+  until: result.status == 200
+  retries: 10
+  delay: 10
+
+- name: Configure Languages
+  ansible.builtin.include_tasks: languages.yml
+
+- name: Configure Telegram notification
+  ansible.builtin.include_tasks: telegram.yml

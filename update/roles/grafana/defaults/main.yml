@@ -1,0 +1,97 @@
+---
+user:
+  name: "deploy"
+  group: "docker"
+
+puid: "1000"
+pgid: "1000"
+
+grafana:
+  url: "https://grafana.example.com"
+  host: "Host(`grafana.example.com`)"
+  port: "3000"
+
+# Per-logger log level overrides (GF_LOG_FILTERS, "logger:level" CSV).
+# `expr:error` silences the benign "missing numeric fields" warn spam from
+# empty InfluxDB alert frames; `tsdb.loki:error` drops the per-query
+# "Response received from loki" info lines. Errors still log. Set to "" to
+# restore full verbosity.
+grafana_log_filters: "expr:error,tsdb.loki:error"
+
+# Authelia OIDC endpoint used for SSO login.
+authelia_links:
+  url: "https://auth.example.com"
+
+# Kestra webhook the "Kestra" alert contact point posts firing alerts to
+# (grafana-alert-triage flow → Claude diagnosis → Telegram). The trailing
+# key is the kestra role's grafana_webhook_key — treat the URL as secret.
+grafana_alert_webhook: "https://kestra.example.com/api/v1/main/executions/webhook/automation/grafana-alert-triage/changeme"
+
+# Telegraf bucket names monitored by alert rules.
+# Each entry corresponds to a current_host value used in update/<host>.yml.
+telegraf_buckets:
+  - "telegraf-nas"
+  - "telegraf-server"
+  - "telegraf-monitor"
+  - "telegraf-postgres"
+  - "telegraf-netboot"
+  # immich host not deployed yet — uncomment when it starts pushing
+  # metrics, or its node-gap/log-gap dead-man rules fire forever
+  # - "telegraf-immich"
+  - "telegraf-automation"
+
+# Per-host Traefik buckets monitored by traefik alert rules.
+traefik_alert_buckets:
+  - "traefik-nas"
+  - "traefik-server"
+  - "traefik-monitor"
+  - "traefik-netboot"
+  - "traefik-postgres"
+  # HIDDEN: automation serves almost no HTTP, so the 5xx/p95 queries return
+  # empty frames → Grafana errors the rule and floods "missing numeric
+  # fields". Re-enable (and drop the two matching deleteRules in
+  # rules.yaml.j2) once the host has real traffic or the rule tolerates
+  # empty data.
+  # - "traefik-automation"
+
+# Alert thresholds for HTTP uptime and system rules.
+alerts:
+  http_for: "3m"                    # service-down evaluation window
+  rt_warn: 1.0                      # response_time seconds
+  rt_crit: 3.0
+  rt_for: "5m"
+  node_gap_for: "5m"                # no telegraf data → node down
+  cpu_warn: 90                      # cpu usage_active %
+  cpu_for: "10m"
+  mem_warn: 90                      # mem used_percent
+  mem_for: "10m"
+  disk_crit: 90                     # disk used_percent
+  disk_for: "5m"
+  # Proxmox (bucket: proxmox, native v2 push)
+  proxmox_cpu_warn: 85              # %
+  proxmox_mem_warn: 85              # %
+  proxmox_for: "10m"
+  # Traefik (per-host buckets)
+  traefik_5xx_rate: 5               # req/s sustained
+  traefik_5xx_for: "5m"
+  traefik_p95_warn: 2.0             # seconds
+  traefik_p95_for: "5m"
+  # pfSense (bucket: pfsense)
+  pfsense_cpu_warn: 80              # %
+  pfsense_mem_warn: 85              # %
+  pfsense_for: "10m"
+  pf_states_pct: 80                 # % of state-limit; only fires when state-limit > 0
+  wan_down_for: "5m"
+  # WAN interface tag to monitor (pfSense uses interface name)
+  wan_interface: "vtnet0.5"
+  # Central PostgreSQL (bucket: telegraf-postgres, inputs.postgresql)
+  pg_gap_for: "3m"                  # no postgresql samples → server or agent down
+  pg_conn_warn: 80                  # total numbackends; PG default max_connections=100
+  pg_conn_for: "5m"
+  pg_deadlock_for: "5m"
+  # Docker containers (docker_container_status, all telegraf buckets)
+  container_exited_min: 12          # exited samples in 10m (~2 min at 10s interval);
+                                    # ephemeral task containers stay below this
+  container_for: "2m"
+  # Log pipeline (Loki datasource; promtail labels every line with node=<host>)
+  log_gap_for: "5m"

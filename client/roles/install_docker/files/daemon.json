@@ -1,0 +1,11 @@
+{
+    "metrics-addr": "127.0.0.1:9323",
+    "dns": ["1.1.1.1", "8.8.8.8"],
+    "dns-opts": ["timeout:2", "attempts:2"],
+    "log-driver": "json-file",
+    "log-opts": {
+        "max-size": "50m",
+        "max-file": "5"
+    },
+    "live-restore": true
+}

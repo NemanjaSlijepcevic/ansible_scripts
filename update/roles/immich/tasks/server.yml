@@ -1,0 +1,48 @@
+---
+- name: Create Immich Server container
+  community.docker.docker_container:
+    name: immich-server
+    image: ghcr.io/immich-app/immich-server:release
+    pull: true
+    restart_policy: unless-stopped
+    networks:
+      - name: proxy
+    env:
+      TZ: "Europe/Belgrade"
+      DB_HOSTNAME: "immich-postgres"
+      DB_USERNAME: "{{ immich.db.user }}"
+      DB_PASSWORD: "{{ immich.db.password }}"
+      DB_DATABASE_NAME: "{{ immich.db.name }}"
+      REDIS_HOSTNAME: "immich-redis"
+      UPLOAD_LOCATION: "{{ immich.upload_location }}"
+      IMMICH_MACHINE_LEARNING_URL: "http://immich-machine-learning:3003"
+    volumes:
+      - ./data/immich/upload:{{ immich.upload_location }}
+      # Proxmox bind mount required: mp0: /podaci/Slike,mp=/mnt/Slike
+      - /mnt/Slike:{{ immich.external_path }}:ro
+      - /etc/localtime:/etc/localtime:ro
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.immich.entrypoints: "https"
+      traefik.http.routers.immich.rule: "{{ immich.host }}"
+      traefik.http.routers.immich.tls: "true"
+      traefik.http.routers.immich.middlewares: "chain-no-auth@file"
+      traefik.http.routers.immich.service: "immich"
+      traefik.http.services.immich.loadbalancer.server.port: "{{ immich.port }}"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --spider http://localhost:2283/api/server/ping || exit 1"]
+      interval: 1m30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+      start_interval: 10s
+
+- name: Wait for Immich to be ready
+  ansible.builtin.uri:
+    url: "{{ immich.url }}/api/server/ping"
+    method: GET
+    status_code: 200
+  register: result
+  until: result.status == 200
+  retries: 10
+  delay: 15

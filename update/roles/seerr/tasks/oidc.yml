@@ -1,0 +1,31 @@
+---
+- name: Get current Seerr settings
+  ansible.builtin.uri:
+    url: "{{ seerr.url }}/api/v1/settings/main"
+    headers:
+      X-Api-Key: "{{ seerr.api_key }}"
+    status_code: 200
+  register: seerr_settings
+
+- name: Configure Authelia OIDC provider
+  vars:
+    existing_providers: "{{ seerr_settings.json.oidcProviders | default([]) }}"
+    new_provider:
+      slug: "authelia"
+      name: "Authelia"
+      issuerUrl: "{{ authelia_links.url }}"
+      clientId: "{{ authelia.oidc.seerr.client_id }}"
+      clientSecret: "{{ authelia.oidc.seerr.client_secret }}"
+      scopes: "openid profile email groups"
+      newUserLogin: true
+  ansible.builtin.uri:
+    url: "{{ seerr.url }}/api/v1/settings/main"
+    method: POST
+    headers:
+      X-Api-Key: "{{ seerr.api_key }}"
+    body_format: json
+    body:
+      oidcLogin: true
+      oidcProviders: "{{ existing_providers + [new_provider] }}"  # noqa: jinja[invalid]
+    status_code: 200
+  when: existing_providers | selectattr('slug', 'equalto', 'authelia') | list | length == 0

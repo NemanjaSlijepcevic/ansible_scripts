@@ -1,0 +1,77 @@
+---
+- name: Create directory if it doesn't exist
+  ansible.builtin.file:
+    path: "./data/seerr"
+    state: directory
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0755"
+
+- name: Read seerr client cert
+  ansible.builtin.slurp:
+    src: "./data/certs/seerr.crt"
+  register: seerr_cert_content
+
+- name: Read seerr client key
+  ansible.builtin.slurp:
+    src: "./data/certs/seerr.key"
+  register: seerr_key_content
+
+- name: Read CA cert
+  ansible.builtin.slurp:
+    src: "./data/certs/ca.crt"
+  register: seerr_ca_content
+
+- name: Deploy Seerr container
+  community.docker.docker_container:
+    name: seerr
+    image: ghcr.io/seerr-team/seerr:latest
+    restart_policy: unless-stopped
+    networks:
+      - name: proxy
+    env:
+      TZ: "Europe/Belgrade"
+      LOG_LEVEL: "info"
+      API_KEY: "{{ seerr.api_key }}"
+      DB_TYPE: "postgres"
+      DB_HOST: "{{ postgres.ip }}"
+      DB_PORT: "{{ postgres.port | string }}"
+      DB_USER: "{{ postgres.user }}"
+      DB_PASS: "{{ postgres.password }}"
+      DB_NAME: "seerr"
+      DB_LOG_QUERIES: "false"
+      DB_USE_SSL: "true"
+      DB_SSL_CA: "{{ seerr_ca_content.content | b64decode }}"
+      DB_SSL_CERT: "{{ seerr_cert_content.content | b64decode }}"
+      DB_SSL_KEY: "{{ seerr_key_content.content | b64decode }}"
+      NODE_EXTRA_CA_CERTS: "/postgres-certs/ca.crt"
+    volumes:
+      - ./data/seerr:/app/config
+      - ./data/certs:/postgres-certs:ro
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.seerr.entrypoints: "https"
+      traefik.http.routers.seerr.rule: "{{ seerr.host }}"
+      traefik.http.routers.seerr.tls: "true"
+      traefik.http.routers.seerr.middlewares: "chain-no-auth@file"
+      traefik.http.services.seerr.loadbalancer.server.port: "{{ seerr.port }}"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5055/api/v1/status || exit 1"]
+      interval: 1m30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+      start_interval: 10s
+
+- name: Wait for Seerr API to be ready
+  ansible.builtin.uri:
+    url: "{{ seerr.url }}/api/v1/status"
+    method: GET
+    status_code: 200
+  register: seerr_ready
+  until: seerr_ready.status == 200
+  retries: 30
+  delay: 5
+
+- name: Configure OIDC
+  ansible.builtin.include_tasks: oidc.yml

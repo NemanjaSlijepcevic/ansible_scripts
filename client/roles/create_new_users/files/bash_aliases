@@ -1,0 +1,37 @@
+OSH_THEME="pure"
+# ── Safe file operations
+alias cp='cp -i'
+alias mv='mv -i'
+alias rm='rm -i'
+alias mkdir='mkdir -pv'
+
+# ── Navigation
+alias ..='cd ..'
+alias ...='cd ../..'
+alias ....='cd ../../..'
+
+# ── Modern CLI replacements
+alias ls='eza'
+alias ll='eza -lah --git'
+alias la='eza -lah'
+alias tree='eza --tree'
+
+alias cat='bat --paging=never --style=plain'
+alias less='bat --paging=always --style=plain'
+
+alias fd='fdfind'
+alias grep='rg'
+
+# ── System
+alias df='df -h'
+alias free='free -h'
+alias ports='ss -tulpen'
+alias myip='curl ifconfig.me'
+
+# ── Package management
+alias update='sudo apt update && sudo apt upgrade -y'
+alias install='sudo apt install'
+alias remove='sudo apt remove'
+
+# ── Shell
+alias reload='source ~/.bashrc'

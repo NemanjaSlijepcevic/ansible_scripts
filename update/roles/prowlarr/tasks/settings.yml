@@ -1,0 +1,24 @@
+---
+- name: Get current host config
+  ansible.builtin.uri:
+    url: "{{ prowlarr.url }}/api/v1/config/host"
+    method: GET
+    headers:
+      X-Api-Key: "{{ prowlarr.api_key }}"
+    return_content: true
+  register: prowlarr_host_config
+
+- name: Build host config body
+  ansible.builtin.set_fact:
+    prowlarr_host_body: "{{ prowlarr_host_config.json | combine({'analyticsEnabled':
+      false, 'urlBase': ''}) }}"
+
+- name: Set host config
+  ansible.builtin.uri:
+    url: "{{ prowlarr.url }}/api/v1/config/host"
+    method: PUT
+    headers:
+      X-Api-Key: "{{ prowlarr.api_key }}"
+    body_format: json
+    body: "{{ prowlarr_host_body }}"
+    status_code: [200, 202]

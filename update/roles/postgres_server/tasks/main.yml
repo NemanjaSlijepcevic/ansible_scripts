@@ -1,0 +1,16 @@
+---
+- name: Generate TLS certificates
+  ansible.builtin.include_tasks: certs.yml
+
+- name: Generate and distribute client certificates
+  ansible.builtin.include_tasks: client_certs.yml
+
+- name: Deploy PostgreSQL container
+  ansible.builtin.include_tasks: container.yml
+
+- name: Provision service users and databases
+  ansible.builtin.include_tasks: create_service_users.yml
+  when: postgres_service_users | length > 0
+
+- name: Verify databases, tables and client certs
+  ansible.builtin.include_tasks: verify.yml

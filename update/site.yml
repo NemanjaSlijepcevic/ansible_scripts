@@ -1,0 +1,8 @@
+---
+# import_playbook cannot take a name; each imported playbook names its own plays.
+- import_playbook: postgres.yml # noqa: name[play]
+- import_playbook: monitor.yml # noqa: name[play]
+- import_playbook: nas.yml # noqa: name[play]
+- import_playbook: server.yml # noqa: name[play]
+- import_playbook: automation.yml # noqa: name[play]
+- import_playbook: netboot.yml # noqa: name[play]

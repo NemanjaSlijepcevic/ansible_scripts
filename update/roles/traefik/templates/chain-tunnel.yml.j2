@@ -1,0 +1,13 @@
+http:
+  middlewares:
+    chain-tunnel:
+      chain:
+        middlewares:
+{% if current_host == 'server' %}
+          - cloudflarewarp
+{% endif %}
+          - tunnel-whitelist
+          - crowdsec-bouncer
+          - secure-headers
+          - rate-limit
+          - authelia

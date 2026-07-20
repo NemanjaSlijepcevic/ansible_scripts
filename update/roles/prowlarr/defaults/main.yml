@@ -1,0 +1,29 @@
+---
+user:
+  name: "deploy"
+  group: "docker"
+
+puid: "1000"
+pgid: "1000"
+
+postgres:
+  ip: "192.0.2.10"
+  port: 5432
+  user: "mediauser"
+  password: "changeme"
+
+prowlarr:
+  api_key: "changeme"
+  port: "9696"
+  host: "Host(`prowlarr.example.com`)"
+  url: "https://prowlarr.example.com"
+
+# Apps prowlarr syncs indexers into.
+sonarr:
+  api_key: "changeme"
+
+radarr:
+  api_key: "changeme"
+
+lidarr:
+  api_key: "changeme"

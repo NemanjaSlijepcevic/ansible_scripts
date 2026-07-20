@@ -1,0 +1,47 @@
+# Managed by Ansible (kestra role) — do not edit on the host.
+datasources:
+  postgres:
+    url: "jdbc:postgresql://{{ postgres.ip }}:{{ postgres.port }}/kestra?ssl=true&sslmode=verify-ca&sslrootcert=/app/certs/ca.crt&sslcert=/app/certs/kestra.crt&sslkey=/app/certs/kestra.key.pk8"
+    driverClassName: org.postgresql.Driver
+    username: "{{ kestra_db.user }}"
+    password: "{{ kestra_db.password }}"
+
+kestra:
+  repository:
+    type: postgres
+  queue:
+    type: postgres
+  storage:
+    type: local
+    local:
+      base-path: /app/storage
+  url: "{{ kestra.url }}/"
+  encryption:
+    secret-key: "{{ kestra.encryption_key }}"
+  anonymous-usage-report:
+    enabled: false
+  server:
+    basic-auth:
+      username: "{{ kestra.admin_user }}"
+      password: "{{ kestra.admin_password }}"
+      # Webhook triggers are called by external systems, not logged-in
+      # humans (Authelia bypasses the same path).
+      open-urls:
+        - "/api/v1/main/executions/webhook/"
+        - "/api/v1/executions/webhook/"
+  plugins:
+    configurations:
+      # Task containers exchange files through named volumes, so no shared
+      # host tmp-dir is needed even though the daemon behind socket-proxy
+      # is the host's; volumeEnabled additionally allows flows to declare
+      # explicit host-path volumes (paths are HOST paths).
+      - type: io.kestra.plugin.scripts.runner.docker.Docker
+        values:
+          volumeEnabled: true
+    defaults:
+      # Kestra never sees /var/run/docker.sock — every Docker task runner
+      # call goes through the filtered socket-proxy (socket_proxy role).
+      - type: io.kestra.plugin.scripts.runner.docker.Docker
+        values:
+          host: "tcp://socket-proxy:2375"
+          fileHandlingStrategy: VOLUME

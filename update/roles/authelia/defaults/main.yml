@@ -1,0 +1,31 @@
+---
+# Authelia log verbosity: trace | debug | info | warn | error. Default info
+# (Authelia's own default, and what the CrowdSec LePresidente/authelia
+# collection targets — auth-failure events are error/warn, so they survive).
+# Set debug per host only while troubleshooting; it floods Loki with
+# per-request authorization traces.
+authelia_log_level: "info"
+
+authelia_links:
+  static: "172.20.0.2"
+  host: "Host(`auth.example.com`)"
+  url: "https://auth.example.com"
+  host_2: "Host(`auth2.example.com`)"
+  host_3: "Host(`auth3.example.com`)"
+
+traefik_links:
+  zero:
+    main: "example.com"
+    sans: "*.example.com"
+
+postgres:
+  ip: "192.0.2.10"
+  port: 5432
+
+authelia_db:
+  user: "authelia"
+  password: "changeme"
+
+authelia:
+  mail:
+    user: "notify@example.com"

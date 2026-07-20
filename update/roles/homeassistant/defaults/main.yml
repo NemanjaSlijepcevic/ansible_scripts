@@ -1,0 +1,17 @@
+---
+user:
+  name: "deploy"
+  group: "docker"
+
+homeassistant:
+  host: "Host(`ha.example.com`)"
+  port: "8123"
+
+# MQTT broker Home Assistant connects to. user/password feed the mosquitto
+# password_file (anonymous access is disabled) — every MQTT client (HA
+# integration, IoT devices) must authenticate with these credentials.
+mqtt:
+  host: "mosquitto"
+  port: "1883"
+  user: "deploy"
+  password: "changeme"

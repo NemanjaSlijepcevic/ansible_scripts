@@ -6,9 +6,12 @@
 
 - name: Add user to docker group
   ansible.builtin.user:
-    name: "{{ new_user }}"
-    group: docker
+    name: "{{ user_item.name }}"
+    groups: docker
     append: true
+  loop: "{{ default_user }}"
+  loop_control:
+    loop_var: user_item
 
 - name: Download Docker shell script
   ansible.builtin.get_url:
@@ -27,19 +30,65 @@
     state: "present"
   vars:
     packages:
-      - software-properties-common
       - python3-pip
       - virtualenv
       - python3-setuptools
       - python3-docker
-      - mc
 
-- name: Remove EXTERNALLY-MANAGED if we're on debian12
+- name: Find EXTERNALLY-MANAGED markers
+  ansible.builtin.find:
+    paths: /usr/lib
+    patterns: "EXTERNALLY-MANAGED"
+    recurse: true
+    file_type: file
+  register: externally_managed
+  when: ansible_facts['distribution'] == 'Debian'
+
+- name: Remove EXTERNALLY-MANAGED markers
   ansible.builtin.file:
-    path: /usr/lib/python3.11/EXTERNALLY-MANAGED
+    path: "{{ item.path }}"
     state: absent
+  loop: "{{ externally_managed.files | default([]) }}"
   when: ansible_facts['distribution'] == 'Debian'
 
 - name: Install python packages
   ansible.builtin.pip:
     name: docker
+
+- name: Deploy Docker daemon.json configuration
+  ansible.builtin.copy:
+    src: daemon.json
+    dest: "/etc/docker/daemon.json"
+    owner: root
+    group: root
+    mode: '0644'
+  register: daemon_template
+  notify: Validate and Restart Docker
+
+- name: Create logrotate config for docker
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/templates/logrotate.j2"
+    dest: "/etc/logrotate.d/docker"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+  vars:
+    log_path: "/var/log/docker/*.log"
+
+- name: Run hello-world container to verify Docker works
+  community.docker.docker_container:
+    name: hello-world-test
+    image: hello-world
+    state: started
+    auto_remove: false
+    detach: false
+
+- name: Remove hello-world test container
+  community.docker.docker_container:
+    name: hello-world-test
+    state: absent
+
+- name: Remove hello-world test image
+  community.docker.docker_image:
+    name: hello-world
+    state: absent

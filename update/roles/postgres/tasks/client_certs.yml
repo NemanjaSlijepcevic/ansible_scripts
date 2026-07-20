@@ -1,0 +1,140 @@
+---
+- name: Ensure client certs directory
+  ansible.builtin.file:
+    path: "{{ postgres_tls_client_dir }}"
+    state: directory
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: '0750'
+  when: postgres_tls_clients | length > 0
+
+- name: Ensure CA serial file
+  ansible.builtin.copy:
+    content: "01\n"
+    dest: "{{ postgres_tls_ca_serial }}"
+    owner: root
+    group: root
+    mode: '0600'
+    force: false
+  when: postgres_tls_clients | length > 0
+
+- name: Generate client keys
+  ansible.builtin.command:
+    cmd: "openssl genrsa -out {{ postgres_tls_client_dir }}/{{ item.name }}.key 2048"
+    creates: "{{ postgres_tls_client_dir }}/{{ item.name }}.key"
+  loop: "{{ postgres_tls_clients }}"
+  when: postgres_tls_clients | length > 0
+
+- name: Generate client CSRs
+  ansible.builtin.command:
+    cmd: >-
+      openssl req -new -key {{ postgres_tls_client_dir }}/{{ item.name }}.key
+      -subj '/CN={{ item.db_user }}'
+      -out {{ postgres_tls_client_dir }}/{{ item.name }}.csr
+    creates: "{{ postgres_tls_client_dir }}/{{ item.name }}.csr"
+  loop: "{{ postgres_tls_clients }}"
+  when: postgres_tls_clients | length > 0
+
+- name: Sign client certificates with CA
+  ansible.builtin.command:
+    cmd: >-
+      openssl x509 -req -in {{ postgres_tls_client_dir }}/{{ item.name }}.csr
+      -CA {{ postgres_tls_ca_cert }} -CAkey {{ postgres_tls_ca_key }}
+      -CAserial {{ postgres_tls_ca_serial }}
+      -out {{ postgres_tls_client_dir }}/{{ item.name }}.crt -days 3650 -sha256
+    creates: "{{ postgres_tls_client_dir }}/{{ item.name }}.crt"
+  loop: "{{ postgres_tls_clients }}"
+  when: postgres_tls_clients | length > 0
+
+- name: Set permissions on client keys
+  ansible.builtin.file:
+    path: "{{ postgres_tls_client_dir }}/{{ item.name }}.key"
+    owner: root
+    group: root
+    mode: '0600'
+  loop: "{{ postgres_tls_clients }}"
+  when: postgres_tls_clients | length > 0
+
+- name: Set permissions on client certs
+  ansible.builtin.file:
+    path: "{{ postgres_tls_client_dir }}/{{ item.name }}.crt"
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ postgres_tls_clients }}"
+  when: postgres_tls_clients | length > 0
+
+- name: Read CA cert for distribution
+  ansible.builtin.slurp:
+    path: "{{ postgres_tls_ca_cert }}"
+  register: postgres_tls_ca_slurp
+  when: postgres_tls_clients | length > 0 and postgres_tls_client_hosts | length > 0
+
+- name: Read client certs for distribution
+  ansible.builtin.slurp:
+    path: "{{ postgres_tls_client_dir }}/{{ item.name }}.crt"
+  loop: "{{ postgres_tls_clients }}"
+  register: postgres_tls_client_crt_slurp
+  when: postgres_tls_clients | length > 0 and postgres_tls_client_hosts | length > 0
+
+- name: Read client keys for distribution
+  ansible.builtin.slurp:
+    path: "{{ postgres_tls_client_dir }}/{{ item.name }}.key"
+  loop: "{{ postgres_tls_clients }}"
+  register: postgres_tls_client_key_slurp
+  when: postgres_tls_clients | length > 0 and postgres_tls_client_hosts | length > 0
+
+- name: Build client cert content map
+  ansible.builtin.set_fact:
+    postgres_tls_client_crt_map: >-
+      {{ dict(postgres_tls_client_crt_slurp.results | map(attribute='item.name')
+         | zip(postgres_tls_client_crt_slurp.results | map(attribute='content'))) }}
+    postgres_tls_client_key_map: >-
+      {{ dict(postgres_tls_client_key_slurp.results | map(attribute='item.name')
+         | zip(postgres_tls_client_key_slurp.results | map(attribute='content'))) }}
+  when: postgres_tls_clients | length > 0 and postgres_tls_client_hosts | length > 0
+
+- name: Ensure client certs directory on hosts
+  ansible.builtin.file:
+    path: "{{ postgres_tls_client_base_dir }}"
+    state: directory
+    mode: '0755'
+  delegate_to: "{{ item }}"
+  loop: "{{ postgres_tls_client_hosts }}"
+  when: postgres_tls_clients | length > 0 and postgres_tls_client_hosts | length > 0
+
+- name: Distribute CA cert to hosts
+  ansible.builtin.copy:
+    dest: "{{ postgres_tls_client_base_dir }}/ca.crt"
+    content: "{{ postgres_tls_ca_slurp.content | b64decode }}"
+    mode: '0644'
+  delegate_to: "{{ item }}"
+  loop: "{{ postgres_tls_client_hosts }}"
+  when: postgres_tls_clients | length > 0 and postgres_tls_client_hosts | length > 0
+
+- name: Distribute client certs to hosts
+  ansible.builtin.copy:
+    dest: "{{ postgres_tls_client_base_dir }}/{{ client_target.0.name }}.crt"
+    content: "{{ postgres_tls_client_crt_map[client_target.0.name] | b64decode }}"
+    mode: '0644'
+  delegate_to: "{{ client_target.1 }}"
+  loop: "{{ postgres_tls_clients | subelements('hosts', skip_missing=True) }}"
+  loop_control:
+    loop_var: client_target
+    label: "{{ client_target.1 }} -> {{ client_target.0.name }}.crt"
+  when: postgres_tls_clients | length > 0
+
+- name: Distribute client keys to hosts
+  ansible.builtin.copy:
+    dest: "{{ postgres_tls_client_base_dir }}/{{ client_target.0.name }}.key"
+    content: "{{ postgres_tls_client_key_map[client_target.0.name] | b64decode }}"
+    owner: root
+    group: "{{ pgid }}"
+    mode: '0640'
+  delegate_to: "{{ client_target.1 }}"
+  no_log: true
+  loop: "{{ postgres_tls_clients | subelements('hosts', skip_missing=True) }}"
+  loop_control:
+    loop_var: client_target
+    label: "{{ client_target.1 }} -> {{ client_target.0.name }}.key"
+  when: postgres_tls_clients | length > 0

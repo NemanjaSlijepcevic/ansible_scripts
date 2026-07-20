@@ -1,17 +1,17 @@
 ---
-- name: "Add {{ db_name }}"
+- name: "Add {{ db.name }}"
   community.docker.docker_container:
-    name: "{{ db_name }}"
-    image: mysql:8.4.1
+    name: "{{ db.name }}"
+    image: mariadb:11
     pull: true
     state: started
     restart_policy: unless-stopped
-    command: "--mysql-native-password=ON --server-id={{ db_id }} --log-bin=mysql-bin --binlog-format=row"
+    command: "--character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci"
     networks:
       - name: proxy
-        ipv4_address: "{{ db_static }}"
+        ipv4_address: "{{ db.static }}"
     volumes:
-      - "{{ db_volume }}:/var/lib/mysql"
+      - "{{ db.volume }}:/var/lib/mysql"
     env:
       TZ: "Europe/Belgrade"
-      MYSQL_ROOT_PASSWORD: "{{ db_pass }}"
+      MARIADB_ROOT_PASSWORD: "{{ db.pass }}"

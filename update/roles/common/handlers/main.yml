@@ -1,5 +1,23 @@
 ---
+- name: Validate Docker daemon.json
+  ansible.builtin.command: jq . /etc/docker/daemon.json
+  register: jq_check
+  changed_when: false
+  failed_when: jq_check.rc != 0
+  listen: Validate and Restart Docker
+
 - name: Restart Docker
   ansible.builtin.service:
     name: docker
     state: restarted
+    enabled: true
+  when: jq_check.rc == 0
+  listen: Validate and Restart Docker
+
+- name: Wait for Docker socket
+  ansible.builtin.wait_for:
+    path: /var/run/docker.sock
+    state: present
+    timeout: 30
+  when: jq_check.rc == 0
+  listen: Validate and Restart Docker

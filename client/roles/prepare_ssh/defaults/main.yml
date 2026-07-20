@@ -1,0 +1,6 @@
+---
+# Documentation-only defaults for the prepare_ssh role.
+# This role only enables the ssh service, creates the ssh group, and wires
+# sshd_config to include sshd_config.d/*.conf. It takes NO inventory-driven
+# variables. SSH hardening/port live in the protect_ssh role.
+# Nothing here needs to be added to host_vars/group_vars.

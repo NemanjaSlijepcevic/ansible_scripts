@@ -1,0 +1,59 @@
+---
+- name: Create Immich admin account (first run only)
+  ansible.builtin.uri:
+    url: "{{ immich.url }}/api/auth/admin-sign-up"
+    method: POST
+    body_format: json
+    body:
+      email: "{{ immich.admin_email }}"
+      name: "Admin"
+      password: "{{ immich.admin_password }}"
+    status_code: [200, 201, 400]
+
+- name: Authenticate as Immich admin
+  ansible.builtin.uri:
+    url: "{{ immich.url }}/api/auth/login"
+    method: POST
+    body_format: json
+    body:
+      email: "{{ immich.admin_email }}"
+      password: "{{ immich.admin_password }}"
+    status_code: 201
+  register: immich_auth
+
+- name: Get current system config
+  ansible.builtin.uri:
+    url: "{{ immich.url }}/api/admin/system-config"
+    headers:
+      Authorization: "Bearer {{ immich_auth.json.accessToken }}"
+    status_code: 200
+  register: immich_config
+
+- name: Configure Authelia OAuth
+  vars:
+    oauth_update:
+      oauth:
+        enabled: true
+        issuerUrl: "{{ authelia_links.url }}/.well-known/openid-configuration"
+        clientId: "{{ authelia.oidc.immich.client_id }}"
+        clientSecret: "{{ authelia.oidc.immich.client_secret }}"
+        scope: "openid profile email"
+        buttonText: "Login with Authelia"
+        autoRegister: true
+        autoLaunch: false
+        mobileOverrideEnabled: false
+        mobileRedirectUri: ""
+        defaultStorageQuota: 0
+        storageLabelClaim: "preferred_username"
+        storageQuotaClaim: "immich_quota"
+        signingAlgorithm: "RS256"
+        profileSigningAlgorithm: "none"
+  ansible.builtin.uri:
+    url: "{{ immich.url }}/api/admin/system-config"
+    method: PUT
+    headers:
+      Authorization: "Bearer {{ immich_auth.json.accessToken }}"
+    body_format: json
+    body: "{{ immich_config.json | combine(oauth_update, recursive=True) }}"
+    status_code: 200
+  when: not immich_config.json.oauth.enabled

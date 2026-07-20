@@ -1,0 +1,57 @@
+- name: Check if NAS databases exist
+  community.postgresql.postgresql_query:
+    login_user: "{{ postgres.adm_user }}"
+    login_password: "{{ postgres.adm_pass }}"
+    login_host: "{{ postgres.ip | default('localhost') }}"
+    login_port: "{{ postgres.port | default(5432) }}"
+    login_db: postgres
+    query: "SELECT 1 FROM pg_database WHERE datname = '{{ item }}';"
+  environment:
+    PGSSLMODE: "verify-ca"
+    PGSSLCERT: "./data/certs/postgres_admin.crt"
+    PGSSLKEY: "./data/certs/postgres_admin.key"
+    PGSSLROOTCERT: "./data/certs/ca.crt"
+  loop:
+    - "sonarr"
+    - "radarr"
+    - "lidarr"
+    - "bazarr"
+    - "prowlarr"
+    - "seerr"
+    - "sonarr-log"
+    - "radarr-log"
+    - "lidarr-log"
+    - "bazarr-log"
+    - "prowlarr-log"
+  loop_control:
+    label: "{{ item }}"
+  register: nas_db_check
+  changed_when: false
+
+- name: Prepare db for NAS applications
+  ansible.builtin.include_tasks: create_db_and_user.yml
+  vars:
+    admin_user: "{{ postgres.adm_user }}"
+    admin_password: "{{ postgres.adm_pass }}"
+    admin_host: "{{ postgres.ip | default('localhost') }}"
+    admin_port: "{{ postgres.port | default(5432) }}"
+    admin_rights: false
+    db_user: "{{ postgres.user }}"
+    db_pass: "{{ postgres.password }}"
+    db_name: "{{ item }}"
+  loop:
+    - "sonarr"
+    - "radarr"
+    - "lidarr"
+    - "bazarr"
+    - "prowlarr"
+    - "seerr"
+    - "sonarr-log"
+    - "radarr-log"
+    - "lidarr-log"
+    - "bazarr-log"
+    - "prowlarr-log"
+  loop_control:
+    label: "{{ item }}"
+    extended: true
+  when: (nas_db_check.results[ansible_loop.index0].rowcount | default(0)) == 0

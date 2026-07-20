@@ -1,0 +1,13 @@
+{# pg_hba on the central Postgres requires `cert clientcert=verify-full`,
+   so Authelia must present its client certificate. The inner go-template
+   braces are evaluated by Authelia at startup (X_AUTHELIA_CONFIG_FILTERS
+   set to template in tasks/main.yml), reading the certs distributed to
+   /postgres-certs by update/postgres.yml. #}
+storage:
+  postgres:
+    tls:
+      certificate_chain: |
+        {% raw %}{{- fileContent "/postgres-certs/authelia.crt" | nindent 8 }}{% endraw %}
+
+      private_key: |
+        {% raw %}{{- fileContent "/postgres-certs/authelia.key" | nindent 8 }}{% endraw %}

@@ -1,0 +1,148 @@
+- id: '1725695093439'
+  alias: Uredjaj je nedostupan
+  description: ''
+  trigger:
+  - platform: state
+    entity_id:
+    - light.komoda
+    - light.kuhinja
+    - sensor.backup_battery
+    - sensor.tuyatemp2_battery
+    - sensor.tuyatemp1_battery
+    - sensor.aquartemp_battery
+    - sensor.water_b_battery
+    - sensor.water_battery
+    - climate.153931628460388_climate
+    from:
+    to: unavailable
+    for:
+      hours: 0
+      minutes: 5
+      seconds: 0
+  condition: []
+  action:
+  - action: telegram_bot.send_message
+    metadata: {}
+    data:
+      message: ⚠️ {{ trigger.to_state.name }} nije dostupan
+  mode: single
+- id: '1725696158984'
+  alias: Baterija prazna
+  description: ''
+  trigger:
+  - platform: numeric_state
+    entity_id:
+    - sensor.backup_battery
+    - sensor.tuyatemp2_battery
+    - sensor.tuyatemp1_battery
+    - sensor.aquartemp_battery
+    - sensor.water_b_battery
+    - sensor.water_battery
+    below: 30
+    for:
+      hours: 0
+      minutes: 5
+      seconds: 0
+  condition: []
+  action:
+  - action: telegram_bot.send_message
+    metadata: {}
+    data:
+      message: "⚠️ {{ trigger.to_state.name }} baterija je prazna \U0001FAAB"
+  mode: single
+- id: '1725706163762'
+  alias: Uredjaj dostupan
+  description: ''
+  trigger:
+  - platform: state
+    entity_id:
+    - light.komoda
+    - light.kuhinja
+    - sensor.backup_battery
+    - sensor.tuyatemp2_battery
+    - sensor.tuyatemp1_battery
+    - sensor.aquartemp_battery
+    - sensor.water_b_battery
+    - sensor.water_battery
+    - climate.153931628460388_climate
+    from: unavailable
+    to:
+  condition: []
+  action:
+  - action: telegram_bot.send_message
+    metadata: {}
+    data:
+      message: ✅ {{ trigger.to_state.name }} je dostupan
+  mode: single
+- id: '1725707280408'
+  alias: Upali klimu
+  description: ''
+  trigger:
+  - platform: numeric_state
+    entity_id:
+    - sensor.tuyatemp2_humidity
+    - sensor.backup_humidity
+    above: 45
+  - platform: numeric_state
+    entity_id:
+    - sensor.tuyatemp2_temperature
+    - sensor.backup_temperature
+    above: 27
+  condition:
+  - condition: state
+    entity_id: climate.153931628460388_climate
+    attribute: power
+    state: false
+  - condition: numeric_state
+    entity_id: sensor.tuyatemp2_humidity
+    above: 45
+  - condition: numeric_state
+    entity_id: sensor.tuyatemp2_temperature
+    above: 27
+  action:
+  - device_id: a9fa02087491ddc0d967b10a6a84660b
+    domain: climate
+    entity_id: 3c8f0481f33211275f49cc3d311ece69
+    type: set_hvac_mode
+    hvac_mode: cool
+  - action: telegram_bot.send_message
+    metadata: {}
+    data:
+      message: "\U0001F975 klima je ukljucena"
+  mode: single
+- id: '1725707565349'
+  alias: Ugasi klimu
+  description: ''
+  trigger:
+  - platform: numeric_state
+    entity_id:
+    - sensor.tuyatemp2_humidity
+    - sensor.backup_humidity
+    below: 41
+  - platform: numeric_state
+    entity_id:
+    - sensor.tuyatemp2_temperature
+    - sensor.backup_temperature
+    below: 27
+  condition:
+  - condition: state
+    entity_id: climate.153931628460388_climate
+    attribute: power
+    state: true
+  - condition: numeric_state
+    entity_id: sensor.tuyatemp2_humidity
+    below: 41
+  - condition: numeric_state
+    entity_id: sensor.tuyatemp2_temperature
+    below: 27
+  action:
+  - device_id: a9fa02087491ddc0d967b10a6a84660b
+    domain: climate
+    entity_id: 3c8f0481f33211275f49cc3d311ece69
+    type: set_hvac_mode
+    hvac_mode: 'off'
+  - action: telegram_bot.send_message
+    metadata: {}
+    data:
+      message: "\U0001F976 klima je ugasena"
+  mode: single

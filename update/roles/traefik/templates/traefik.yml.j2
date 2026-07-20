@@ -1,6 +1,35 @@
 api:
   dashboard: true
   debug: true
+
+experimental:
+  plugins:
+    crowdsec-bouncer-traefik-plugin:
+      moduleName: github.com/maxlerebourg/crowdsec-bouncer-traefik-plugin
+      version: v1.4.4
+{% if current_host == 'server' %}
+    cloudflarewarp:
+      moduleName: github.com/BetterCorp/cloudflarewarp
+      version: v1.3.3
+    geoblock:
+      moduleName: github.com/PascalMinder/geoblock
+      version: v0.3.3
+{% endif %}
+
+certificatesResolvers:
+  cloudflare:
+    acme:
+      email: {{ default.mail }}
+      storage: acme.json
+      caServer: https://acme-v02.api.letsencrypt.org/directory
+      dnsChallenge:
+        provider: cloudflare
+        propagation:
+          disableChecks: false
+        resolvers:
+          - "1.1.1.1:53"
+          - "1.0.0.1:53"
+
 entryPoints:
   http:
     address: ":80"
@@ -14,8 +43,34 @@ entryPoints:
     http:
       middlewares:
         - chain-auth@file
-serversTransport:
-  insecureSkipVerify: true
+
+log:
+  level: "INFO"
+  filePath: "/var/log/traefik/traefik.log"
+accessLog:
+  filePath: "/var/log/traefik/access.log"
+  format: json
+  fields:
+    defaultMode: keep
+    headers:
+      defaultMode: drop
+      names:
+        User-Agent: keep
+
+metrics:
+  influxDB2:
+    address: {{ influxdb.url }}
+    token: {{ influxdb.api_token }}
+    org: {{ influxdb.organization }}
+    bucket: traefik-{{ current_host }}
+    addEntryPointsLabels: true
+    addRoutersLabels: true
+    addServicesLabels: true
+    pushInterval: 10s
+
+
+ping: {}
+
 providers:
   docker:
     endpoint: "unix:///var/run/docker.sock"
@@ -23,28 +78,7 @@ providers:
   file:
     directory: /rules
     watch: true
-certificatesResolvers:
-  cloudflare:
-    acme:
-      email: {{ default.mail }}
-      storage: acme.json
-      caServer: https://acme-v02.api.letsencrypt.org/directory # prod (default)
-      dnsChallenge:
-        provider: cloudflare
-        disablePropagationCheck: true 
-        delayBeforeCheck: 60s
-        resolvers:
-          - "1.1.1.1:53"
-          - "1.0.0.1:53"
-log:
-  level: "INFO"
-  filePath: "/var/log/traefik/traefik.log"
-accessLog:
-  filePath: "/var/log/traefik/access.log"
-metrics:
-  prometheus:
-    addEntryPointsLabels: true
-    addRoutersLabels: true
-    addServicesLabels: true
 
+serversTransport:
+  insecureSkipVerify: false
 

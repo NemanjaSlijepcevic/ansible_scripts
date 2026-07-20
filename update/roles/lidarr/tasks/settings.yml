@@ -1,0 +1,49 @@
+---
+- name: Get current UI config
+  ansible.builtin.uri:
+    url: "{{ lidarr.url }}/api/v1/config/ui"
+    method: GET
+    headers:
+      X-Api-Key: "{{ lidarr.api_key }}"
+    return_content: true
+  register: lidarr_ui_config
+
+- name: Build UI config body
+  ansible.builtin.set_fact:
+    lidarr_ui_body: "{{ lidarr_ui_config.json | combine({'firstDayOfWeek': 1,
+      'calendarWeekColumnHeader': 'ddd D/M', 'shortDateFormat': 'DD/MM/YYYY',
+      'longDateFormat': 'dddd, DD MMMM YYYY', 'timeFormat': 'HH:mm'}) }}"
+
+- name: Set UI config
+  ansible.builtin.uri:
+    url: "{{ lidarr.url }}/api/v1/config/ui"
+    method: PUT
+    headers:
+      X-Api-Key: "{{ lidarr.api_key }}"
+    body_format: json
+    body: "{{ lidarr_ui_body }}"
+    status_code: [200, 202]
+
+- name: Get current host config
+  ansible.builtin.uri:
+    url: "{{ lidarr.url }}/api/v1/config/host"
+    method: GET
+    headers:
+      X-Api-Key: "{{ lidarr.api_key }}"
+    return_content: true
+  register: lidarr_host_config
+
+- name: Build host config body
+  ansible.builtin.set_fact:
+    lidarr_host_body: "{{ lidarr_host_config.json | combine({'analyticsEnabled':
+      false, 'urlBase': ''}) }}"
+
+- name: Set host config
+  ansible.builtin.uri:
+    url: "{{ lidarr.url }}/api/v1/config/host"
+    method: PUT
+    headers:
+      X-Api-Key: "{{ lidarr.api_key }}"
+    body_format: json
+    body: "{{ lidarr_host_body }}"
+    status_code: [200, 202]

@@ -1,0 +1,55 @@
+apiVersion: 1
+
+contactPoints:
+  # Kestra webhook → grafana-alert-triage flow: Claude analyzes the firing
+  # alert and posts a diagnosis to Telegram as a follow-up. The key inside
+  # the URL is the only auth on that path — treat grafana_alert_webhook as
+  # a secret.
+  - orgId: 1
+    name: Kestra
+    receivers:
+      - uid: kestra-webhook
+        type: webhook
+        disableResolveMessage: false
+        settings:
+          url: "{{ grafana_alert_webhook }}"
+          httpMethod: POST
+
+  - orgId: 1
+    name: Telegram
+    receivers:
+      - uid: telegram-default
+        type: telegram
+        disableResolveMessage: false
+        settings:
+          bottoken: "{{ log_notification.telegram_bot }}"
+          chatid: "{{ log_notification.chat_id }}"
+          parse_mode: HTML
+          message: |
+            {% raw %}{{ if eq .Status "firing" }}🔴 <b>FIRING</b>{{ else }}🟢 <b>RESOLVED</b>{{ end }}
+            {{ range .Alerts }}
+            <b>{{ .Labels.alertname }}</b>
+            {{- if .Annotations.summary }}
+            {{ .Annotations.summary }}
+            {{- end }}
+            {{- if .Labels.severity }}
+            severity: <code>{{ .Labels.severity }}</code>
+            {{- end }}
+            {{- if .Labels.category }}
+            category: <code>{{ .Labels.category }}</code>
+            {{- end }}
+            {{- if .Labels.node }}
+            node: <code>{{ .Labels.node }}</code>
+            {{- end }}
+            {{- if .Labels.service }}
+            service: <code>{{ .Labels.service }}</code>
+            {{- end }}
+            {{- if .Annotations.description }}
+
+            <i>{{ .Annotations.description }}</i>
+            {{- end }}
+            {{- if .GeneratorURL }}
+
+            <a href="{{ .GeneratorURL }}">→ open in Grafana</a>
+            {{- end }}
+            {{ end }}{% endraw %}

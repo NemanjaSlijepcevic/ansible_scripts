@@ -8,13 +8,12 @@
     image: traefik:latest
     pull: true
     state: started
-    # recreate: yes
+    recreate: "{{ traefik_static_config is defined and traefik_static_config.changed }}"
     restart_policy: unless-stopped
     security_opts:
       - "no-new-privileges:true"
     networks:
       - name: proxy
-        ipv4_address: "{{ traefik_links.static }}"
       - name: bridge
     etc_hosts:
       "host.docker.internal": "host-gateway"
@@ -36,15 +35,9 @@
         "traefik.enable": "true",
         "traefik.http.routers.traefik.entrypoints": "http",
         "traefik.http.routers.traefik.rule": "{{ traefik_links.name.host }}",
-        "traefik.http.middlewares.traefik-auth.basicauth.users": "{{ traefik.basic_auth }}",
         "traefik.http.middlewares.traefik-https-redirect.redirectscheme.scheme": "https",
         "traefik.http.middlewares.sslheader.headers.customrequestheaders.X-Forwarded-Proto": "https",
         "traefik.http.routers.traefik.middlewares": "traefik-https-redirect",
-        "traefik.http.routers.traefik-metrics.entrypoints": "https",
-        "traefik.http.routers.traefik-metrics.rule": "{{ node.traefik.host }}",
-        "traefik.http.routers.traefik-metrics.middlewares": "basic-auth@file",
-        "traefik.http.routers.traefik-metrics.service": "prometheus@internal",
-        "traefik.http.routers.traefik-metrics.tls": "true",
         "traefik.http.routers.traefik-secure.entrypoints": "https",
         "traefik.http.routers.traefik-secure.rule": "{{ traefik_links.name.host }}",
         "traefik.http.routers.traefik-secure.middlewares": "chain-auth@file",
@@ -53,32 +46,30 @@
         "traefik.http.routers.traefik-secure.tls.certresolver": "cloudflare",
         "traefik.http.routers.traefik-secure.tls.domains[0].main": "{{ traefik_links.zero.main }}",
         "traefik.http.routers.traefik-secure.tls.domains[0].sans": "{{ traefik_links.zero.sans }}",
-        {% if 'server' == current_host %}
+      {% if 'server' == current_host %}
         "traefik.http.routers.traefik-secure.tls.domains[1].main": "{{ traefik_links.one.main }}",
         "traefik.http.routers.traefik-secure.tls.domains[1].sans": "{{ traefik_links.one.sans }}",
         "traefik.http.routers.traefik-secure.tls.domains[2].main": "{{ traefik_links.two.main }}",
         "traefik.http.routers.traefik-secure.tls.domains[2].sans": "{{ traefik_links.two.sans }}",
       {% endif %}
       }
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
-- name: Create logrotate config for traefik
-  ansible.builtin.template:
-    src: "{{ playbook_dir }}/templates/logrotate.j2"
-    dest: "/etc/logrotate.d/traefik"
-    owner: "root"
-    group: "root"
-    mode: "0644"
-  vars:
-    log_path: "{{ ansible_env.PWD }}/data/traefik/logs/traefik.log"
-    log_permissions: 755
+- name: Check Traefik ping (internal binary healthcheck)
+  ansible.builtin.command:
+    cmd: "docker exec traefik traefik healthcheck --ping"
+  register: traefik_ping
+  changed_when: false
+  failed_when: false
+  retries: 6
+  delay: 10
+  until: traefik_ping.rc == 0
 
-- name: Create logrotate config for access
-  ansible.builtin.template:
-    src: "{{ playbook_dir }}/templates/logrotate.j2"
-    dest: "/etc/logrotate.d/traefik-access"
-    owner: "root"
-    group: "root"
-    mode: "0644"
-  vars:
-    log_path: "{{ ansible_env.PWD }}/data/traefik/logs/access.log"
-    log_permissions: 644
+- name: Show Traefik ping result
+  ansible.builtin.debug:
+    msg: "Traefik healthcheck rc={{ traefik_ping.rc }} stdout={{ traefik_ping.stdout | default('') }} stderr={{ traefik_ping.stderr | default('') }}"

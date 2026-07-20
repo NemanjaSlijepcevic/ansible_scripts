@@ -1,0 +1,19 @@
+AUTHENTICATION_SOURCES = ['oauth2', 'internal']
+MASTER_PASSWORD_REQUIRED = False
+OAUTH2_AUTO_CREATE_USER = True
+OAUTH2_CONFIG = [{
+    'OAUTH2_NAME': 'Authelia',
+    'OAUTH2_DISPLAY_NAME': 'Authelia',
+    'OAUTH2_CLIENT_ID': '{{ authelia.oidc.pgadmin.client_id }}',
+    'OAUTH2_CLIENT_SECRET': '{{ authelia.oidc.pgadmin.client_secret }}',
+    'OAUTH2_API_BASE_URL': '{{ authelia_links.url }}',
+    'OAUTH2_AUTHORIZATION_URL': '{{ authelia_links.url }}/api/oidc/authorization',
+    'OAUTH2_TOKEN_URL': '{{ authelia_links.url }}/api/oidc/token',
+    'OAUTH2_USERINFO_ENDPOINT': '{{ authelia_links.url }}/api/oidc/userinfo',
+    'OAUTH2_SERVER_METADATA_URL': '{{ authelia_links.url }}/.well-known/openid-configuration',
+    'OAUTH2_SCOPE': 'openid email profile',
+    'OAUTH2_USERNAME_CLAIM': 'email',
+    'OAUTH2_ICON': 'fa-openid',
+    'OAUTH2_CHALLENGE_METHOD': 'S256',
+    'OAUTH2_RESPONSE_TYPE': 'code',
+}]

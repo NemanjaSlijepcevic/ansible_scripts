@@ -1,0 +1,19 @@
+---
+- name: Prepare a new user
+  ansible.builtin.include_tasks: prepare_new_user.yml
+  when: new_user | length > 0
+
+- name: Ensure /etc/sudoers.d exists
+  ansible.builtin.file:
+    path: /etc/sudoers.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0750'
+  register: sudoers_d
+
+- name: Generate a user
+  ansible.builtin.include_tasks: create_user.yml
+  loop: "{{ default_user }}"
+  loop_control:
+    loop_var: "user_item"

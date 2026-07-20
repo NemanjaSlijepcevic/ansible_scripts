@@ -1,4 +1,17 @@
 pass.file
+.secrets/
+*.crt
+*.key
+*.csr
+*.pem
+# SSH public keys (real usernames/emails in comments)
+*.pub
+# app databases (may contain real data)
+*.sqlite3
+*.sqlite
+*.db
+CLAUDE.md
+.claude/*
 # build products...
 *.py[co]
 build
@@ -106,7 +119,6 @@ lib/ansible/_vendor/*
 packaging/release/ansible_release
 /.cache/
 /test/results/
-update/roles/authelia/files
 /test/integration/cloud-config-aws.yml
 /test/integration/inventory.networking
 /test/integration/inventory.winrm
@@ -126,4 +138,4 @@ test/units/.coverage.*
 /SYMLINK_CACHE.json
 changelogs/.plugin-cache.yaml
 .ansible-test-timeout.json
-update/roles/bibliography/files/db.sqlite3
+CUsersnasAppDataLocalTempclaudeC--Users-nas-Desktop-Projekti-GIT-ansible-scripts1be07f17-2cc3-40fc-8ae8-ab63efc34a6cscratchpadtracked_files.txt

@@ -1,4 +1,14 @@
 ---
+- name: Create logrotate config for syslog
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/templates/logrotate.j2"
+    dest: "/etc/logrotate.d/syslog"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+  vars:
+    log_path: "/var/log/syslog"
+
 - name: Clean packages
   ansible.builtin.apt:
     autoclean: true

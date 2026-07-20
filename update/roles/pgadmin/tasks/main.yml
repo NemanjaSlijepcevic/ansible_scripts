@@ -1,0 +1,67 @@
+---
+- name: Create pgAdmin directory
+  ansible.builtin.file:
+    path: ./data/pgadmin
+    state: directory
+    owner: "5050"
+    group: "5050"
+    mode: "0750"
+
+- name: Generate servers.json
+  ansible.builtin.template:
+    src: servers.json.j2
+    dest: ./data/pgadmin/servers.json
+    owner: "5050"
+    group: "5050"
+    mode: "0640"
+
+- name: Generate pgpass file
+  ansible.builtin.template:
+    src: pgpass.j2
+    dest: ./data/pgadmin/pgpass
+    owner: "5050"
+    group: "5050"
+    mode: "0600"
+
+- name: Generate config_local.py
+  ansible.builtin.template:
+    src: config_local.py.j2
+    dest: ./data/pgadmin/config_local.py
+    owner: "5050"
+    group: "5050"
+    mode: "0640"
+
+- name: Deploy pgAdmin container
+  community.docker.docker_container:
+    name: pgadmin
+    image: dpage/pgadmin4:latest
+    pull: true
+    restart_policy: unless-stopped
+    networks:
+      - name: proxy
+    env:
+      PGADMIN_DEFAULT_EMAIL: "{{ pgadmin.email }}"
+      PGADMIN_DEFAULT_PASSWORD: "{{ pgadmin.password }}"
+      PGADMIN_CONFIG_SERVER_MODE: "True"
+      PGADMIN_CONFIG_ENHANCED_COOKIE_PROTECTION: "True"
+      PGADMIN_SERVER_JSON_FILE: "/var/lib/pgadmin/servers.json"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+    volumes:
+      - ./data/pgadmin:/var/lib/pgadmin
+      - ./data/pgadmin/pgpass:/pgpass:ro
+      - ./data/pgadmin/config_local.py:/pgadmin4/config_local.py:ro
+      - ./data/certs/ca.crt:/postgres-certs/ca.crt:ro
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.pgadmin.entrypoints: "https"
+      traefik.http.routers.pgadmin.rule: "{{ pgadmin.host }}"
+      traefik.http.routers.pgadmin.tls: "true"
+      traefik.http.routers.pgadmin.middlewares: "chain-no-auth@file"
+      traefik.http.routers.pgadmin.service: "pgadmin"
+      traefik.http.services.pgadmin.loadbalancer.server.port: "{{ pgadmin.port }}"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --spider http://localhost:80/misc/ping || exit 1"]
+      interval: 1m30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s

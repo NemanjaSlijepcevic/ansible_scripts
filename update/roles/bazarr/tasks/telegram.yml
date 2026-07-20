@@ -1,0 +1,19 @@
+---
+- name: Add Telegram notification to Bazarr
+  community.postgresql.postgresql_query:
+    login_host: "{{ postgres.ip }}"
+    login_port: "{{ postgres.port }}"
+    login_user: "{{ postgres.user }}"
+    login_password: "{{ postgres.password }}"
+    login_db: bazarr
+    query: |
+      INSERT INTO table_settings_notifier (name, url, enabled)
+      SELECT 'Telegram', 'tgram://{{ log_notification.telegram_bot }}/{{ log_notification.chat_id }}', 1
+      WHERE NOT EXISTS (
+        SELECT 1 FROM table_settings_notifier WHERE name = 'Telegram'
+      )
+  environment:
+    PGSSLMODE: "verify-ca"
+    PGSSLCERT: "./data/certs/bazarr.crt"
+    PGSSLKEY: "./data/certs/bazarr.key"
+    PGSSLROOTCERT: "./data/certs/ca.crt"

@@ -1,0 +1,27 @@
+---
+- name: Download Oh My Bash installer
+  ansible.builtin.get_url:
+    url: https://raw.githubusercontent.com/ohmybash/oh-my-bash/master/tools/install.sh
+    dest: "/home/{{ user_item.name }}/.oh-my-bash-install.sh"
+    owner: "{{ user_item.name }}"
+    mode: "0755"
+  become: true
+
+- name: Install Oh My Bash
+  ansible.builtin.command:
+    cmd: "bash /home/{{ user_item.name }}/.oh-my-bash-install.sh --unattended"
+    creates: "/home/{{ user_item.name }}/.oh-my-bash"
+  become: true
+  become_user: "{{ user_item.name }}"
+
+- name: Remove Oh My Bash installer
+  ansible.builtin.file:
+    path: "/home/{{ user_item.name }}/.oh-my-bash-install.sh"
+    state: absent
+  become: true
+
+- name: Set Pure theme
+  ansible.builtin.lineinfile:
+    path: "/home/{{ user_item.name }}/.bashrc"
+    regexp: '^OSH_THEME='
+    line: 'OSH_THEME="pure"'

@@ -1,0 +1,40 @@
+---
+# Builds the sandbox image only — no long-lived container. Kestra launches
+# ephemeral task containers through the socket proxy (Docker task runner,
+# host: tcp://socket-proxy:2375), e.g. a flow task:
+#
+#   taskRunner:
+#     type: io.kestra.plugin.scripts.runner.docker.Docker
+#     networkMode: "{{ claude_runner.network }}"
+#     memory: { memory: "{{ claude_runner.memory }}" }
+#     cpu: { cpus: {{ claude_runner.cpus }} }
+#     volumes:
+#       - <deploy-dir>/data/claude-runner/home:/home/node
+#       - <deploy-dir>/data/claude-runner/workspace:/workspace
+#   containerImage: claude-runner:latest
+#   commands:
+#     - claude -p "<task>" --output-format json --dangerously-skip-permissions
+#
+# --dangerously-skip-permissions is required for headless runs (no TTY to
+# approve tool use); acceptable only because the container is the sandbox:
+# isolated network, workspace-only mounts.
+#
+# Volume sources are HOST paths (the proxy talks to the host daemon).
+# One-time subscription login (persists in the home volume):
+#   docker run -it --rm --network sandbox \
+#     -v $PWD/data/claude-runner/home:/home/node claude-runner:latest claude
+- name: Create environment
+  ansible.builtin.include_tasks: environment.yml
+
+# Pass -e runner_update=true to force a no-cache rebuild that picks up the
+# latest base image and latest @anthropic-ai/claude-code.
+- name: Build claude-runner image
+  community.docker.docker_image:
+    name: "{{ claude_runner.image.split(':')[0] }}"
+    tag: "{{ claude_runner.image.split(':')[1] | default('latest') }}"
+    source: build
+    build:
+      path: "{{ ansible_env.PWD }}/data/claude-runner/build"
+      pull: true
+      nocache: "{{ runner_update | default(false) | bool }}"
+    force_source: "{{ (runner_update | default(false) | bool) or (claude_runner_dockerfile.changed | default(false)) }}"

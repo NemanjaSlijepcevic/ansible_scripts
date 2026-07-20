@@ -1,0 +1,35 @@
+---
+user:
+  name: "deploy"
+  group: "docker"
+
+puid: "1000"
+pgid: "1000"
+
+movie_drive: "/mnt/movies"
+tv_drive: "/mnt/tv"
+
+bazarr:
+  api_key: "changeme"
+  host: "Host(`bazarr.example.com`)"
+  port: "6767"
+  url: "https://bazarr.example.com"
+
+# Postgres backend (bazarr stores its DB in Postgres).
+postgres:
+  ip: "postgres-db"
+  port: 5432
+  user: "mediauser"
+  password: "changeme"
+
+# Sibling services bazarr pulls series/movies from.
+sonarr:
+  api_key: "changeme"
+
+radarr:
+  api_key: "changeme"
+
+# Titlovi.com subtitle provider credentials.
+titlovi:
+  username: "changeme"
+  password: "changeme"

@@ -1,0 +1,28 @@
+---
+- name: Create directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0755"
+  loop:
+    - ./data/immich
+    - ./data/immich/upload
+    - ./data/immich/postgres
+    - ./data/immich/model-cache
+
+- name: Deploy Immich PostgreSQL
+  ansible.builtin.include_tasks: postgres.yml
+
+- name: Deploy Immich Redis
+  ansible.builtin.include_tasks: redis.yml
+
+- name: Deploy Immich Machine Learning
+  ansible.builtin.include_tasks: machine-learning.yml
+
+- name: Deploy Immich Server
+  ansible.builtin.include_tasks: server.yml
+
+- name: Configure OIDC
+  ansible.builtin.include_tasks: oidc.yml

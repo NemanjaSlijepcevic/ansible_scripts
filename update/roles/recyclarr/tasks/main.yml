@@ -1,0 +1,51 @@
+---
+- name: Create recyclarr config directory
+  ansible.builtin.file:
+    path: ./data/recyclarr
+    state: directory
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0755"
+
+- name: Template recyclarr config
+  ansible.builtin.template:
+    src: recyclarr.yml.j2
+    dest: ./data/recyclarr/recyclarr.yml
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0644"
+
+- name: Deploy recyclarr container
+  community.docker.docker_container:
+    name: recyclarr
+    image: ghcr.io/recyclarr/recyclarr:latest
+    restart_policy: unless-stopped
+    networks:
+      - name: proxy
+    env:
+      TZ: "Europe/Belgrade"
+      CRON_SCHEDULE: "0 3 * * *"
+    volumes:
+      - ./data/recyclarr:/config
+    healthcheck:
+      test: ["CMD", "recyclarr", "--version"]
+      interval: 1m
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+- name: Wait for recyclarr to be ready
+  ansible.builtin.pause:
+    seconds: 10
+
+- name: Sync recyclarr
+  community.docker.docker_container_exec:
+    container: recyclarr
+    command: recyclarr sync
+  register: recyclarr_sync
+  changed_when: false
+  failed_when: recyclarr_sync.rc != 0
+
+- name: Show recyclarr sync output
+  ansible.builtin.debug:
+    msg: "{{ recyclarr_sync.stdout_lines }}"

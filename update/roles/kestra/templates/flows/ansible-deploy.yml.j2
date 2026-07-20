@@ -1,0 +1,53 @@
+# Managed by Ansible (kestra role, templates/flows/) — UI edits to this
+# flow id are overwritten on the next playbook run.
+# NOTE: square-bracket delimiters are Ansible/Jinja (rendered at deploy
+# time); curly-brace expressions are Kestra's own and reach the server
+# untouched.
+id: ansible-deploy
+namespace: automation
+description: Run one of this repo's update/ playbooks in the ansible-runner sandbox.
+
+inputs:
+  - id: playbook
+    type: SELECT
+    defaults: nas.yml
+    values:
+      - nas.yml
+      - server.yml
+      - monitor.yml
+      - postgres.yml
+      - netboot.yml
+      - automation.yml
+  - id: check_mode
+    type: BOOLEAN
+    defaults: true
+    description: "Dry run (ansible-playbook --check)"
+
+tasks:
+  # One-time initial clone is manual — see docs/update/ansible_runner.md.
+  # safe.directory: the runner executes as root but the workspace is owned
+  # by the sandbox uid.
+  - id: sync_repo
+    type: io.kestra.plugin.scripts.shell.Commands
+    containerImage: [[ ansible_runner.image ]]
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      networkMode: [[ claude_runner.network ]]
+      volumes:
+        - "[[ ansible_env.PWD ]]/data/ansible-runner/workspace:/workspace"
+    commands:
+      - git config --global --add safe.directory /workspace/ansible_scripts
+      - git -C /workspace/ansible_scripts pull --ff-only
+
+  - id: run_playbook
+    type: io.kestra.plugin.ansible.cli.AnsibleCLI
+    containerImage: [[ ansible_runner.image ]]
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      networkMode: [[ claude_runner.network ]]
+      volumes:
+        - "[[ ansible_env.PWD ]]/data/ansible-runner/workspace:/workspace"
+        - "[[ ansible_env.PWD ]]/data/ansible-runner/secrets/[[ user.private_key_path | basename ]]:[[ user.private_key_path ]]:ro"
+        - "[[ ansible_env.PWD ]]/data/ansible-runner/secrets/pass.file:/secrets/pass.file:ro"
+    commands:
+      - "cd /workspace/ansible_scripts/update && ansible-playbook {{ inputs.playbook }} --vault-password-file /secrets/pass.file {{ inputs.check_mode ? '--check' : '' }}"

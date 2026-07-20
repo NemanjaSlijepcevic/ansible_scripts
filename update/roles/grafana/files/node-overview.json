@@ -1,0 +1,532 @@
+{
+  "uid": "homelab-node-overview",
+  "title": "Homelab — Node Overview",
+  "tags": ["homelab", "telegraf", "node", "docker"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-3h", "to": "now" },
+  "editable": true,
+  "graphTooltip": 1,
+  "fiscalYearStartMonth": 0,
+  "liveNow": false,
+  "weekStart": "",
+  "style": "dark",
+  "annotations": { "list": [] },
+  "templating": {
+    "list": [
+      {
+        "name": "bucket",
+        "label": "Node",
+        "type": "query",
+        "datasource": { "type": "influxdb", "uid": "__INFLUXDB_UID__" },
+        "definition": "buckets() |> filter(fn: (r) => r.name =~ /^telegraf-/) |> keep(columns: [\"name\"]) |> rename(columns: {name: \"_value\"}) |> sort()",
+        "query": "buckets() |> filter(fn: (r) => r.name =~ /^telegraf-/) |> keep(columns: [\"name\"]) |> rename(columns: {name: \"_value\"}) |> sort()",
+        "refresh": 1,
+        "includeAll": false,
+        "multi": false,
+        "hide": 0,
+        "regex": "",
+        "sort": 1,
+        "options": [],
+        "current": {}
+      },
+      {
+        "name": "container",
+        "label": "Container",
+        "type": "query",
+        "datasource": { "type": "influxdb", "uid": "__INFLUXDB_UID__" },
+        "definition": "from(bucket: \"${bucket}\") |> range(start: -1h) |> filter(fn: (r) => r._measurement == \"docker_container_status\") |> keep(columns: [\"container_name\"]) |> group() |> distinct(column: \"container_name\") |> rename(columns: {container_name: \"_value\"}) |> sort()",
+        "query": "from(bucket: \"${bucket}\") |> range(start: -1h) |> filter(fn: (r) => r._measurement == \"docker_container_status\") |> keep(columns: [\"container_name\"]) |> group() |> distinct(column: \"container_name\") |> rename(columns: {container_name: \"_value\"}) |> sort()",
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "hide": 0,
+        "regex": "",
+        "sort": 1,
+        "options": [],
+        "current": {}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "row",
+      "id": 1,
+      "title": "Overview — $bucket",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Uptime",
+      "datasource": { "type": "influxdb", "uid": "__INFLUXDB_UID__" },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+      "targets": [{
+        "refId": "A",
+        "query": "from(bucket: \"${bucket}\")\n  |> range(start: -5m)\n  |> filter(fn: (r) => r._measurement == \"system\" and r._field == \"uptime\")\n  |> last()"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 300 }, { "color": "green", "value": 3600 }] }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "colorMode": "value", "graphMode": "none", "justifyMode": "auto" }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "CPU Used",
+      "datasource": { "type": "influxdb", "uid": "__INFLUXDB_UID__" },
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+      "targets": [{
+        "refId": "A",
+        "query": "from(bucket: \"${bucket}\")\n  |> range(start: -5m)\n  |> filter(fn: (r) => r._measurement == \"cpu\" and r.cpu == \"cpu-total\" and r._field == \"usage_idle\")\n  |> last()\n  |> map(fn: (r) => ({ r with _value: 100.0 - r._value }))"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0, "max": 100,
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 70 }, { "color": "red", "value": 90 }] }
+        }, "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Memory Used",
+      "datasource": { "type": "influxdb", "uid": "__INFLUXDB_UID__" },
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+      "targets": [{
+        "refId": "A",
+        "query": "from(bucket: \"${bucket}\")\n  |> range(start: -5m)\n  |> filter(fn: (r) => r._measurement == \"mem\" and r._field == \"used_percent\")\n  |> last()"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent", "min": 0, "max": 100,
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 75 }, { "color": "red", "value": 90 }] }
+        }, "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Swap Used",
+      "datasource": { "type": "influxdb", "uid": "__INFLUXDB_UID__" },
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
+      "targets": [{
+        "refId": "A",
+        "query": "from(bucket: \"${bucket}\")\n  |> range(start: -5m)\n  |> filter(fn: (r) => r._measurement == \"swap\" and r._field == \"used_percent\")\n  |> last()"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent", "min": 0, "max": 100,
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 25 }, { "color": "red", "value": 50 }] }
+        }, "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Root FS Used",
+      "datasource": { "type": "influxdb", "uid": "__INFLUXDB_UID__" },
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 1 },
+      "targets": [{
+        "refId": "A",
+        "query": "from(bucket: \"${bucket}\")\n  |> range(start: -5m)\n  |> filter(fn: (r) => r._measurement == \"disk\" and r.path == \"/\" and r._field == \"used_percent\")\n  |> last()"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent", "min": 0, "max": 100,
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 70 }, { "color": "red", "value": 90 }] }
+        }, "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" }
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Load 1m",
+      "datasource": { "type": "influxdb", "uid": "__INFLUXDB_UID__" },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
+      "targets": [{
+        "refId": "A",
+        "query": "from(bucket: \"${bucket}\")\n  |> range(start: -5m)\n  |> filter(fn: (r) => r._measurement == \"system\" and r._field == \"load1\")\n  |> last()"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 2 }, { "color": "red", "value": 5 }] }
+        }, "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "CPU Usage (%)",
+      "datasource": { "type": "influxdb", "uid": "__INFLUXDB_UID__" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 5 },
+      "targets": [{
+        "refId": "A",
+        "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"cpu\" and r.cpu == \"cpu-total\")\n  |> filter(fn: (r) => r._field == \"usage_user\" or r._field == \"usage_system\" or r._field == \"usage_iowait\" or r._field == \"usage_softirq\" or r._field == \"usage_irq\" or r._field == \"usage_nice\" or r._field == \"usage_steal\" or r._field == \"usage_guest\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> keep(columns: [\"_time\", \"_field\", \"_value\"])"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent", "min": 0,
+          "custom": { "drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 1, "fillOpacity": 30, "stacking": { "mode": "normal" }, "showPoints": "never" }
+        }, "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "last"] }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Load Average",
+      "datasource": { "type": "influxdb", "uid": "__INFLUXDB_UID__" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 5 },
+      "targets": [{
+        "refId": "A",
+        "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"system\")\n  |> filter(fn: (r) => r._field == \"load1\" or r._field == \"load5\" or r._field == \"load15\" or r._field == \"n_cpus\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> keep(columns: [\"_time\", \"_field\", \"_value\"])"
+      }],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 0, "showPoints": "never" } },
+        "overrides": [{ "matcher": { "id": "byName", "options": "n_cpus" }, "properties": [{ "id": "custom.lineStyle", "value": { "dash": [4, 4], "fill": "dash" } }, { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] }]
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Memory Usage (bytes)",
+      "datasource": { "type": "influxdb", "uid": "__INFLUXDB_UID__" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 13 },
+      "targets": [{
+        "refId": "A",
+        "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"mem\")\n  |> filter(fn: (r) => r._field == \"used\" or r._field == \"cached\" or r._field == \"buffered\" or r._field == \"free\" or r._field == \"available\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> keep(columns: [\"_time\", \"_field\", \"_value\"])"
+      }],
+      "fieldConfig": {
+        "defaults": { "unit": "bytes", "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 25, "stacking": { "mode": "none" }, "showPoints": "never" } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max", "last"] }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Network Traffic (per interface)",
+      "datasource": { "type": "influxdb", "uid": "__INFLUXDB_UID__" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 13 },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"net\" and (r._field == \"bytes_recv\" or r._field == \"bytes_sent\"))\n  |> filter(fn: (r) => r.interface != \"lo\")\n  |> derivative(unit: 1s, nonNegative: true)\n  |> map(fn: (r) => ({ r with _value: if r._field == \"bytes_sent\" then -1.0 * r._value else r._value }))\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> keep(columns: [\"_time\", \"_field\", \"interface\", \"_value\"])"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "Bps", "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 20, "showPoints": "never" } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max", "last"] }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "id": 14,
+      "type": "bargauge",
+      "title": "Disk Usage (per path)",
+      "datasource": { "type": "influxdb", "uid": "__INFLUXDB_UID__" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 21 },
+      "targets": [{
+        "refId": "A",
+        "query": "from(bucket: \"${bucket}\")\n  |> range(start: -5m)\n  |> filter(fn: (r) => r._measurement == \"disk\" and r._field == \"used_percent\")\n  |> last()\n  |> keep(columns: [\"path\", \"_value\"])\n  |> group()"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent", "min": 0, "max": 100,
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 70 }, { "color": "red", "value": 90 }] }
+        }, "overrides": []
+      },
+      "options": { "orientation": "horizontal", "displayMode": "gradient", "showUnfilled": true, "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "Disk IO (read/write Bps)",
+      "datasource": { "type": "influxdb", "uid": "__INFLUXDB_UID__" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 21 },
+      "targets": [{
+        "refId": "A",
+        "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"diskio\" and (r._field == \"read_bytes\" or r._field == \"write_bytes\"))\n  |> derivative(unit: 1s, nonNegative: true)\n  |> map(fn: (r) => ({ r with _value: if r._field == \"write_bytes\" then -1.0 * r._value else r._value }))\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> keep(columns: [\"_time\", \"_field\", \"name\", \"_value\"])"
+      }],
+      "fieldConfig": { "defaults": { "unit": "Bps", "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 20, "showPoints": "never" } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "id": 16,
+      "type": "row",
+      "title": "Docker — $bucket",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 29 },
+      "panels": []
+    },
+    {
+      "id": 17,
+      "type": "stat",
+      "title": "Running",
+      "datasource": { "type": "influxdb", "uid": "__INFLUXDB_UID__" },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 30 },
+      "targets": [{
+        "refId": "A",
+        "query": "from(bucket: \"${bucket}\")\n  |> range(start: -5m)\n  |> filter(fn: (r) => r._measurement == \"docker\" and r._field == \"n_containers_running\")\n  |> last()"
+      }],
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "id": 18,
+      "type": "stat",
+      "title": "Stopped",
+      "datasource": { "type": "influxdb", "uid": "__INFLUXDB_UID__" },
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 30 },
+      "targets": [{
+        "refId": "A",
+        "query": "from(bucket: \"${bucket}\")\n  |> range(start: -5m)\n  |> filter(fn: (r) => r._measurement == \"docker\" and r._field == \"n_containers_stopped\")\n  |> last()"
+      }],
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 1 }, { "color": "red", "value": 3 }] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "id": 19,
+      "type": "stat",
+      "title": "Images Total",
+      "datasource": { "type": "influxdb", "uid": "__INFLUXDB_UID__" },
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 30 },
+      "targets": [{
+        "refId": "A",
+        "query": "from(bucket: \"${bucket}\")\n  |> range(start: -5m)\n  |> filter(fn: (r) => r._measurement == \"docker_images\" and r._field == \"total\")\n  |> last()"
+      }],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "id": 26,
+      "type": "stat",
+      "title": "Images Dangling",
+      "datasource": { "type": "influxdb", "uid": "__INFLUXDB_UID__" },
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 30 },
+      "targets": [{
+        "refId": "A",
+        "query": "from(bucket: \"${bucket}\")\n  |> range(start: -5m)\n  |> filter(fn: (r) => r._measurement == \"docker_images\" and r._field == \"dangling\")\n  |> last()"
+      }],
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 1 }, { "color": "red", "value": 10 }] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "id": 27,
+      "type": "stat",
+      "title": "Reclaimable",
+      "datasource": { "type": "influxdb", "uid": "__INFLUXDB_UID__" },
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 30 },
+      "targets": [{
+        "refId": "A",
+        "query": "from(bucket: \"${bucket}\")\n  |> range(start: -5m)\n  |> filter(fn: (r) => r._measurement == \"docker_images\" and r._field == \"reclaimable_bytes\")\n  |> last()"
+      }],
+      "fieldConfig": { "defaults": { "unit": "bytes", "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 1073741824 }, { "color": "red", "value": 10737418240 }] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "id": 20,
+      "type": "stat",
+      "title": "Unhealthy",
+      "datasource": { "type": "influxdb", "uid": "__INFLUXDB_UID__" },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 30 },
+      "targets": [{
+        "refId": "A",
+        "query": "from(bucket: \"${bucket}\")\n  |> range(start: -5m)\n  |> filter(fn: (r) => r._measurement == \"docker_container_health\" and r._field == \"failing_streak\")\n  |> last()\n  |> filter(fn: (r) => r._value > 0)\n  |> count()"
+      }],
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "id": 21,
+      "type": "table",
+      "title": "Containers (status snapshot)",
+      "datasource": { "type": "influxdb", "uid": "__INFLUXDB_UID__" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 34 },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "from(bucket: \"${bucket}\")\n  |> range(start: -5m)\n  |> filter(fn: (r) => r._measurement == \"docker_container_status\" and r._field == \"uptime_ns\" and r.container_status == \"running\")\n  |> last()\n  |> keep(columns: [\"container_name\", \"container_image\", \"container_status\", \"_value\"])\n  |> rename(columns: {_value: \"Uptime\"})\n  |> group()\n  |> sort(columns: [\"container_name\"])"
+        },
+        {
+          "refId": "B",
+          "query": "from(bucket: \"${bucket}\")\n  |> range(start: -5m)\n  |> filter(fn: (r) => r._measurement == \"docker_container_cpu\" and r.cpu == \"cpu-total\" and r._field == \"usage_percent\")\n  |> last()\n  |> keep(columns: [\"container_name\", \"_value\"])\n  |> rename(columns: {_value: \"CPU %\"})\n  |> group()"
+        },
+        {
+          "refId": "C",
+          "query": "from(bucket: \"${bucket}\")\n  |> range(start: -5m)\n  |> filter(fn: (r) => r._measurement == \"docker_container_mem\" and r._field == \"usage_percent\")\n  |> last()\n  |> keep(columns: [\"container_name\", \"_value\"])\n  |> rename(columns: {_value: \"Mem %\"})\n  |> group()"
+        },
+        {
+          "refId": "D",
+          "query": "from(bucket: \"${bucket}\")\n  |> range(start: -5m)\n  |> filter(fn: (r) => r._measurement == \"docker_container_health\" and r._field == \"failing_streak\")\n  |> last()\n  |> keep(columns: [\"container_name\", \"_value\"])\n  |> rename(columns: {_value: \"Failing Streak\"})\n  |> group()"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": { "byField": "container_name", "mode": "outer" }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "container_name": 0,
+              "container_image": 1,
+              "container_status": 2,
+              "Uptime": 3,
+              "CPU %": 4,
+              "Mem %": 5,
+              "Failing Streak": 6
+            },
+            "renameByName": {
+              "container_name": "Container",
+              "container_image": "Image",
+              "container_status": "Status"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "align": "auto", "filterable": true } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Uptime" }, "properties": [{ "id": "unit", "value": "ns" }] },
+          { "matcher": { "id": "byName", "options": "CPU %" }, "properties": [{ "id": "unit", "value": "percent" }, { "id": "custom.cellOptions", "value": { "type": "gauge", "mode": "gradient" } }, { "id": "max", "value": 100 }] },
+          { "matcher": { "id": "byName", "options": "Mem %" }, "properties": [{ "id": "unit", "value": "percent" }, { "id": "custom.cellOptions", "value": { "type": "gauge", "mode": "gradient" } }, { "id": "max", "value": 100 }] },
+          { "matcher": { "id": "byName", "options": "Status" }, "properties": [{ "id": "mappings", "value": [{ "type": "value", "options": { "running": { "color": "green", "index": 0 }, "exited": { "color": "red", "index": 1 }, "paused": { "color": "yellow", "index": 2 } } }] }, { "id": "custom.cellOptions", "value": { "type": "color-text" } }] },
+          { "matcher": { "id": "byName", "options": "Failing Streak" }, "properties": [{ "id": "custom.cellOptions", "value": { "type": "color-background" } }, { "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } }] }
+        ]
+      },
+      "options": { "showHeader": true, "footer": { "show": false } }
+    },
+    {
+      "id": 28,
+      "type": "table",
+      "title": "Stopped Containers",
+      "datasource": { "type": "influxdb", "uid": "__INFLUXDB_UID__" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 44 },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "from(bucket: \"${bucket}\")\n  |> range(start: -5m)\n  |> filter(fn: (r) => r._measurement == \"docker_container_status\" and r._field == \"uptime_ns\" and r.container_status != \"running\")\n  |> last()\n  |> keep(columns: [\"container_name\", \"container_image\", \"container_status\", \"_value\"])\n  |> rename(columns: {_value: \"Uptime\"})\n  |> group()\n  |> sort(columns: [\"container_name\"])"
+        },
+        {
+          "refId": "B",
+          "query": "from(bucket: \"${bucket}\")\n  |> range(start: -5m)\n  |> filter(fn: (r) => r._measurement == \"docker_container_status\" and r._field == \"exitcode\" and r.container_status != \"running\")\n  |> last()\n  |> keep(columns: [\"container_name\", \"_value\"])\n  |> rename(columns: {_value: \"Exit Code\"})\n  |> group()"
+        },
+        {
+          "refId": "C",
+          "query": "from(bucket: \"${bucket}\")\n  |> range(start: -5m)\n  |> filter(fn: (r) => r._measurement == \"docker_container_status\" and r._field == \"restart_count\" and r.container_status != \"running\")\n  |> last()\n  |> keep(columns: [\"container_name\", \"_value\"])\n  |> rename(columns: {_value: \"Restart Count\"})\n  |> group()"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": { "byField": "container_name", "mode": "outer" }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "container_name": 0,
+              "container_image": 1,
+              "container_status": 2,
+              "Exit Code": 3,
+              "Restart Count": 4,
+              "Uptime": 5
+            },
+            "renameByName": {
+              "container_name": "Container",
+              "container_image": "Image",
+              "container_status": "Status"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "align": "auto", "filterable": true } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Uptime" }, "properties": [{ "id": "unit", "value": "ns" }] },
+          { "matcher": { "id": "byName", "options": "Status" }, "properties": [{ "id": "mappings", "value": [{ "type": "value", "options": { "exited": { "color": "red", "index": 0 }, "paused": { "color": "yellow", "index": 1 }, "dead": { "color": "red", "index": 2 }, "created": { "color": "blue", "index": 3 } } }] }, { "id": "custom.cellOptions", "value": { "type": "color-background" } }] },
+          { "matcher": { "id": "byName", "options": "Exit Code" }, "properties": [{ "id": "custom.cellOptions", "value": { "type": "color-background" } }, { "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } }] }
+        ]
+      },
+      "options": { "showHeader": true, "footer": { "show": false } }
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "Container CPU %",
+      "datasource": { "type": "influxdb", "uid": "__INFLUXDB_UID__" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 52 },
+      "targets": [{
+        "refId": "A",
+        "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"docker_container_cpu\" and r.cpu == \"cpu-total\" and r._field == \"usage_percent\")\n  |> filter(fn: (r) => r.container_name =~ /^${container:regex}$/)\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> keep(columns: [\"_time\", \"container_name\", \"_value\"])"
+      }],
+      "fieldConfig": { "defaults": { "unit": "percent", "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "showPoints": "never" } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max", "last"] }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "Container Memory %",
+      "datasource": { "type": "influxdb", "uid": "__INFLUXDB_UID__" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 52 },
+      "targets": [{
+        "refId": "A",
+        "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"docker_container_mem\" and r._field == \"usage_percent\")\n  |> filter(fn: (r) => r.container_name =~ /^${container:regex}$/)\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> keep(columns: [\"_time\", \"container_name\", \"_value\"])"
+      }],
+      "fieldConfig": { "defaults": { "unit": "percent", "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "showPoints": "never" } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max", "last"] }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "id": 24,
+      "type": "timeseries",
+      "title": "Container Network (rx/tx Bps)",
+      "datasource": { "type": "influxdb", "uid": "__INFLUXDB_UID__" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 60 },
+      "targets": [{
+        "refId": "A",
+        "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"docker_container_net\" and r.network == \"total\")\n  |> filter(fn: (r) => r._field == \"rx_bytes\" or r._field == \"tx_bytes\")\n  |> filter(fn: (r) => r.container_name =~ /^${container:regex}$/)\n  |> derivative(unit: 1s, nonNegative: true)\n  |> map(fn: (r) => ({ r with _value: if r._field == \"tx_bytes\" then -1.0 * r._value else r._value }))\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> keep(columns: [\"_time\", \"container_name\", \"_field\", \"_value\"])"
+      }],
+      "fieldConfig": { "defaults": { "unit": "Bps", "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "showPoints": "never" } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "id": 25,
+      "type": "timeseries",
+      "title": "Container Block IO (read/write Bps)",
+      "datasource": { "type": "influxdb", "uid": "__INFLUXDB_UID__" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 60 },
+      "targets": [{
+        "refId": "A",
+        "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"docker_container_blkio\" and r.device == \"total\")\n  |> filter(fn: (r) => r._field == \"io_service_bytes_recursive_read\" or r._field == \"io_service_bytes_recursive_write\")\n  |> filter(fn: (r) => r.container_name =~ /^${container:regex}$/)\n  |> derivative(unit: 1s, nonNegative: true)\n  |> map(fn: (r) => ({ r with _value: if r._field == \"io_service_bytes_recursive_write\" then -1.0 * r._value else r._value }))\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> keep(columns: [\"_time\", \"container_name\", \"_field\", \"_value\"])"
+      }],
+      "fieldConfig": { "defaults": { "unit": "Bps", "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "showPoints": "never" } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi" } }
+    }
+  ]
+}

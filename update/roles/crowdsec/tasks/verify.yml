@@ -1,0 +1,14 @@
+---
+- name: Check CrowdSec LAPI status
+  ansible.builtin.command:
+    cmd: "docker exec crowdsec cscli lapi status"
+  register: crowdsec_lapi
+  changed_when: false
+  failed_when: false
+  retries: 6
+  delay: 10
+  until: crowdsec_lapi.rc == 0
+
+- name: Show CrowdSec LAPI status
+  ansible.builtin.debug:
+    msg: "{{ crowdsec_lapi.stdout_lines | default(['LAPI not reachable: ' ~ (crowdsec_lapi.stderr | default('?'))]) }}"

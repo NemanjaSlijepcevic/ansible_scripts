@@ -1,19 +1,38 @@
+- name: Check registered bouncers
+  community.docker.docker_container_exec:
+    container: crowdsec
+    command: cscli bouncers list -o json
+  register: crowdsec_bouncers_list
+  changed_when: false
+
+- name: Register Cloudflare bouncer key in CrowdSec
+  community.docker.docker_container_exec:
+    container: crowdsec
+    command: cscli bouncers add cloudflare-bouncer --key {{ crowdsec.cloudflare.bouncer_key }}
+  when: "'cloudflare-bouncer' not in crowdsec_bouncers_list.stdout"
+  changed_when: true
+
 - name: "Generate configuration file"
   ansible.builtin.template:
     src: ./cfg.yaml.j2
     dest: ./data/crowdsec/cfg.yaml
     owner: "{{ user.name }}"
     group: "{{ user.group }}"
-    mode: '0755'
+    mode: '0640'
+  register: cloudflare_bouncer_cfg
 
 - name: Create bouncer-cloudflare
   community.docker.docker_container:
     name: cloudflare-bouncer
     image: crowdsecurity/cloudflare-bouncer
+    pull: true
     state: started
+    # cfg.yaml is a bind mount; a content change alone won't restart the
+    # container, so force a recreate when the rendered config changes,
+    # otherwise the bouncer keeps running its stale in-memory config.
+    recreate: "{{ cloudflare_bouncer_cfg.changed | default(false) }}"
     restart_policy: unless-stopped
     networks:
       - name: proxy
-        ipv4_address: "{{ crowdsec.cloudflare.static }}"
     volumes:
       - ./data/crowdsec/cfg.yaml:/etc/crowdsec/bouncers/crowdsec-cloudflare-bouncer.yaml

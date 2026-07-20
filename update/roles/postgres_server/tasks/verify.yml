@@ -1,0 +1,71 @@
+---
+- name: List PostgreSQL databases
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - postgres-db
+      - psql
+      - -U
+      - "{{ postgres.adm_user }}"
+      - -c
+      - "\\l"
+  register: pg_db_list
+  changed_when: false
+
+- name: Show database list
+  ansible.builtin.debug:
+    msg: "{{ pg_db_list.stdout_lines }}"
+
+- name: List tables per service database
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - postgres-db
+      - psql
+      - -U
+      - "{{ postgres.adm_user }}"
+      - -d
+      - "{{ item.db }}"
+      - -c
+      - "\\dt"
+  register: pg_table_list
+  changed_when: false
+  loop: "{{ postgres_service_users }}"
+  loop_control:
+    label: "{{ item.db }}"
+
+- name: Show tables per service database
+  ansible.builtin.debug:
+    msg: "{{ item.item.db }}: {{ item.stdout_lines }}"
+  loop: "{{ pg_table_list.results }}"
+  loop_control:
+    label: "{{ item.item.db }}"
+
+- name: List client cert directory
+  ansible.builtin.find:
+    paths: "{{ postgres_tls_client_base_dir }}"
+    file_type: file
+  register: cert_dir
+
+- name: Show client cert files
+  ansible.builtin.debug:
+    msg: "{{ cert_dir.files | map(attribute='path') | list }}"
+
+- name: Assert expected client certs are present
+  ansible.builtin.assert:
+    that:
+      - cert_dir.files | map(attribute='path') | map('basename') | list is superset(expected_cert_files)
+    fail_msg: >-
+      Missing client cert files in {{ postgres_tls_client_base_dir }}.
+      Found: {{ cert_dir.files | map(attribute='path') | map('basename') | list }}
+      — expected: {{ expected_cert_files }}
+    success_msg: "All expected client cert files present in {{ postgres_tls_client_base_dir }}."
+  vars:
+    expected_cert_files: >-
+      {{
+        ['ca.crt']
+        + (postgres_tls_clients | map(attribute='name') | map('regex_replace', '$', '.crt') | list)
+        + (postgres_tls_clients | map(attribute='name') | map('regex_replace', '$', '.key') | list)
+      }}

@@ -1,18 +1,9 @@
 ---
-- name: Deploy mysql databases
+- name: Deploy MariaDB databases
   ansible.builtin.include_tasks: generate_container.yml
   loop: "{{ db_server }}"
   loop_control:
     loop_var: db
-  vars:
-    db_name: "{{ db.name }}"
-    db_pass: "{{ db.pass }}"
-    db_id: "{{ db.id }}"
-    db_volume: "{{ db.volume }}"
-    db_static: "{{ db.static }}"
-
-# - name: Configure replicas
-#   ansible.builtin.include_tasks: configure_replica.yml
 
 - name: Install adminer
   ansible.builtin.include_tasks: install_adminer.yml

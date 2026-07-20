@@ -1,0 +1,34 @@
+---
+- name: Ensure apt keyrings directory exists
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+
+- name: Download eza GPG key
+  ansible.builtin.get_url:
+    url: https://raw.githubusercontent.com/eza-community/eza/main/deb.asc
+    dest: /tmp/eza-deb.asc
+    mode: "0644"
+
+- name: Add eza GPG key
+  ansible.builtin.command:
+    cmd: gpg --dearmor -o /etc/apt/keyrings/gierens.gpg /tmp/eza-deb.asc
+    creates: /etc/apt/keyrings/gierens.gpg
+
+- name: Set eza GPG key permissions
+  ansible.builtin.file:
+    path: /etc/apt/keyrings/gierens.gpg
+    mode: "0644"
+
+- name: Add eza apt repository
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/gierens.gpg] http://deb.gierens.de stable main"
+    filename: gierens
+    state: present
+
+- name: Install eza
+  ansible.builtin.apt:
+    name: eza
+    state: present
+    update_cache: true

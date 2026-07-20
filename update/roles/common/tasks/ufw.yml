@@ -4,25 +4,47 @@
       - ufw_rules | selectattr('comment','equalto', 'SSH') | list | length > 0
     fail_msg: "No SSH rule found in ufw_rules! You might lock yourself out."
 
+- name: Get UFW status
+  ansible.builtin.command: ufw status verbose
+  register: ufw_status
+  changed_when: false
+  check_mode: false
+
 - name: Set default incoming policy to deny
   community.general.ufw:
     direction: incoming
     policy: deny
+  when: "'Default: deny (incoming)' not in ufw_status.stdout"
 
 - name: Set default outgoing policy to allow
   community.general.ufw:
     direction: outgoing
     policy: allow
+  when: "'allow (outgoing)' not in ufw_status.stdout"
 
 - name: Apply UFW rules from inventory
   community.general.ufw:
     rule: allow
     proto: "{{ item.protocol }}"
     port: "{{ item.port }}"
+    from_ip: "{{ item.from_ip | default('any') }}"
     comment: "{{ item.comment }}"
   loop: "{{ ufw_rules }}"
+  when: item.port ~ '/' ~ item.protocol not in ufw_status.stdout and item.port not in ufw_status.stdout
 
 - name: Enable UFW with logging
   community.general.ufw:
     state: enabled
     logging: 'on'
+  when: "'Status: active' not in ufw_status.stdout"
+
+- name: Create logrotate config for access
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/templates/logrotate.j2"
+    dest: "/etc/logrotate.d/uwf"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+  vars:
+    log_path: "/var/log/ufw.log"
+    log_permissions: 644

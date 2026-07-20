@@ -1,0 +1,32 @@
+---
+- name: Create data directory
+  ansible.builtin.file:
+    path: "./data/crowdsec"
+    state: directory
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0755"
+
+- name: Create config directory
+  ansible.builtin.file:
+    path: "./data/crowdsec/config"
+    state: directory
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0750"
+
+- name: Create data directory
+  ansible.builtin.file:
+    path: "./data/crowdsec/data"
+    state: directory
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0755"
+
+- name: Generate acquis.yaml
+  ansible.builtin.template:
+    src: acquis.yaml.j2
+    dest: ./data/crowdsec/config/acquis.yaml
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0640"

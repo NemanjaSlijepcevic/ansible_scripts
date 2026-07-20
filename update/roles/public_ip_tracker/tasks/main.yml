@@ -12,14 +12,26 @@
     path: ./data/public_ip_tracker/app.log
   register: file_check
 
+# Owned by the container's appuser (uid 1000) so it can write without a
+# world-writable file; logrotate uses copytruncate to keep this owner/mode.
 - name: Touch app.log file
   ansible.builtin.file:
     path: ./data/public_ip_tracker/app.log
     state: touch
-    mode: "0755"
-    owner: "{{ user.name }}"
-    group: "{{ user.group }}"
+    mode: "0644"
+    owner: "{{ public_ip_tracker_app_uid }}"
+    group: "{{ public_ip_tracker_app_gid }}"
   when: not file_check.stat.exists
+
+# Enforce ownership/mode every run (idempotent, no mtime change) so an existing
+# app.log — e.g. a legacy world-writable one — is corrected on redeploy.
+- name: Enforce app.log ownership and permissions
+  ansible.builtin.file:
+    path: ./data/public_ip_tracker/app.log
+    state: file
+    mode: "0644"
+    owner: "{{ public_ip_tracker_app_uid }}"
+    group: "{{ public_ip_tracker_app_gid }}"
 
 - name: Run Docker container from built image
   community.docker.docker_container:
@@ -32,6 +44,11 @@
     env:
       API_IP_TOKEN: "{{ api_ip_token }}"
       TZ: "Europe/Belgrade"
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "/dev/null", "--header", "Authorization: Bearer {{ api_ip_token }}", "http://127.0.0.1:5000/current_ip"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     volumes:
       - ./data/public_ip_tracker/app.log:/app/app.log:rw
     restart_policy: unless-stopped
@@ -40,6 +57,7 @@
       traefik.http.routers.public_ip_tracker.entrypoints: "https"
       traefik.http.routers.public_ip_tracker.rule: "{{ node.ip.host }}"
       traefik.http.routers.public_ip_tracker.tls: "true"
+      traefik.http.routers.public_ip_tracker.middlewares: "chain-no-auth@file"
       traefik.http.services.public_ip_tracker.loadbalancer.server.port: "{{ node.ip.port }}"
 
 - name: Create logrotate config for public_ip_tracker
@@ -51,4 +69,6 @@
     mode: "0644"
   vars:
     log_path: "{{ ansible_env.PWD }}/data/public_ip_tracker/app.log"
-    log_permissions: "0755"
+    # copytruncate: appuser holds app.log open and can't write a fresh
+    # root-created file, so rotate in place to preserve owner + mode.
+    copytruncate: true

@@ -1,0 +1,11 @@
+---
+user:
+  name: "deploy"
+  group: "docker"
+
+netboot:
+  static: "172.20.0.80"
+  host: "Host(`netboot.example.com`)"
+  assets_host: "Host(`netboot-assets.example.com`)"
+  port: "3000"
+  url: "https://netboot.example.com"

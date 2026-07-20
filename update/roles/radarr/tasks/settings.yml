@@ -1,0 +1,49 @@
+---
+- name: Get current UI config
+  ansible.builtin.uri:
+    url: "{{ radarr.url }}/api/v3/config/ui"
+    method: GET
+    headers:
+      X-Api-Key: "{{ radarr.api_key }}"
+    return_content: true
+  register: radarr_ui_config
+
+- name: Build UI config body
+  ansible.builtin.set_fact:
+    radarr_ui_body: "{{ radarr_ui_config.json | combine({'firstDayOfWeek': 1,
+      'calendarWeekColumnHeader': 'ddd D/M', 'shortDateFormat': 'DD/MM/YYYY',
+      'longDateFormat': 'dddd, DD MMMM YYYY', 'timeFormat': 'HH:mm'}) }}"
+
+- name: Set UI config
+  ansible.builtin.uri:
+    url: "{{ radarr.url }}/api/v3/config/ui"
+    method: PUT
+    headers:
+      X-Api-Key: "{{ radarr.api_key }}"
+    body_format: json
+    body: "{{ radarr_ui_body }}"
+    status_code: [200, 202]
+
+- name: Get current host config
+  ansible.builtin.uri:
+    url: "{{ radarr.url }}/api/v3/config/host"
+    method: GET
+    headers:
+      X-Api-Key: "{{ radarr.api_key }}"
+    return_content: true
+  register: radarr_host_config
+
+- name: Build host config body
+  ansible.builtin.set_fact:
+    radarr_host_body: "{{ radarr_host_config.json | combine({'analyticsEnabled':
+      false, 'urlBase': ''}) }}"
+
+- name: Set host config
+  ansible.builtin.uri:
+    url: "{{ radarr.url }}/api/v3/config/host"
+    method: PUT
+    headers:
+      X-Api-Key: "{{ radarr.api_key }}"
+    body_format: json
+    body: "{{ radarr_host_body }}"
+    status_code: [200, 202]

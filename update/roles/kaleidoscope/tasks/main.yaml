@@ -1,0 +1,54 @@
+---
+- name: Create directory if they don't exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0755"
+  loop:
+    - "./data/kaleidoscope"
+    - "./data/kaleidoscope/staticfiles"
+    - "./data/kaleidoscope/media"
+
+- name: Check if db.sqlite3 file exists
+  ansible.builtin.stat:
+    path: ./data/kaleidoscope/db.sqlite3
+  register: file_stat
+
+- name: "Copy SQLite database file"
+  ansible.builtin.copy:
+    src: ./db.sqlite3
+    dest: ./data/kaleidoscope/db.sqlite3
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0755"
+  when: not file_stat.stat.exists
+
+- name: Deploy kaleidoscope container
+  community.docker.docker_container:
+    name: kaleidoscope
+    image: nemanjaslijepcevic/kaleidoscope:latest
+    restart_policy: unless-stopped
+    pull: true
+    dns_servers:
+      - "{{ default.dns }}"
+    networks:
+      - name: proxy
+        ipv4_address: "{{ kaleidoscope.static }}"
+    env:
+      TZ: "Europe/Belgrade"
+      DEFAULT_DOMAIN: "{{ kaleidoscope.domain }}"
+      EXTRA_DOMAIN: "{{ kaleidoscope.extra_domain }}"
+      SECRET_KEY: "{{ kaleidoscope.secret_key }}"
+      IMAGE_WATERMARK_TEXT: "{{ kaleidoscope.watermark }}"
+    volumes:
+      - "./data/kaleidoscope/db.sqlite3:/app/db.sqlite3"
+      - "./data/kaleidoscope/staticfiles:/app/staticfiles"
+      - "./data/kaleidoscope/media:/app/media"
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.kaleidoscope.entrypoints: "https"
+      traefik.http.routers.kaleidoscope.rule: "{{ kaleidoscope.host }}"
+      traefik.http.routers.kaleidoscope.tls: "true"
+      traefik.http.services.kaleidoscope.loadbalancer.server.port: "{{ kaleidoscope.port }}"

@@ -1,0 +1,57 @@
+---
+- name: "Update PostgreSQL"
+  hosts: primary_postgres
+  gather_facts: true
+  remote_user: "{{ user.name }}"
+  become: true
+  vars:
+    current_host: "postgres"
+  roles:
+    - { role: common, tags: ['common'] }
+    - { role: postgres, tags: ['postgres', 'database'] }
+    - { role: pgadmin, tags: ['pgadmin', 'database'] }
+    - { role: authelia, tags: ['authelia', 'proxy', 'security'] }
+    - { role: traefik, tags: ['traefik', 'proxy', 'security'] }
+    - { role: crowdsec, tags: ['crowdsec', 'proxy', 'security'] }
+    - { role: telegraf, tags: ['telegraf', 'metrics', 'monitoring'] }
+    - { role: promtail, tags: ['promtail', 'logs', 'monitoring'] }
+
+- name: "Prepare PostgreSQL for NAS"
+  hosts: nass
+  gather_facts: true
+  remote_user: "{{ user.name }}"
+  become: true
+  vars:
+    current_host: "nas"
+  roles:
+    - { role: prepare_postgres, tags: ['prepare_postgres', 'postgres', 'database'] }
+
+- name: "Prepare PostgreSQL for Netboot"
+  hosts: netboots
+  gather_facts: true
+  remote_user: "{{ user.name }}"
+  become: true
+  vars:
+    current_host: "netboot"
+  roles:
+    - { role: prepare_postgres, tags: ['prepare_postgres', 'postgres', 'database'] }
+
+- name: "Prepare PostgreSQL for Automation"
+  hosts: automations
+  gather_facts: true
+  remote_user: "{{ user.name }}"
+  become: true
+  vars:
+    current_host: "automation"
+  roles:
+    - { role: prepare_postgres, tags: ['prepare_postgres', 'postgres', 'database'] }
+
+# - name: "Prepare PostgreSQL for Immich"
+#   hosts: immichs
+#   gather_facts: true
+#   remote_user: "{{ user.name }}"
+#   become: true
+#   vars:
+#     current_host: "immich"
+#   roles:
+#     - { role: prepare_postgres, tags: ['prepare_postgres', 'postgres', 'database'] }

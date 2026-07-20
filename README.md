@@ -1,117 +1,93 @@
 # ansible_scripts Repository
 
-This GitHub repository, **ansible_scripts**, serves as a centralized location for storing and managing all my Ansible scripts. 
-Ansible is a powerful automation tool used for configuration management, application deployment, and task automation.
+Centralized Ansible automation for my homelab: bootstrapping new machines and
+deploying/updating Docker-based services across a NAS, monitor, central
+PostgreSQL, public server, and more.
 
-This repository contains Ansible playbooks organized using the [Alternative Directory Layout](https://docs.ansible.com/ansible/latest/user_guide/playbooks_best_practices.html#alternative-directory-layout). Each inventory file, along with its associated `group_vars` and `host_vars`, is stored in a separate directory, allowing for better separation of configuration and management tasks.
+Playbooks use the
+[Alternative Directory Layout](https://docs.ansible.com/ansible/latest/user_guide/playbooks_best_practices.html#alternative-directory-layout):
+each top-level directory carries its own inventory (`inventories/production/`)
+with `hosts.yml`, `group_vars/all.yml`, and per-host `host_vars/`.
 
-Feel free to explore the contents of this repository, use the provided Ansible scripts, and adapt them to your specific infrastructure and automation needs.
+## Security stack (every host): Traefik (reverse proxy, TLS via Cloudflare DNS
+challenge) → Authelia (SSO/2FA) → CrowdSec (IDS/bouncer) → services.
 
 ## Repository Structure
 
-The repository includes two main directories:
+- **`client/`** — Bootstraps new machines: packages, users, SSH hardening,
+  firewall, Docker.
+- **`update/`** — Deploys/updates Docker services on existing hosts.
+- **`docs/`** — Markdown manual for every role, with a manual-execution guide
+  (indexed by `docs/README.md`).
 
-1. **client**: Contains playbooks for creating new machines.
-2. **update**: Contains playbooks for updating and installing software on existing systems.
+## Client Playbook
 
-### Client Directory
+`client/new.yml` provisions a fresh machine. It prompts for a username and
+password, then runs the bootstrap roles in order:
 
-The `client` directory includes a playbook called `new.yml`, which is used to create new users and configure a remote machine with essential tools and services.
-
-#### Playbook: `new.yml`
-
-This playbook prompts for a new username and password, then performs the following tasks:
-
-- Ensures passwords match and meet security standards.
-- Installs required packages.
-- Creates the default user.
-- Prepares SSH access.
-- Installs Docker.
-- Cleans up temporary files.
-
-##### Example Command
-
-To execute this playbook:
+`install_packages` → `prepare_ssh` → `create_new_users` → `protect_ssh` →
+`prepare_firewall` → `install_docker` → `clean_up`
 
 ```bash
-ansible-playbook client/new.yml --vault-password-file /path/to/pass.file
+ansible-playbook client/new.yml --vault-password-file pass.file
 ```
 
-### Update Directory
+## Update Playbooks
 
-The `update` directory includes three playbooks designed for updating or installing various services on different systems:
+Every host first runs the baseline stack (`common`, `traefik`, `authelia`,
+`crowdsec`, `telegraf`, `promtail`); host-specific services follow.
 
-1. **`nas.yml`**: Updates the NAS server with various roles such as file-sharing services, media applications, and monitoring tools.
-2. **`server.yml`**: Updates general-purpose servers, including security, cloud services, and personal management applications.
-3. **`monitor.yml`**: Updates monitoring systems, installing and configuring various monitoring and alerting tools.
-
-#### Playbook: `nas.yml`
-
-Used for updating the NAS server, applying roles such as:
-
-- `authelia`, `traefik`, `crowdsec` for security and reverse-proxy setup
-- Media applications like `prowlarr`, `radarr`, `sonarr`, `plex`, and others
-
-#### Playbook: `server.yml`
-
-Updates general-purpose servers and installs:
-
-- Security and reverse-proxy tools (`authelia`, `traefik`, `crowdsec`)
-- Monitoring tools (`node_exporter`, `public_ip_updater`)
-- Cloud services (`nextcloud`)
-- Personal applications (e.g., `ghost`, `kavita`)
-
-#### Playbook: `monitor.yml`
-
-Used for updating monitoring machines with roles such as:
-
-- Security and reverse-proxy (`authelia`, `traefik`, `crowdsec`)
-- Monitoring and alerting tools (`influxdb`, `prometheus`, `grafana`, `homeassistant`)
-
-##### Example Commands
-
-Run `nas.yml`:
+| Playbook | Host | Highlights |
+| --- | --- | --- |
+| `nas.yml` | NAS | `prepare_smb`, `prepare_postgres`, media stack (`jellyfin`, `transmission`, `*arr`, `seerr`, `recyclarr`), `filebrowser` |
+| `monitor.yml` | Monitor | `influxdb`, `loki`, `grafana`, `homeassistant`, `public_ip_tracker`, `log_notification` |
+| `postgres.yml` | PostgreSQL | `postgres`, `pgadmin` (+ `prepare_postgres` on client hosts) |
+| `server.yml` | Server | `postgres_server`, `sql`, web apps (`ghost`, `bibliography`, `family_trees`, `kaleidoscope`), `filebrowser`, `public_ip_whitelist_updater` |
+| `immich.yml` | Immich | `immich` photo stack + `prepare_postgres` |
+| `netboot.yml` | Netboot | `netboot` + `prepare_postgres` |
+| `automation.yml` | Automation | `kestra` (workflow orchestration, repo-managed flows: scheduled/on-merge infra updates, Ghost newsletter, Claude alert triage → Telegram), `socket_proxy` (filtered Docker API), `claude_runner` + `ansible_runner` (ephemeral sandbox images) |
 
 ```bash
-ansible-playbook update/nas.yml --vault-password-file /path/to/pass.file
+ansible-playbook update/nas.yml     --vault-password-file pass.file
+ansible-playbook update/monitor.yml --vault-password-file pass.file
+ansible-playbook update/postgres.yml --vault-password-file pass.file
+ansible-playbook update/server.yml  --vault-password-file pass.file
+ansible-playbook update/automation.yml --vault-password-file pass.file
 ```
 
-Run `server.yml`:
+`update/ansible.cfg` sets the default inventory, so playbooks run from the
+`update/` directory pick it up automatically.
+
+### Common flags
 
 ```bash
-ansible-playbook update/server.yml --vault-password-file /path/to/pass.file
+# Only specific roles / hosts
+ansible-playbook update/nas.yml --vault-password-file pass.file --tags jellyfin
+ansible-playbook update/nas.yml --vault-password-file pass.file --limit primary_nas
+
+# Dry run
+ansible-playbook update/nas.yml --vault-password-file pass.file --check
 ```
 
-Run `monitor.yml`:
+Most roles in a playbook are commented out by default — uncomment a role to
+include it in a run.
 
-```bash
-ansible-playbook update/monitor.yml --vault-password-file /path/to/pass.file
-```
+## Inventory & Secrets
+
+- `group_vars/all.yml` — shared config.
+- `host_vars/primary_*.yml` — per-host service configs .
+- Sensitive values are stored in these files and meant to be **Ansible
+  Vault**-encrypted; `pass.file` is gitignored and passed via
+  `--vault-password-file`.
+- Each role carries a `defaults/main.yml` with placeholder values that mirror
+  the inventory shape it consumes — readable schema for the (encrypted) vars.
+
+`.gitignore` protects generated key material by file type (`*.key`, `*.crt`,
+`*.csr`, `*.pem`, `*.pub`, `*.sqlite*`, `*.db`). SSH private keys use the
+`.pem` extension so they are caught; no keys are committed — `.pub` files are
+gitignored too (their comments carry real usernames/emails).
 
 ## Requirements
 
-- **Ansible**: Ensure Ansible is installed on your system.
-- **Ansible Vault**: Sensitive data is encrypted using Ansible Vault. Use the `--vault-password-file` option to specify the vault password file path.
-
-## Inventory and Variable Layout
-
-This repository uses the **Alternative Directory Layout** to organize inventories and variables for each environment:
-
-- Each playbook has its own inventory file and associated `group_vars`/`host_vars` directories to manage configuration for specific groups or hosts.
-
-## Usage
-
-To execute any of the playbooks, use the `ansible-playbook` command with the `--vault-password-file` option. This allows Ansible to decrypt any sensitive variables or credentials stored with Ansible Vault.
-
----
-
-This layout provides an organized structure to manage and execute Ansible playbooks across different environments, simplifying user management and system updates across multiple server types.
-
-### Key Features
-
-- **Automation**: Ansible enables automation of repetitive tasks, ensuring consistency and reducing manual effort.
-- **Modularity**: Organized into playbooks and roles for easy customization and reuse.
-- **Documentation**: Includes READMEs and comments to explain how to use each script effectively.
-- **Version Control**: Utilizes Git for version control, making it easy to track changes and collaborate with others.
-
-**Happy automating!** 🚀
+- **Ansible** with the `community.docker` collection.
+- **Ansible Vault** password file for decrypting inventory secrets.

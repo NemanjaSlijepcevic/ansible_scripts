@@ -1,0 +1,14 @@
+---
+# Documentation-only defaults for the promtail role.
+# Copy the shape into host_vars/group_vars and replace with real values,
+# then keep the real inventory encrypted. Values below are placeholders.
+
+user:
+  name: "deploy"
+  group: "docker"
+
+# Loki push endpoint promtail ships logs to.
+loki_ingest_url: "http://loki:3100/loki/api/v1/push"
+
+# Node label applied to scraped logs. Normally set per-playbook.
+current_host: "example"

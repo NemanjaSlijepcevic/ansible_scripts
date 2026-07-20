@@ -1,0 +1,19 @@
+---
+# Documentation-only defaults for the bibliography role.
+# Copy the shape into host_vars/group_vars and replace with real values,
+# then keep the real inventory encrypted. Values below are placeholders.
+
+user:
+  name: "deploy"
+  group: "docker"
+
+default:
+  dns: "192.0.2.1"
+
+bibliography:
+  static: "172.20.0.140"
+  domain: "books.example.com"
+  extra_domain: "library.example.com"
+  secret_key: "changeme"
+  host: "Host(`books.example.com`)"
+  port: "8000"

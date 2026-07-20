@@ -1,0 +1,64 @@
+---
+- name: Create loki directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "10001"
+    group: "10001"
+    mode: "0755"
+  loop:
+    - ./data/loki
+    - ./data/loki/chunks
+    - ./data/loki/rules
+    - ./data/loki/tsdb-shipper-cache
+
+- name: Generate loki config
+  ansible.builtin.template:
+    src: loki-config.yml.j2
+    dest: ./data/loki/loki-config.yml
+    owner: "10001"
+    group: "10001"
+    mode: "0644"
+
+- name: Deploy loki container
+  community.docker.docker_container:
+    name: loki
+    image: grafana/loki:latest
+    pull: true
+    restart_policy: unless-stopped
+    networks:
+      - name: proxy
+    published_ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/loki-config.yml
+    volumes:
+      - ./data/loki:/loki
+      - ./data/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+    env:
+      TZ: "Europe/Belgrade"
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.loki.entrypoints: "https"
+      traefik.http.routers.loki.rule: "{{ loki.host }}"
+      traefik.http.routers.loki.tls: "true"
+      traefik.http.routers.loki.middlewares: "chain-auth@file"
+      traefik.http.services.loki.loadbalancer.server.port: "{{ loki.port }}"
+    healthcheck:
+      test: ["CMD", "loki", "--version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+- name: Wait for Loki to be ready
+  ansible.builtin.uri:
+    url: "{{ loki.url }}/ready"
+    method: GET
+    status_code: 200
+  register: result
+  until: result.status == 200
+  retries: 15
+  delay: 10
+
+- name: Register in Grafana
+  ansible.builtin.include_tasks: grafana.yml

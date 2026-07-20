@@ -1,0 +1,66 @@
+---
+- name: Create directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ puid }}"
+    group: "{{ pgid }}"
+    mode: "0755"
+  loop:
+    - "./data/filebrowser"
+    - "./data/filebrowser/config"
+
+# Host dirs for local ./data access drives must exist and be writable by
+# the container user or filebrowser answers 403 on create. External mounts
+# (e.g. /podaci) are left untouched — chowning a whole drive is not ours.
+- name: Create local access-drive directories
+  ansible.builtin.file:
+    path: "{{ item.split(':') | first }}"
+    state: directory
+    owner: "{{ puid }}"
+    group: "{{ pgid }}"
+    mode: "0755"
+  loop: "{{ access_drives | default([]) | select('match', '^\\./data/') | list }}"
+
+- name: Touch database file
+  ansible.builtin.file:
+    path: "./data/filebrowser/database.db"
+    state: touch
+    owner: "{{ puid }}"
+    group: "{{ pgid }}"
+    mode: "0640"
+    modification_time: preserve
+    access_time: preserve
+
+- name: Deploy Filebrowser
+  community.docker.docker_container:
+    name: filebrowser
+    image: filebrowser/filebrowser:latest
+    pull: true
+    restart_policy: unless-stopped
+    networks:
+      - name: proxy
+    user: "{{ puid }}:{{ pgid }}"
+    entrypoint:
+      - /bin/sh
+      - -c
+    command:
+      - >-
+        filebrowser config init -d /database/filebrowser.db 2>/dev/null || true &&
+        filebrowser config set -d /database/filebrowser.db --auth.method=proxy --auth.header=Remote-User --address 0.0.0.0 &&
+        filebrowser users add {{ filebrowser.username }} placeholder --perm.admin -d /database/filebrowser.db 2>/dev/null || true &&
+        filebrowser -r /srv -d /database/filebrowser.db -p 80
+    volumes: "{{ filebrowser_base_volumes + (access_drives | default([])) }}"
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.filebrowser.entrypoints: "https"
+      traefik.http.routers.filebrowser.rule: "{{ filebrowser.host }}"
+      traefik.http.routers.filebrowser.tls: "true"
+      traefik.http.routers.filebrowser.middlewares: "chain-auth@file"
+      traefik.http.services.filebrowser.loadbalancer.server.port: "{{ filebrowser.port }}"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --spider http://localhost:80/health || exit 1"]
+      interval: 1m30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s

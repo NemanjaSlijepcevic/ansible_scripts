@@ -1,0 +1,69 @@
+---
+- name: Create SSO plugin config directory
+  ansible.builtin.file:
+    path: ./data/jellyfin/config/plugins/configurations
+    state: directory
+    owner: "{{ puid }}"
+    group: "{{ pgid }}"
+    mode: "0755"
+
+- name: Deploy SSO-Auth config
+  ansible.builtin.template:
+    src: sso.xml.j2
+    dest: ./data/jellyfin/config/plugins/configurations/SSO-Auth.xml
+    owner: "{{ puid }}"
+    group: "{{ pgid }}"
+    mode: "0644"
+
+- name: Check installed plugins
+  ansible.builtin.uri:
+    url: "{{ jellyfin.url }}/Plugins"
+    headers:
+      X-Emby-Token: "{{ jellyfin.api_key }}"
+    status_code: 200
+  register: installed_plugins
+
+- name: Get available packages
+  ansible.builtin.uri:
+    url: "{{ jellyfin.url }}/Packages"
+    headers:
+      X-Emby-Token: "{{ jellyfin.api_key }}"
+    status_code: 200
+  register: available_packages
+  when: installed_plugins.json | selectattr('Name', 'equalto', 'SSO Authentication') | list | length == 0
+
+- name: Install SSO Authentication plugin
+  vars:
+    sso_pkg: "{{ (available_packages.json | selectattr('name', 'equalto', 'SSO Authentication') | list
+                + available_packages.json | selectattr('name', 'equalto', 'SSO-Auth') | list) | first | default({}) }}"
+    sso_ver: "{{ sso_pkg.versions | first | default({}) }}"
+  ansible.builtin.uri:
+    url: "{{ jellyfin.url }}/Packages/Installed/{{ sso_pkg.name }}"
+    method: POST
+    params:
+      assemblyGuid: "{{ sso_pkg.guid }}"
+      version: "{{ sso_ver.versionNumber }}"
+    headers:
+      X-Emby-Token: "{{ jellyfin.api_key }}"
+    status_code: 204
+  when:
+    - installed_plugins.json | selectattr('Name', 'equalto', 'SSO Authentication') | list | length == 0
+    - sso_pkg | length > 0
+  register: sso_plugin_installed
+
+- name: Restart Jellyfin to load SSO plugin
+  community.docker.docker_container:
+    name: jellyfin
+    state: started
+    restart: true
+  when: sso_plugin_installed is changed  # noqa: no-handler
+
+- name: Wait for Jellyfin to be ready after restart
+  ansible.builtin.uri:
+    url: "{{ jellyfin.url }}/health"
+    status_code: 200
+  register: jf_health
+  until: jf_health.status == 200
+  retries: 10
+  delay: 10
+  when: sso_plugin_installed is changed  # noqa: no-handler

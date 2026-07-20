@@ -1,0 +1,65 @@
+---
+- name: Create postgres data directory
+  ansible.builtin.file:
+    path: ./data/postgres
+    state: directory
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0750"
+
+- name: Generate pg_hba.conf
+  ansible.builtin.template:
+    src: pg_hba.conf.j2
+    dest: ./data/postgres/pg_hba.conf
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0644"
+  notify: Restart PostgreSQL
+
+- name: Deploy PostgreSQL container
+  community.docker.docker_container:
+    name: postgres-db
+    image: pgvector/pgvector:pg18
+    pull: true
+    restart_policy: unless-stopped
+    # SIGTERM = postgres "smart" shutdown that waits forever for idle clients
+    # → docker's 10s default then SIGKILLs → crash recovery and pg_stat wipe
+    # on every stop. SIGINT = fast shutdown with clean checkpoint.
+    stop_signal: SIGINT
+    stop_timeout: 90
+    networks:
+      - name: proxy
+        ipv4_address: "{{ postgres.static }}"
+    env:
+      POSTGRES_USER: "{{ postgres.adm_user }}"
+      POSTGRES_PASSWORD: "{{ postgres.adm_pass }}"
+      POSTGRES_DB: postgres
+      PGDATA: /var/lib/postgresql/data
+    volumes:
+      - "./data/postgres/data:/var/lib/postgresql/data"
+      - "./data/postgres/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro"
+      - "./data/postgres/certs/server.crt:/certs/server.crt:ro"
+      - "./data/postgres/certs/server.key:/certs/server.key:ro"
+      - "./data/postgres/certs/ca.crt:/certs/ca.crt:ro"
+    command: >
+      postgres
+      -c ssl=on
+      -c ssl_cert_file=/certs/server.crt
+      -c ssl_key_file=/certs/server.key
+      -c ssl_ca_file=/certs/ca.crt
+      -c hba_file=/etc/postgresql/pg_hba.conf
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U {{ postgres.adm_user }}"]
+      interval: 1m
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+- name: Wait for PostgreSQL to accept connections
+  ansible.builtin.command:
+    cmd: "docker exec postgres-db pg_isready -U {{ postgres.adm_user }}"
+  register: pg_ready
+  until: pg_ready.rc == 0
+  retries: 30
+  delay: 2
+  changed_when: false

@@ -1,0 +1,17 @@
+---
+# Use the docker CLI, NOT community.docker.docker_container, for the restart:
+#  * `docker restart` breaks rootfs mounts on fuse-overlayfs hosts and would
+#    not re-bind the replaced (new-inode) mosquitto.conf single-file mount →
+#    separate `stop` + `start` instead.
+#  * a bare `docker_container: {name, state}` task can RECREATE the container to
+#    match its sparse spec (image defaults, no binds), dropping the config and
+#    passwd mounts. CLI stop/start never recreates, preserving the full config.
+- name: Stop Mosquitto
+  ansible.builtin.command: docker stop mosquitto
+  changed_when: true
+  listen: Restart Mosquitto
+
+- name: Start Mosquitto
+  ansible.builtin.command: docker start mosquitto
+  changed_when: true
+  listen: Restart Mosquitto

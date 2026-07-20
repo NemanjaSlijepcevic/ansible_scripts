@@ -1,0 +1,43 @@
+---
+- name: Lookup org ID
+  ansible.builtin.uri:
+    url: "{{ influxdb.url }}/api/v2/orgs?org={{ influxdb.organization }}"
+    method: GET
+    headers:
+      Authorization: "Token {{ influxdb.api_token }}"
+    return_content: true
+    status_code: 200
+  register: influxdb_org
+
+- name: Set org id fact
+  ansible.builtin.set_fact:
+    influxdb_org_id: "{{ influxdb_org.json.orgs[0].id }}"
+
+- name: List existing buckets
+  ansible.builtin.uri:
+    url: "{{ influxdb.url }}/api/v2/buckets?orgID={{ influxdb_org_id }}&limit=100"
+    method: GET
+    headers:
+      Authorization: "Token {{ influxdb.api_token }}"
+    return_content: true
+    status_code: 200
+  register: influxdb_existing_buckets
+
+- name: Create missing buckets
+  ansible.builtin.uri:
+    url: "{{ influxdb.url }}/api/v2/buckets"
+    method: POST
+    headers:
+      Authorization: "Token {{ influxdb.api_token }}"
+    body_format: json
+    body:
+      orgID: "{{ influxdb_org_id }}"
+      name: "{{ item.name }}"
+      retentionRules:
+        - type: expire
+          everySeconds: "{{ item.retention_seconds | int }}"
+    status_code: [201]
+  loop: "{{ influxdb.buckets | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: item.name not in (influxdb_existing_buckets.json.buckets | map(attribute='name') | list)

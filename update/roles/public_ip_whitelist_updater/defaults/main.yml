@@ -1,0 +1,10 @@
+---
+user:
+  name: "deploy"
+  group: "docker"
+
+api_ip_token: "changeme"
+public_ip_url: "https://node-ip.example.com/current_ip"
+
+public_ip_whitelist_updater:
+  static: "172.20.0.131"

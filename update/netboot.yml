@@ -1,0 +1,17 @@
+---
+- name: "Update Netboot"
+  hosts: netboots
+  gather_facts: true
+  remote_user: "{{ user.name }}"
+  become: true
+  vars:
+    current_host: "netboot"
+  roles:
+    - { role: common, tags: ['common'] }
+    - { role: prepare_postgres, tags: ['prepare_postgres', 'postgres', 'database'] }
+    - { role: authelia, tags: ['authelia', 'proxy', 'security'] }
+    - { role: traefik, tags: ['traefik', 'proxy', 'security'] }
+    - { role: crowdsec, tags: ['crowdsec', 'proxy', 'security'] }
+    - { role: netboot, tags: ['netboot'] }
+    - { role: telegraf, tags: ['telegraf', 'metrics', 'monitoring'] }
+    - { role: promtail, tags: ['promtail', 'logs', 'monitoring'] }

@@ -1,0 +1,45 @@
+---
+- name: Get existing Prowlarr applications
+  ansible.builtin.uri:
+    url: "{{ prowlarr.url }}/api/v1/applications"
+    method: GET
+    headers:
+      X-Api-Key: "{{ prowlarr.api_key }}"
+    return_content: true
+  register: existing_apps
+
+- name: Add Sonarr to Prowlarr
+  ansible.builtin.uri:
+    url: "{{ prowlarr.url }}/api/v1/applications"
+    method: POST
+    headers:
+      X-Api-Key: "{{ prowlarr.api_key }}"
+    body_format: json
+    body:
+      name: "Sonarr"
+      implementation: "Sonarr"
+      implementationName: "Sonarr"
+      configContract: "SonarrSettings"
+      enable: true
+      syncLevel: "fullSync"
+      fields:
+        - name: prowlarrUrl
+          value: "http://prowlarr:9696"
+        - name: baseUrl
+          value: "http://sonarr:8989"
+        - name: apiKey
+          value: "{{ sonarr.api_key }}"
+        - name: syncCategories
+          value: [5000, 5030, 5040]
+    status_code: 201
+  when: "existing_apps.json | selectattr('name', 'equalto', 'Sonarr') | list | length == 0"
+
+- name: Verify Sonarr exists in Prowlarr
+  ansible.builtin.uri:
+    url: "{{ prowlarr.url }}/api/v1/applications"
+    method: GET
+    headers:
+      X-Api-Key: "{{ prowlarr.api_key }}"
+    return_content: true
+  register: verify_apps
+  failed_when: "verify_apps.json | selectattr('name', 'equalto', 'Sonarr') | list | length == 0"

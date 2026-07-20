@@ -1,0 +1,13 @@
+---
+user:
+  name: "deploy"
+  group: "docker"
+
+puid: "1000"
+pgid: "1000"
+
+download_drive: "/mnt/downloads"
+
+transmission:
+  host: "Host(`transmission.example.com`)"
+  port: "9091"

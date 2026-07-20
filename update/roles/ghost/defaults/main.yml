@@ -1,0 +1,18 @@
+---
+# Documentation-only defaults for the ghost role.
+# ghost_sites is a list; each entry deploys one Ghost container.
+# Copy the shape into host_vars/group_vars and replace with real values,
+# then keep the real inventory encrypted. Values below are placeholders.
+
+ghost_sites:
+  - container_name: "ghost_example"
+    db_host: "mariadb"
+    db_user: "ghost"
+    db_pass: "changeme"
+    db_name: "ghost_example"
+    mail_user: "notify@example.com"
+    mail_pass: "changeme"
+    url: "https://blog.example.com"
+    host: "Host(`blog.example.com`)"
+    volume_name: "ghost_example_content"
+    static: "172.20.0.150"
