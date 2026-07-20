@@ -1,0 +1,11 @@
+---
+# Documentation-only defaults for the prepare_firewall role.
+# Copy the shape into group_vars/host_vars and replace with real values,
+# then keep the real inventory encrypted. Values below are placeholders.
+
+# UFW allow rules applied after reset. An entry with comment "SSH" is
+# REQUIRED (the role asserts it) or you risk locking yourself out.
+ufw_rules:
+  - { port: "22", protocol: "tcp", comment: "SSH" }
+  - { port: "80", protocol: "tcp", comment: "HTTP" }
+  - { port: "443", protocol: "tcp", comment: "HTTPS" }

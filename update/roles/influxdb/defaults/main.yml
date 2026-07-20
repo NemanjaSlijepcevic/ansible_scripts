@@ -1,0 +1,15 @@
+---
+user:
+  name: "deploy"
+  group: "docker"
+
+influxdb:
+  static: "172.20.0.30"
+  host: "Host(`influxdb.example.com`)"
+  port: "8086"
+
+# Used to register InfluxDB as a Grafana data source.
+grafana:
+  url: "https://grafana.example.com"
+  admin_user: "admin"
+  admin_password: "changeme"

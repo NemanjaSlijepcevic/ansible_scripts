@@ -1,0 +1,1194 @@
+apiVersion: 1
+
+# Rules removed from the template must be listed here too — file
+# provisioning never deletes an already-provisioned rule on its own.
+deleteRules:
+  # immich host not deployed yet (bucket commented out in defaults)
+  - orgId: 1
+    uid: hl-node-gap-telegraf-immich
+  - orgId: 1
+    uid: hl-log-gap-immich
+  # traefik-automation hidden (see traefik_alert_buckets in grafana defaults) —
+  # remove these two when the bucket is re-enabled.
+  - orgId: 1
+    uid: hl-traefik-5xx-traefik-automation
+  - orgId: 1
+    uid: hl-traefik-p95-traefik-automation
+
+groups:
+  - orgId: 1
+    name: homelab-http-uptime
+    folder: Homelab
+    interval: 60s
+    rules:
+
+      - uid: hl-http-service-down
+        title: HTTP Service Down
+        condition: C
+        noDataState: OK
+        execErrState: Error
+        for: "{{ alerts.http_for }}"
+        isPaused: false
+        annotations:
+          summary: "{% raw %}{{ $labels.service }} on {{ $labels.node }} is DOWN ({{ $labels.via }}){% endraw %}"
+          description: "{% raw %}HTTP probe returned result_code={{ $values.B }} for service {{ $labels.service }} (node={{ $labels.node }}, via={{ $labels.via }}). 0=UP, 1=CONNECT, 2=TIMEOUT, 3=BODY, 4=RESP, 5=DNS.{% endraw %}"
+        labels:
+          severity: critical
+          category: http-uptime
+        data:
+          - refId: A
+            datasourceUid: influxdb
+            relativeTimeRange: { from: 300, to: 0 }
+            model:
+              refId: A
+              datasource: { type: influxdb, uid: influxdb }
+              query: |
+                {% if telegraf_buckets|length > 1 %}union(tables: [{% endif %}
+                {% for b in telegraf_buckets %}{% if loop.index > 1 %},{% endif %}
+                from(bucket: "{{ b }}")
+                  |> range(start: -2m)
+                  |> filter(fn: (r) => r._measurement == "http_response" and r._field == "result_code")
+                  |> last()
+                  |> map(fn: (r) => ({r with node: "{{ b }}"}))
+                  |> keep(columns: ["_time", "service", "via", "node", "_value"])
+                {% endfor %}
+                {% if telegraf_buckets|length > 1 %}]){% endif %}
+                  |> group(columns: ["service", "node", "via"])
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: B
+              datasource: { type: __expr__, uid: __expr__ }
+              type: reduce
+              reducer: last
+              expression: A
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [0.5] }
+                  operator: { type: and }
+                  query: { params: [] }
+                  reducer: { type: last, params: [] }
+                  type: query
+
+      - uid: hl-http-slow-warn
+        title: HTTP Slow Response (warn)
+        condition: C
+        noDataState: OK
+        execErrState: Error
+        for: "{{ alerts.rt_for }}"
+        isPaused: false
+        annotations:
+          summary: "{% raw %}{{ $labels.service }} on {{ $labels.node }} slow ({{ humanizeDuration $values.B.Value }}){% endraw %}"
+          description: "{% raw %}Mean response_time over 5m exceeds {% endraw %}{{ alerts.rt_warn }}s"
+        labels:
+          severity: warning
+          category: http-uptime
+        data:
+          - refId: A
+            datasourceUid: influxdb
+            relativeTimeRange: { from: 600, to: 0 }
+            model:
+              refId: A
+              datasource: { type: influxdb, uid: influxdb }
+              query: |
+                {% if telegraf_buckets|length > 1 %}union(tables: [{% endif %}
+                {% for b in telegraf_buckets %}{% if loop.index > 1 %},{% endif %}
+                from(bucket: "{{ b }}")
+                  |> range(start: -5m)
+                  |> filter(fn: (r) => r._measurement == "http_response" and r._field == "response_time" and r.via == "internal")
+                  |> map(fn: (r) => ({r with node: "{{ b }}"}))
+                {% endfor %}
+                {% if telegraf_buckets|length > 1 %}]){% endif %}
+                  |> group(columns: ["service", "node"])
+                  |> mean()
+                  |> keep(columns: ["service", "node", "_value"])
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: B
+              datasource: { type: __expr__, uid: __expr__ }
+              type: reduce
+              reducer: last
+              expression: A
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [{{ alerts.rt_warn }}] }
+                  operator: { type: and }
+                  query: { params: [] }
+                  reducer: { type: last, params: [] }
+                  type: query
+
+      - uid: hl-http-slow-crit
+        title: HTTP Slow Response (critical)
+        condition: C
+        noDataState: OK
+        execErrState: Error
+        for: "{{ alerts.rt_for }}"
+        isPaused: false
+        annotations:
+          summary: "{% raw %}{{ $labels.service }} on {{ $labels.node }} CRITICAL slow ({{ humanizeDuration $values.B.Value }}){% endraw %}"
+          description: "{% raw %}Mean response_time over 5m exceeds {% endraw %}{{ alerts.rt_crit }}s"
+        labels:
+          severity: critical
+          category: http-uptime
+        data:
+          - refId: A
+            datasourceUid: influxdb
+            relativeTimeRange: { from: 600, to: 0 }
+            model:
+              refId: A
+              datasource: { type: influxdb, uid: influxdb }
+              query: |
+                {% if telegraf_buckets|length > 1 %}union(tables: [{% endif %}
+                {% for b in telegraf_buckets %}{% if loop.index > 1 %},{% endif %}
+                from(bucket: "{{ b }}")
+                  |> range(start: -5m)
+                  |> filter(fn: (r) => r._measurement == "http_response" and r._field == "response_time" and r.via == "internal")
+                  |> map(fn: (r) => ({r with node: "{{ b }}"}))
+                {% endfor %}
+                {% if telegraf_buckets|length > 1 %}]){% endif %}
+                  |> group(columns: ["service", "node"])
+                  |> mean()
+                  |> keep(columns: ["service", "node", "_value"])
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: B
+              datasource: { type: __expr__, uid: __expr__ }
+              type: reduce
+              reducer: last
+              expression: A
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [{{ alerts.rt_crit }}] }
+                  operator: { type: and }
+                  query: { params: [] }
+                  reducer: { type: last, params: [] }
+                  type: query
+
+{% for b in telegraf_buckets %}
+      - uid: hl-node-gap-{{ b }}
+        title: "Node Telegraf Gap ({{ b }})"
+        condition: C
+        noDataState: Alerting
+        execErrState: Error
+        for: "{{ alerts.node_gap_for }}"
+        isPaused: false
+        annotations:
+          summary: "Node {{ b }} has no telegraf data"
+          description: "No system.uptime samples in last 5m from bucket {{ b }}. Host or telegraf agent likely down."
+        labels:
+          severity: critical
+          category: node-health
+          node: "{{ b }}"
+        data:
+          - refId: A
+            datasourceUid: influxdb
+            relativeTimeRange: { from: 600, to: 0 }
+            model:
+              refId: A
+              datasource: { type: influxdb, uid: influxdb }
+              query: |
+                from(bucket: "{{ b }}")
+                  |> range(start: -5m)
+                  |> filter(fn: (r) => r._measurement == "system" and r._field == "uptime")
+                  |> count()
+                  |> keep(columns: ["_value"])
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: B
+              datasource: { type: __expr__, uid: __expr__ }
+              type: reduce
+              reducer: last
+              expression: A
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+                  operator: { type: and }
+                  query: { params: [] }
+                  reducer: { type: last, params: [] }
+                  type: query
+{% endfor %}
+
+  - orgId: 1
+    name: homelab-system
+    folder: Homelab
+    interval: 60s
+    rules:
+
+      - uid: hl-system-high-cpu
+        title: High CPU Usage
+        condition: C
+        noDataState: OK
+        execErrState: Error
+        for: "{{ alerts.cpu_for }}"
+        isPaused: false
+        annotations:
+          summary: "{% raw %}High CPU on {{ $labels.node }} ({{ printf \"%.1f\" $values.B.Value }}%){% endraw %}"
+          description: "{% raw %}CPU usage above {% endraw %}{{ alerts.cpu_warn }}% for {{ alerts.cpu_for }}"
+        labels:
+          severity: warning
+          category: system
+        data:
+          - refId: A
+            datasourceUid: influxdb
+            relativeTimeRange: { from: 900, to: 0 }
+            model:
+              refId: A
+              datasource: { type: influxdb, uid: influxdb }
+              query: |
+                {% if telegraf_buckets|length > 1 %}union(tables: [{% endif %}
+                {% for b in telegraf_buckets %}{% if loop.index > 1 %},{% endif %}
+                from(bucket: "{{ b }}")
+                  |> range(start: -10m)
+                  |> filter(fn: (r) => r._measurement == "cpu" and r.cpu == "cpu-total" and r._field == "usage_idle")
+                  |> map(fn: (r) => ({r with node: "{{ b }}", _value: 100.0 - r._value}))
+                {% endfor %}
+                {% if telegraf_buckets|length > 1 %}]){% endif %}
+                  |> group(columns: ["node"])
+                  |> mean()
+                  |> keep(columns: ["node", "_value"])
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: B
+              datasource: { type: __expr__, uid: __expr__ }
+              type: reduce
+              reducer: last
+              expression: A
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [{{ alerts.cpu_warn }}] }
+                  operator: { type: and }
+                  query: { params: [] }
+                  reducer: { type: last, params: [] }
+                  type: query
+
+      - uid: hl-system-high-mem
+        title: High Memory Usage
+        condition: C
+        noDataState: OK
+        execErrState: Error
+        for: "{{ alerts.mem_for }}"
+        isPaused: false
+        annotations:
+          summary: "{% raw %}High memory on {{ $labels.node }} ({{ printf \"%.1f\" $values.B.Value }}%){% endraw %}"
+          description: "{% raw %}Memory used_percent above {% endraw %}{{ alerts.mem_warn }}% for {{ alerts.mem_for }}"
+        labels:
+          severity: warning
+          category: system
+        data:
+          - refId: A
+            datasourceUid: influxdb
+            relativeTimeRange: { from: 900, to: 0 }
+            model:
+              refId: A
+              datasource: { type: influxdb, uid: influxdb }
+              query: |
+                {% if telegraf_buckets|length > 1 %}union(tables: [{% endif %}
+                {% for b in telegraf_buckets %}{% if loop.index > 1 %},{% endif %}
+                from(bucket: "{{ b }}")
+                  |> range(start: -10m)
+                  |> filter(fn: (r) => r._measurement == "mem" and r._field == "used_percent")
+                  |> map(fn: (r) => ({r with node: "{{ b }}"}))
+                {% endfor %}
+                {% if telegraf_buckets|length > 1 %}]){% endif %}
+                  |> group(columns: ["node"])
+                  |> mean()
+                  |> keep(columns: ["node", "_value"])
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: B
+              datasource: { type: __expr__, uid: __expr__ }
+              type: reduce
+              reducer: last
+              expression: A
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [{{ alerts.mem_warn }}] }
+                  operator: { type: and }
+                  query: { params: [] }
+                  reducer: { type: last, params: [] }
+                  type: query
+
+      - uid: hl-system-disk-full
+        title: Disk Almost Full
+        condition: C
+        noDataState: OK
+        execErrState: Error
+        for: "{{ alerts.disk_for }}"
+        isPaused: false
+        annotations:
+          summary: "{% raw %}Disk {{ $labels.path }} on {{ $labels.node }} {{ printf \"%.1f\" $values.B.Value }}% full{% endraw %}"
+          description: "{% raw %}disk used_percent above {% endraw %}{{ alerts.disk_crit }}%"
+        labels:
+          severity: critical
+          category: system
+        data:
+          - refId: A
+            datasourceUid: influxdb
+            relativeTimeRange: { from: 600, to: 0 }
+            model:
+              refId: A
+              datasource: { type: influxdb, uid: influxdb }
+              query: |
+                {% if telegraf_buckets|length > 1 %}union(tables: [{% endif %}
+                {% for b in telegraf_buckets %}{% if loop.index > 1 %},{% endif %}
+                from(bucket: "{{ b }}")
+                  |> range(start: -5m)
+                  |> filter(fn: (r) => r._measurement == "disk" and r._field == "used_percent")
+                  |> last()
+                  |> map(fn: (r) => ({r with node: "{{ b }}"}))
+                  |> keep(columns: ["_time", "node", "path", "_value"])
+                {% endfor %}
+                {% if telegraf_buckets|length > 1 %}]){% endif %}
+                  |> group(columns: ["node", "path"])
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: B
+              datasource: { type: __expr__, uid: __expr__ }
+              type: reduce
+              reducer: last
+              expression: A
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [{{ alerts.disk_crit }}] }
+                  operator: { type: and }
+                  query: { params: [] }
+                  reducer: { type: last, params: [] }
+                  type: query
+
+  - orgId: 1
+    name: homelab-proxmox
+    folder: Homelab
+    interval: 60s
+    rules:
+
+      - uid: hl-proxmox-cpu-high
+        title: Proxmox High CPU
+        condition: C
+        noDataState: OK
+        execErrState: Error
+        for: "{{ alerts.proxmox_for }}"
+        isPaused: false
+        annotations:
+          summary: "{% raw %}Proxmox host CPU high ({{ printf \"%.1f\" $values.B.Value }}%){% endraw %}"
+          description: "{% raw %}Proxmox CPU usage above {% endraw %}{{ alerts.proxmox_cpu_warn }}% for {{ alerts.proxmox_for }}"
+        labels:
+          severity: warning
+          category: proxmox
+        data:
+          - refId: A
+            datasourceUid: influxdb-proxmox
+            relativeTimeRange: { from: 900, to: 0 }
+            model:
+              refId: A
+              datasource: { type: influxdb, uid: influxdb-proxmox }
+              query: |
+                from(bucket: "proxmox")
+                  |> range(start: -10m)
+                  |> filter(fn: (r) => r._measurement == "cpustat" and r._field == "cpu")
+                  |> mean()
+                  |> map(fn: (r) => ({r with _value: r._value * 100.0}))
+                  |> keep(columns: ["_value"])
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: B
+              datasource: { type: __expr__, uid: __expr__ }
+              type: reduce
+              reducer: last
+              expression: A
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [{{ alerts.proxmox_cpu_warn }}] }
+                  operator: { type: and }
+                  query: { params: [] }
+                  reducer: { type: last, params: [] }
+                  type: query
+
+      - uid: hl-proxmox-mem-high
+        title: Proxmox High Memory
+        condition: C
+        noDataState: OK
+        execErrState: Error
+        for: "{{ alerts.proxmox_for }}"
+        isPaused: false
+        annotations:
+          summary: "{% raw %}Proxmox memory used {{ printf \"%.1f\" $values.B.Value }}%{% endraw %}"
+          description: "{% raw %}Proxmox memory above {% endraw %}{{ alerts.proxmox_mem_warn }}% for {{ alerts.proxmox_for }}"
+        labels:
+          severity: warning
+          category: proxmox
+        data:
+          - refId: A
+            datasourceUid: influxdb-proxmox
+            relativeTimeRange: { from: 900, to: 0 }
+            model:
+              refId: A
+              datasource: { type: influxdb, uid: influxdb-proxmox }
+              query: |
+                from(bucket: "proxmox")
+                  |> range(start: -10m)
+                  |> filter(fn: (r) => r._measurement == "memory" and (r._field == "used" or r._field == "total"))
+                  |> last()
+                  |> pivot(rowKey: ["host"], columnKey: ["_field"], valueColumn: "_value")
+                  |> map(fn: (r) => ({_value: 100.0 * r.used / r.total}))
+                  |> keep(columns: ["_value"])
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: B
+              datasource: { type: __expr__, uid: __expr__ }
+              type: reduce
+              reducer: last
+              expression: A
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [{{ alerts.proxmox_mem_warn }}] }
+                  operator: { type: and }
+                  query: { params: [] }
+                  reducer: { type: last, params: [] }
+                  type: query
+
+  - orgId: 1
+    name: homelab-traefik
+    folder: Homelab
+    interval: 60s
+    rules:
+
+{% for tb in traefik_alert_buckets %}
+      - uid: hl-traefik-5xx-{{ tb }}
+        title: "Traefik 5xx spike ({{ tb }})"
+        condition: C
+        noDataState: OK
+        execErrState: Error
+        for: "{{ alerts.traefik_5xx_for }}"
+        isPaused: false
+        annotations:
+          summary: "{% raw %}{{ $labels.service }} on {% endraw %}{{ tb }} 5xx >{{ alerts.traefik_5xx_rate }}/s"
+          description: "{% raw %}Traefik 5xx response rate exceeds threshold on {% endraw %}{{ tb }}"
+        labels:
+          severity: critical
+          category: traefik
+          bucket: "{{ tb }}"
+        data:
+          - refId: A
+            datasourceUid: influxdb
+            relativeTimeRange: { from: 600, to: 0 }
+            model:
+              refId: A
+              datasource: { type: influxdb, uid: influxdb }
+              query: |
+                from(bucket: "{{ tb }}")
+                  |> range(start: -5m)
+                  |> filter(fn: (r) => r._measurement == "traefik.service.requests.total" and r._field == "count" and r.code =~ /^5/)
+                  |> derivative(unit: 1s, nonNegative: true)
+                  |> group(columns: ["service"])
+                  |> mean()
+                  |> keep(columns: ["service", "_value"])
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: B
+              datasource: { type: __expr__, uid: __expr__ }
+              type: reduce
+              reducer: last
+              expression: A
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [{{ alerts.traefik_5xx_rate }}] }
+                  operator: { type: and }
+                  query: { params: [] }
+                  reducer: { type: last, params: [] }
+                  type: query
+
+      - uid: hl-traefik-p95-{{ tb }}
+        title: "Traefik p95 latency high ({{ tb }})"
+        condition: C
+        noDataState: OK
+        execErrState: Error
+        for: "{{ alerts.traefik_p95_for }}"
+        isPaused: false
+        annotations:
+          summary: "{% raw %}{{ $labels.service }} on {% endraw %}{{ tb }} p95 >{{ alerts.traefik_p95_warn }}s"
+          description: "{% raw %}Traefik service p95 request duration exceeds threshold on {% endraw %}{{ tb }}"
+        labels:
+          severity: warning
+          category: traefik
+          bucket: "{{ tb }}"
+        data:
+          - refId: A
+            datasourceUid: influxdb
+            relativeTimeRange: { from: 600, to: 0 }
+            model:
+              refId: A
+              datasource: { type: influxdb, uid: influxdb }
+              query: |
+                from(bucket: "{{ tb }}")
+                  |> range(start: -5m)
+                  |> filter(fn: (r) => r._measurement == "traefik.service.request.duration" and r._field == "p95")
+                  |> group(columns: ["service"])
+                  |> mean()
+                  |> keep(columns: ["service", "_value"])
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: B
+              datasource: { type: __expr__, uid: __expr__ }
+              type: reduce
+              reducer: last
+              expression: A
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [{{ alerts.traefik_p95_warn }}] }
+                  operator: { type: and }
+                  query: { params: [] }
+                  reducer: { type: last, params: [] }
+                  type: query
+{% endfor %}
+
+  - orgId: 1
+    name: homelab-pfsense
+    folder: Homelab
+    interval: 60s
+    rules:
+
+      - uid: hl-pfsense-cpu-high
+        title: pfSense High CPU
+        condition: C
+        noDataState: OK
+        execErrState: Error
+        for: "{{ alerts.pfsense_for }}"
+        isPaused: false
+        annotations:
+          summary: "{% raw %}pfSense CPU high ({{ printf \"%.1f\" $values.B.Value }}%){% endraw %}"
+          description: "{% raw %}pfSense CPU usage above {% endraw %}{{ alerts.pfsense_cpu_warn }}% for {{ alerts.pfsense_for }}"
+        labels:
+          severity: warning
+          category: pfsense
+        data:
+          - refId: A
+            datasourceUid: influxdb-pfsense
+            relativeTimeRange: { from: 900, to: 0 }
+            model:
+              refId: A
+              datasource: { type: influxdb, uid: influxdb-pfsense }
+              query: |
+                from(bucket: "pfsense")
+                  |> range(start: -10m)
+                  |> filter(fn: (r) => r._measurement == "cpu" and r.cpu == "cpu-total" and r._field == "usage_idle")
+                  |> mean()
+                  |> map(fn: (r) => ({r with _value: 100.0 - r._value}))
+                  |> keep(columns: ["_value"])
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: B
+              datasource: { type: __expr__, uid: __expr__ }
+              type: reduce
+              reducer: last
+              expression: A
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [{{ alerts.pfsense_cpu_warn }}] }
+                  operator: { type: and }
+                  query: { params: [] }
+                  reducer: { type: last, params: [] }
+                  type: query
+
+      - uid: hl-pfsense-mem-high
+        title: pfSense High Memory
+        condition: C
+        noDataState: OK
+        execErrState: Error
+        for: "{{ alerts.pfsense_for }}"
+        isPaused: false
+        annotations:
+          summary: "{% raw %}pfSense memory used {{ printf \"%.1f\" $values.B.Value }}%{% endraw %}"
+          description: "{% raw %}pfSense memory above {% endraw %}{{ alerts.pfsense_mem_warn }}% for {{ alerts.pfsense_for }}"
+        labels:
+          severity: warning
+          category: pfsense
+        data:
+          - refId: A
+            datasourceUid: influxdb-pfsense
+            relativeTimeRange: { from: 900, to: 0 }
+            model:
+              refId: A
+              datasource: { type: influxdb, uid: influxdb-pfsense }
+              query: |
+                from(bucket: "pfsense")
+                  |> range(start: -10m)
+                  |> filter(fn: (r) => r._measurement == "mem" and r._field == "used_percent")
+                  |> mean()
+                  |> keep(columns: ["_value"])
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: B
+              datasource: { type: __expr__, uid: __expr__ }
+              type: reduce
+              reducer: last
+              expression: A
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [{{ alerts.pfsense_mem_warn }}] }
+                  operator: { type: and }
+                  query: { params: [] }
+                  reducer: { type: last, params: [] }
+                  type: query
+
+      - uid: hl-pfsense-wan-down
+        title: pfSense WAN no traffic
+        condition: C
+        noDataState: Alerting
+        execErrState: Error
+        for: "{{ alerts.wan_down_for }}"
+        isPaused: false
+        annotations:
+          summary: "pfSense WAN ({{ alerts.wan_interface }}) no RX bytes for {{ alerts.wan_down_for }}"
+          description: "No incoming traffic on WAN interface — link may be down"
+        labels:
+          severity: critical
+          category: pfsense
+        data:
+          - refId: A
+            datasourceUid: influxdb-pfsense
+            relativeTimeRange: { from: 600, to: 0 }
+            model:
+              refId: A
+              datasource: { type: influxdb, uid: influxdb-pfsense }
+              query: |
+                from(bucket: "pfsense")
+                  |> range(start: -5m)
+                  |> filter(fn: (r) => r._measurement == "net" and r._field == "bytes_recv" and r.interface == "{{ alerts.wan_interface }}")
+                  |> derivative(unit: 1s, nonNegative: true)
+                  |> mean()
+                  |> keep(columns: ["_value"])
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: B
+              datasource: { type: __expr__, uid: __expr__ }
+              type: reduce
+              reducer: last
+              expression: A
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+                  operator: { type: and }
+                  query: { params: [] }
+                  reducer: { type: last, params: [] }
+                  type: query
+
+      - uid: hl-pfsense-pf-states
+        title: pfSense PF state table near limit
+        condition: C
+        noDataState: OK
+        execErrState: Error
+        for: "5m"
+        isPaused: false
+        annotations:
+          summary: "{% raw %}PF states at {{ printf \"%.1f\" $values.B.Value }}% of limit{% endraw %}"
+          description: "PF state table usage above {{ alerts.pf_states_pct }}% of configured limit"
+        labels:
+          severity: warning
+          category: pfsense
+        data:
+          - refId: A
+            datasourceUid: influxdb-pfsense
+            relativeTimeRange: { from: 600, to: 0 }
+            model:
+              refId: A
+              datasource: { type: influxdb, uid: influxdb-pfsense }
+              query: |
+                from(bucket: "pfsense")
+                  |> range(start: -5m)
+                  |> filter(fn: (r) => r._measurement == "pf" and (r._field == "entries" or r._field == "state-limit"))
+                  |> last()
+                  |> pivot(rowKey: ["host"], columnKey: ["_field"], valueColumn: "_value")
+                  |> filter(fn: (r) => exists r["state-limit"] and r["state-limit"] > 0)
+                  |> map(fn: (r) => ({_value: 100.0 * float(v: r.entries) / float(v: r["state-limit"])}))
+                  |> keep(columns: ["_value"])
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: B
+              datasource: { type: __expr__, uid: __expr__ }
+              type: reduce
+              reducer: last
+              expression: A
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [{{ alerts.pf_states_pct }}] }
+                  operator: { type: and }
+                  query: { params: [] }
+                  reducer: { type: last, params: [] }
+                  type: query
+
+  - orgId: 1
+    name: homelab-postgres
+    folder: Homelab
+    interval: 60s
+    rules:
+
+      - uid: hl-pg-gap
+        title: PostgreSQL no metrics
+        condition: C
+        noDataState: Alerting
+        execErrState: Error
+        for: "{{ alerts.pg_gap_for }}"
+        isPaused: false
+        annotations:
+          summary: "Central PostgreSQL has no metrics"
+          description: "No postgresql samples in last 5m from bucket telegraf-postgres. Server down, mTLS broken, or telegraf agent unable to connect."
+        labels:
+          severity: critical
+          category: postgres
+        data:
+          - refId: A
+            datasourceUid: influxdb
+            relativeTimeRange: { from: 600, to: 0 }
+            model:
+              refId: A
+              datasource: { type: influxdb, uid: influxdb }
+              query: |
+                from(bucket: "telegraf-postgres")
+                  |> range(start: -5m)
+                  |> filter(fn: (r) => r._measurement == "postgresql" and r._field == "numbackends")
+                  |> count()
+                  |> group()
+                  |> sum()
+                  |> keep(columns: ["_value"])
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: B
+              datasource: { type: __expr__, uid: __expr__ }
+              type: reduce
+              reducer: last
+              expression: A
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+                  operator: { type: and }
+                  query: { params: [] }
+                  reducer: { type: last, params: [] }
+                  type: query
+
+      - uid: hl-pg-connections
+        title: PostgreSQL connections high
+        condition: C
+        noDataState: OK
+        execErrState: Error
+        for: "{{ alerts.pg_conn_for }}"
+        isPaused: false
+        annotations:
+          summary: "{% raw %}PostgreSQL backends at {{ printf \"%.0f\" $values.B.Value }}{% endraw %}"
+          description: "Total numbackends above {{ alerts.pg_conn_warn }} — approaching max_connections; a client is likely leaking connections."
+        labels:
+          severity: warning
+          category: postgres
+        data:
+          - refId: A
+            datasourceUid: influxdb
+            relativeTimeRange: { from: 600, to: 0 }
+            model:
+              refId: A
+              datasource: { type: influxdb, uid: influxdb }
+              query: |
+                from(bucket: "telegraf-postgres")
+                  |> range(start: -5m)
+                  |> filter(fn: (r) => r._measurement == "postgresql" and r._field == "numbackends")
+                  |> last()
+                  |> group()
+                  |> sum()
+                  |> keep(columns: ["_value"])
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: B
+              datasource: { type: __expr__, uid: __expr__ }
+              type: reduce
+              reducer: last
+              expression: A
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [{{ alerts.pg_conn_warn }}] }
+                  operator: { type: and }
+                  query: { params: [] }
+                  reducer: { type: last, params: [] }
+                  type: query
+
+      - uid: hl-pg-deadlocks
+        title: PostgreSQL deadlocks
+        condition: C
+        noDataState: OK
+        execErrState: Error
+        for: "{{ alerts.pg_deadlock_for }}"
+        isPaused: false
+        annotations:
+          summary: "{% raw %}Deadlocks occurring in database {{ $labels.db }}{% endraw %}"
+          description: "pg_stat_database.deadlocks increased in the last 10m."
+        labels:
+          severity: warning
+          category: postgres
+        data:
+          - refId: A
+            datasourceUid: influxdb
+            relativeTimeRange: { from: 600, to: 0 }
+            model:
+              refId: A
+              datasource: { type: influxdb, uid: influxdb }
+              query: |
+                from(bucket: "telegraf-postgres")
+                  |> range(start: -10m)
+                  |> filter(fn: (r) => r._measurement == "postgresql" and r._field == "deadlocks")
+                  |> group(columns: ["db"])
+                  |> derivative(unit: 1s, nonNegative: true)
+                  |> sum()
+                  |> keep(columns: ["db", "_value"])
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: B
+              datasource: { type: __expr__, uid: __expr__ }
+              type: reduce
+              reducer: last
+              expression: A
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+                  operator: { type: and }
+                  query: { params: [] }
+                  reducer: { type: last, params: [] }
+                  type: query
+
+  - orgId: 1
+    name: homelab-containers
+    folder: Homelab
+    interval: 60s
+    rules:
+
+      # Long-lived services run with restart_policy unless-stopped, so a
+      # container persisting in "exited" means stopped by hand or Docker
+      # gave up. Ephemeral task containers (kestra runners) are removed
+      # seconds after exit and stay below the sample-count threshold.
+      - uid: hl-ct-exited
+        title: Container stopped
+        condition: C
+        noDataState: OK
+        execErrState: Error
+        for: "{{ alerts.container_for }}"
+        isPaused: false
+        annotations:
+          summary: "{% raw %}Container {{ $labels.container_name }} on {{ $labels.node }} is not running{% endraw %}"
+          description: "Container has been in state 'exited' for more than ~2 minutes."
+        labels:
+          severity: critical
+          category: containers
+        data:
+          - refId: A
+            datasourceUid: influxdb
+            relativeTimeRange: { from: 900, to: 0 }
+            model:
+              refId: A
+              datasource: { type: influxdb, uid: influxdb }
+              query: |
+                {% if telegraf_buckets|length > 1 %}union(tables: [{% endif %}
+                {% for b in telegraf_buckets %}{% if loop.index > 1 %},{% endif %}
+                from(bucket: "{{ b }}")
+                  |> range(start: -10m)
+                  |> filter(fn: (r) => r._measurement == "docker_container_status" and r._field == "exitcode" and r.container_status == "exited")
+                  |> map(fn: (r) => ({r with node: "{{ b | replace('telegraf-', '') }}"}))
+                  |> keep(columns: ["_time", "container_name", "node", "_value"])
+                {% endfor %}
+                {% if telegraf_buckets|length > 1 %}]){% endif %}
+                  |> group(columns: ["container_name", "node"])
+                  |> count()
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: B
+              datasource: { type: __expr__, uid: __expr__ }
+              type: reduce
+              reducer: last
+              expression: A
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [{{ alerts.container_exited_min }}] }
+                  operator: { type: and }
+                  query: { params: [] }
+                  reducer: { type: last, params: [] }
+                  type: query
+
+      - uid: hl-ct-oom
+        title: Container OOM killed
+        condition: C
+        noDataState: OK
+        execErrState: Error
+        for: "0s"
+        isPaused: false
+        annotations:
+          summary: "{% raw %}Container {{ $labels.container_name }} on {{ $labels.node }} was OOM-killed{% endraw %}"
+          description: "Docker reported oomkilled=true — raise the container's memory limit or find the leak."
+        labels:
+          severity: critical
+          category: containers
+        data:
+          - refId: A
+            datasourceUid: influxdb
+            relativeTimeRange: { from: 900, to: 0 }
+            model:
+              refId: A
+              datasource: { type: influxdb, uid: influxdb }
+              query: |
+                {% if telegraf_buckets|length > 1 %}union(tables: [{% endif %}
+                {% for b in telegraf_buckets %}{% if loop.index > 1 %},{% endif %}
+                from(bucket: "{{ b }}")
+                  |> range(start: -10m)
+                  |> filter(fn: (r) => r._measurement == "docker_container_status" and r._field == "oomkilled" and r._value == true)
+                  |> map(fn: (r) => ({r with node: "{{ b | replace('telegraf-', '') }}", _value: 1}))
+                  |> keep(columns: ["_time", "container_name", "node", "_value"])
+                {% endfor %}
+                {% if telegraf_buckets|length > 1 %}]){% endif %}
+                  |> group(columns: ["container_name", "node"])
+                  |> count()
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: B
+              datasource: { type: __expr__, uid: __expr__ }
+              type: reduce
+              reducer: last
+              expression: A
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+                  operator: { type: and }
+                  query: { params: [] }
+                  reducer: { type: last, params: [] }
+                  type: query
+
+  - orgId: 1
+    name: homelab-logs
+    folder: Homelab
+    interval: 60s
+    rules:
+
+{% for b in telegraf_buckets %}
+{% set node = b | replace('telegraf-', '') %}
+      # Container-state and node-gap rules can't see a promtail that is
+      # running but not shipping; absence of ANY log line for a node in
+      # 15m means the log pipeline (promtail → loki) is broken.
+      - uid: hl-log-gap-{{ node }}
+        title: "Log ingest gap ({{ node }})"
+        condition: C
+        noDataState: Alerting
+        execErrState: Error
+        for: "{{ alerts.log_gap_for }}"
+        isPaused: false
+        annotations:
+          summary: "No logs from {{ node }} reaching Loki"
+          description: "Zero log lines with node={{ node }} in the last 15m. Promtail on {{ node }} is down or cannot reach Loki."
+        labels:
+          severity: critical
+          category: logs
+          node: "{{ node }}"
+        data:
+          - refId: A
+            datasourceUid: loki
+            relativeTimeRange: { from: 900, to: 0 }
+            model:
+              refId: A
+              datasource: { type: loki, uid: loki }
+              expr: sum(count_over_time({node="{{ node }}"} [15m]))
+              queryType: instant
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: B
+              datasource: { type: __expr__, uid: __expr__ }
+              type: reduce
+              reducer: last
+              expression: A
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+                  operator: { type: and }
+                  query: { params: [] }
+                  reducer: { type: last, params: [] }
+                  type: query
+{% endfor %}

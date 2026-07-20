@@ -1,0 +1,39 @@
+---
+- name: Get existing Grafana data sources
+  ansible.builtin.uri:
+    url: "{{ grafana.url }}/api/datasources"
+    method: GET
+    url_username: "{{ grafana.admin_user }}"
+    url_password: "{{ grafana.admin_password }}"
+    force_basic_auth: true
+    return_content: true
+  register: existing_datasources
+
+- name: Register Loki in Grafana
+  ansible.builtin.uri:
+    url: "{{ grafana.url }}/api/datasources"
+    method: POST
+    url_username: "{{ grafana.admin_user }}"
+    url_password: "{{ grafana.admin_password }}"
+    force_basic_auth: true
+    body_format: json
+    body:
+      name: "Loki"
+      type: "loki"
+      access: "proxy"
+      url: "http://loki:{{ loki.port }}"
+      jsonData:
+        tlsSkipVerify: true
+    status_code: 200
+  when: existing_datasources.json | selectattr('name', 'equalto', 'Loki') | list | length == 0
+
+- name: Verify Loki data source in Grafana
+  ansible.builtin.uri:
+    url: "{{ grafana.url }}/api/datasources"
+    method: GET
+    url_username: "{{ grafana.admin_user }}"
+    url_password: "{{ grafana.admin_password }}"
+    force_basic_auth: true
+    return_content: true
+  register: verify_datasources
+  failed_when: verify_datasources.json | selectattr('name', 'equalto', 'Loki') | list | length == 0

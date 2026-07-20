@@ -18,7 +18,34 @@
     dest: ./data/mosquitto/config/mosquitto.conf
     owner: "1883"
     group: "1883"
-    mode: '0755'
+    mode: '0644'
+  notify: Restart Mosquitto
+
+- name: Check mosquitto password file
+  ansible.builtin.stat:
+    path: ./data/mosquitto/config/passwd
+  register: mosquitto_passwd_stat
+
+# Regenerate by deleting ./data/mosquitto/config/passwd and re-running the
+# role (mosquitto_passwd salts on every run, so an unconditional run would
+# churn the file). Every MQTT client must use these credentials.
+- name: Generate mosquitto password file
+  ansible.builtin.command:
+    cmd: >
+      docker run --rm -v {{ ansible_env.PWD }}/data/mosquitto/config:/work
+      eclipse-mosquitto mosquitto_passwd -c -b /work/passwd
+      {{ mqtt.user }} {{ mqtt.password }}
+  when: not mosquitto_passwd_stat.stat.exists
+  changed_when: true
+  no_log: true
+  notify: Restart Mosquitto
+
+- name: Set mosquitto password file permissions
+  ansible.builtin.file:
+    path: ./data/mosquitto/config/passwd
+    owner: "1883"
+    group: "1883"
+    mode: '0640'
 
 - name: Deploy MQTT container
   community.docker.docker_container:

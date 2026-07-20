@@ -1,0 +1,12 @@
+---
+user:
+  name: "deploy"
+  group: "docker"
+
+ufw_rules:
+  - { port: "22", protocol: "tcp", comment: "SSH" }
+  - { port: "80", protocol: "tcp", comment: "HTTP" }
+  - { port: "443", protocol: "tcp", comment: "HTTPS" }
+
+# Optional: force Docker storage driver (e.g. "fuse-overlayfs" on LXC). Empty = auto.
+docker_storage_driver: ""

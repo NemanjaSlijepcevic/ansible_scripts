@@ -1,0 +1,8 @@
+---
+# This role takes no host_vars/group_vars input beyond the shared `user`
+# dict documented centrally in group_vars/all.yml. The proxy's API scope is
+# fixed in tasks/main.yml on purpose: widening it widens what Kestra (and
+# any flow it runs) can do to the host Docker daemon.
+user:
+  name: "deploy"
+  group: "docker"

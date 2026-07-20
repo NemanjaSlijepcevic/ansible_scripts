@@ -1,0 +1,9 @@
+---
+# List of MySQL/MariaDB servers; entries drive primary/replica setup.
+# Each: { name, admin, user, pass }
+db_server: []
+
+# Adminer DB web UI (deployed alongside the SQL servers).
+adminer:
+  host: "Host(`adminer.example.com`)"
+  port: "8080"

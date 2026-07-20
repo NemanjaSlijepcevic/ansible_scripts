@@ -1,17 +1,6 @@
 ---
-- name: Create directory if they don't exist
-  ansible.builtin.file:
-    path: "./data/crowdsec"
-    state: directory
-    owner: "{{ user.name }}"
-    group: "{{ user.group }}"
-    mode: "0755"
-
-- name: "Generate acquis.yaml file"
-  ansible.builtin.template:
-    src: ./acquis.yaml.j2
-    dest: ./data/crowdsec/acquis.yaml
-    mode: '0755'
+- name: Create environment
+  ansible.builtin.include_tasks: environment.yml
 
 - name: Set default CrowdSec collections
   ansible.builtin.set_fact:
@@ -21,21 +10,34 @@
       - "LePresidente/authelia"
       - "crowdsecurity/wordpress"
 
-- name: Add Nextcloud collection if on 'server'
-  ansible.builtin.set_fact:
-    crowdsec_collections: "{{ crowdsec_collections + ['crowdsecurity/nextcloud'] }}"
-  when: current_host == "server"
-
 - name: Convert collections list to space-separated string
   ansible.builtin.set_fact:
     crowdsec_collections_str: "{{ crowdsec_collections | join(' ') }}"
 
+# A missing host log file bind-mounted below would be auto-created by
+# Docker as a DIRECTORY (LXC guests often lack kern.log) — breaking both
+# crowdsec and promtail. Ensure they exist as files first. Does not fix an
+# already-created directory: rmdir it and touch the file by hand.
+- name: Ensure mounted host log files exist  # noqa: risky-file-permissions
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: touch
+    # No mode: these are pre-existing system logs; imposing perms would alter
+    # their OS-managed ownership/mode. Only create the file if missing.
+    modification_time: preserve
+    access_time: preserve
+  loop:
+    - /var/log/auth.log
+    - /var/log/syslog
+    - /var/log/kern.log
+    - /var/log/ufw.log
+    - /var/log/mail.log
+
 - name: Set default CrowdSec volumes
   ansible.builtin.set_fact:
     crowdsec_volumes:
-      - ./data/crowdsec/acquis.yaml:/etc/crowdsec/acquis.yaml
-      - ./data/crowdsec/db:/var/lib/crowdsec/data/
-      - ./data/crowdsec/config:/etc/crowdsec/
+      - ./data/crowdsec/config/acquis.yaml:/etc/crowdsec/acquis.yaml:ro
+      - ./data/crowdsec/data:/var/lib/crowdsec/data
       - ./data/traefik/logs:/var/log/traefik/:ro
       - ./data/authelia/logs:/var/log/authelia/:ro
       - /var/log/auth.log:/var/log/auth.log:ro
@@ -43,11 +45,6 @@
       - /var/log/kern.log:/var/log/kern.log:ro
       - /var/log/ufw.log:/var/log/ufw.log:ro
       - /var/log/mail.log:/var/log/mail.log:ro
-
-- name: Add Nextcloud log volume if on 'server'
-  ansible.builtin.set_fact:
-    crowdsec_volumes: "{{ crowdsec_volumes + ['./data/nextcloud/nextcloud.log:/var/log/nextcloud.log:ro'] }}"
-  when: current_host == "server"
 
 - name: Create CrowdSec container
   community.docker.docker_container:
@@ -60,19 +57,25 @@
       - "no-new-privileges:true"
     networks:
       - name: proxy
-        ipv4_address: "{{ crowdsec.static }}"
     env:
       TZ: "Europe/Belgrade"
-      GID: "${GID-1000}"
+      GID: "{{ user.gid | default('1000') }}"
       COLLECTIONS: "{{ crowdsec_collections_str }}"
+      # CrowdSec runs on its bundled SQLite (the crowdsec image does NOT
+      # honour DB_BACKEND/POSTGRES_* env — those never took effect). WAL lets
+      # bouncers keep reading while the community blocklist is written, so the
+      # LAPI doesn't stall on the bulk insert.
+      USE_WAL: "true"
     volumes: "{{ crowdsec_volumes }}"
     labels:
-      traefik.enable: "true"
-      traefik.http.routers.crowdsec-metrics.entrypoints: "https"
-      traefik.http.routers.crowdsec-metrics.rule: "{{ node.crowdsec.host }}"
-      traefik.http.routers.crowdsec-metrics.tls: "true"
-      traefik.http.routers.crowdsec-metrics.middlewares: "basic-auth@file"
-      traefik.http.services.crowdsec-metrics.loadbalancer.server.port: "{{ node.crowdsec.port }}"
+      traefik.enable: "false"
+    healthcheck:
+      test: ["CMD", "cscli", "lapi", "status"]
+      interval: 1m30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+      start_interval: 10s
 
 
 - name: Update
@@ -81,21 +84,32 @@
     command: cscli hub update
   register: hub_update_result
   changed_when: >
-    hub_update_result.rc != 0 or
+    hub_update_result.rc == 0 and
     'hub index is up to date' not in hub_update_result.stderr
 
 - name: Upgrade CrowdSec Hub
   community.docker.docker_container_exec:
     container: crowdsec
     command: cscli hub upgrade
-  register: hub_update_result
+  register: hub_upgrade_result
   changed_when: >
-    hub_update_result.rc != 0 or
-    hub_update_result.stderr | length > 0
+    hub_upgrade_result.rc == 0 and
+    hub_upgrade_result.stdout | length > 0
 
 - name: Create CloudFlare bouncer
   ansible.builtin.include_tasks: bouncer-cloudflare.yml
   when: current_host == "server"
 
-- name: Create Traefik bouncer
-  ansible.builtin.include_tasks: bouncer-traefik.yml
+- name: Check CrowdSec LAPI status
+  ansible.builtin.command:
+    cmd: "docker exec crowdsec cscli lapi status"
+  register: crowdsec_lapi
+  changed_when: false
+  failed_when: false
+  retries: 6
+  delay: 10
+  until: crowdsec_lapi.rc == 0
+
+- name: Show CrowdSec LAPI status
+  ansible.builtin.debug:
+    msg: "{{ crowdsec_lapi.stdout_lines | default(['LAPI not reachable: ' ~ (crowdsec_lapi.stderr | default('?'))]) }}"

@@ -1,0 +1,49 @@
+
+# Loads default set of integrations. Do not remove.
+default_config:
+
+# HIDDEN: no Bluetooth hardware is passed into this container, so HA's
+# bluetooth auto-recovery loops and spams WARNINGs every ~20s. Suppress just
+# those two loggers (rest of HA logging unchanged). Remove this block when
+# Bluetooth is actually available so the warnings surface again.
+logger:
+  logs:
+    bluetooth_auto_recovery: error
+    homeassistant.components.bluetooth: error
+
+# Load frontend themes from the themes folder
+# frontend:
+#   themes: !include_dir_merge_named themes
+
+automation: !include automations.yaml
+script: !include scripts.yaml
+scene: !include scenes.yaml
+
+http:
+  use_x_forwarded_for: true
+  trusted_proxies:
+    - {{ docker.subnet }}
+
+telegram_bot:
+  - platform: polling
+    api_key: "{{ homeassistant.telegram.api_key }}"
+    allowed_chat_ids:
+      - {{ homeassistant.telegram.chat_id }}
+
+notify:
+  - platform: telegram
+    name: HomeAssistant
+    chat_id: {{ homeassistant.telegram.chat_id }}
+
+#sensor:
+#  - platform: influxdb
+#    api_version: 2
+#    ssl: false
+#    host: influxdb
+#    port: 8086
+#    bucket: homeassistant
+#    organization: {{ influxdb.organization }}
+#    token: "{{ influxdb.api_token }}"
+#    queries_flux:
+#      - range_start: "-1d"
+#        name: sensor

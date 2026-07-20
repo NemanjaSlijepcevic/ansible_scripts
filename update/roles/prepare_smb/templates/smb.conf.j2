@@ -1,0 +1,26 @@
+[global]
+   workgroup = {{ samba.workgroup }}
+   server string = {{ samba.name }}
+   security = user
+   map to guest = never
+   log file = /var/log/samba/log.%m
+   max log size = 1000
+   server role = standalone server
+   obey pam restrictions = yes
+   # unix password sync REQUIRES a passwd program since samba
+   # 4.15.13-0ubuntu1.12 — testparm hard-errors without it and the samba
+   # package fails to configure (dpkg postinst runs testparm).
+   unix password sync = yes
+   passwd program = /usr/bin/passwd %u
+   passwd chat = *Enter\snew\s*\spassword:* %n\n *Retype\snew\s*\spassword:* %n\n *password\supdated\ssuccessfully* .
+
+{% for share in samba.shares %}
+[{{ share.name }}]
+path = {{ share.path }}
+browseable = {{ share.browseable | default(samba.defaults.browseable) }}
+writable = {{ share.writable | default(samba.defaults.writable) }}
+guest ok = {{ share.guest_ok | default(samba.defaults.guest_ok) }}
+valid users = {{
+    (share.valid_users | default(samba.defaults.valid_users)) | join(' ')
+}}
+{% endfor %}

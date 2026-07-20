@@ -1,30 +1,46 @@
 access_control:
   default_policy: deny
   rules:
-    - domain: 
-      - "{{ authelia_links.domain }}" 
-      - "{{ bazarr.domain }}" 
-      - "{{ emby.domain }}" 
-      - "{{ lidarr.domain }}" 
-      - "{{ nas.domain }}"
-      - "{{ node.exporter.domain }}" 
-      - "{{ node.crowdsec.domain }}"    
-      - "{{ node.docker.domain }}"  
-      - "{{ node.traefik.domain }}" 
-      - "{{ plex.domain }}"
-      - "{{ prowlarr.domain }}" 
-      - "{{ radarr.domain }}" 
-      - "{{ sonarr.domain }}" 
-      policy: bypass
-    - domain: 
-      - "{{ transmission.domain }}" 
-      - "{{ netboot.domain }}" 
-      policy: one_factor
     - domain:
-      - "{{ traefik_links.name.link }}" 
+        - "{{ authelia_links.domain }}"
+        - "{{ jellyfin.domain }}"
+      policy: bypass
+    - domain:
+        - "{{ bazarr.domain }}"
+        - "{{ seerr.domain }}"
+        - "{{ lidarr.domain }}"
+        - "{{ prowlarr.domain }}"
+        - "{{ radarr.domain }}"
+        - "{{ sonarr.domain }}"
+      resources:
+        - "^/ping.*"
+        - "^/api/.*"
+      policy: bypass
+    - domain:
+        - "{{ filebrowser.domain }}"
+      resources:
+        - "^/health.*"
+        - "^/share/.*"
+        - "^/api/public/.*"
+        - "^/static/.*"
+      policy: bypass
+    - domain:
+        - "{{ bazarr.domain }}"
+        - "{{ filebrowser.domain }}"
+        - "{{ lidarr.domain }}"
+        - "{{ prowlarr.domain }}"
+        - "{{ radarr.domain }}"
+        - "{{ seerr.domain }}"
+        - "{{ sonarr.domain }}"
+        - "{{ transmission.domain }}"
+        - "{{ traefik_links.name.link }}"
       policy: two_factor
+
+{% include 'identity_providers.yml.j2' %}
 
 session:
   cookies:
-  - domain: "{{ default.domain }}" 
-    authelia_url: "{{ authelia_links.url }}" 
+  - domain: "{{ default.domain }}"
+    authelia_url: "{{ authelia_links.url }}"
+
+{% include 'storage_tls.yml.j2' %}

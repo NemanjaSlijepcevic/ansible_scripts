@@ -1,0 +1,13 @@
+---
+user:
+  name: "deploy"
+  group: "docker"
+
+# Apps recyclarr pushes quality profiles to.
+radarr:
+  api_key: "changeme"
+  port: "7878"
+
+sonarr:
+  api_key: "changeme"
+  port: "8989"

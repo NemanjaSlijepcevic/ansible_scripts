@@ -8,6 +8,7 @@
     - name: "new_user"
       prompt: "Enter the username"
       private: false
+      default: ""
     - name: "user_password"
       prompt: "Enter the password for the new users"
       private: true
@@ -15,10 +16,10 @@
       prompt: "Confirm the password for the new users"
       private: true
   roles:
-    - match_pass
-    - install_packages
-    - create_default_user
-    - prepare_ssh
-    - prepare_firewall
-    - install_docker
-    - clean_up
+    - { role: install_packages, tags: ['install_packages', 'bootstrap'] }
+    - { role: prepare_ssh, tags: ['prepare_ssh', 'ssh', 'security', 'bootstrap'] }
+    - { role: create_new_users, tags: ['create_new_users', 'bootstrap'] }
+    - { role: protect_ssh, tags: ['protect_ssh', 'ssh', 'security', 'hardening'] }
+    - { role: prepare_firewall, tags: ['prepare_firewall', 'security', 'hardening'] }
+    - { role: install_docker, tags: ['install_docker', 'bootstrap'] }
+    - { role: clean_up, tags: ['clean_up'] }

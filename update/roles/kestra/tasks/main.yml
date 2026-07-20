@@ -1,0 +1,71 @@
+---
+- name: Create environment
+  ansible.builtin.include_tasks: environment.yml
+
+# No custom image needed (unlike n8n): Kestra's Docker task runner speaks
+# to socket-proxy natively via its `host` property (set globally in
+# application.yml), so no docker CLI has to be baked in. The ansible_runner
+# and claude_runner images are consumed by flows as containerImage /
+# task-runner images, not installed into Kestra itself.
+- name: Add kestra
+  community.docker.docker_container:
+    name: kestra
+    image: kestra/kestra:latest
+    pull: true
+    state: started
+    restart_policy: unless-stopped
+    # A bind-mounted config is NOT auto-detected — without --config the
+    # server boots configless and dies on missing kestra.repository.type.
+    command: server standalone --config /etc/config/application.yaml
+    networks:
+      - name: proxy
+        ipv4_address: "{{ kestra.static }}"
+      - name: docker-api
+    dns_servers:
+      - "{{ default.dns }}"
+    env:
+      TZ: "Europe/Belgrade"
+      # OSS secrets backend: env vars prefixed SECRET_, base64-encoded,
+      # read in flows via the secret('TELEGRAM_BOT_TOKEN') function.
+      SECRET_TELEGRAM_BOT_TOKEN: "{{ log_notification.telegram_bot | b64encode }}"
+      SECRET_TELEGRAM_CHAT_ID: "{{ log_notification.chat_id | b64encode }}"
+      # same Gmail account Authelia's notifier uses (smtp.gmail.com:465)
+      SECRET_SMTP_USERNAME: "{{ authelia.mail.user | b64encode }}"
+      SECRET_SMTP_PASSWORD: "{{ authelia.mail.password | b64encode }}"
+    volumes:
+      - ./data/kestra/application.yml:/etc/config/application.yaml:ro
+      - ./data/kestra/storage:/app/storage
+      - ./data/kestra/flows:/flows:ro
+      - ./data/certs/ca.crt:/app/certs/ca.crt:ro
+      - ./data/certs/kestra.crt:/app/certs/kestra.crt:ro
+      - ./data/certs/kestra.key.pk8:/app/certs/kestra.key.pk8:ro
+    labels:
+      traefik.enable: "true"
+      # kestra sits on two networks (proxy + docker-api); without this
+      # Traefik may dial the docker-api IP it cannot reach → 504.
+      traefik.docker.network: "proxy"
+      traefik.http.routers.kestra.entrypoints: "https"
+      traefik.http.routers.kestra.rule: "{{ kestra.host }}"
+      traefik.http.routers.kestra.tls: "true"
+      traefik.http.routers.kestra.middlewares: "chain-auth@file"
+      traefik.http.services.kestra.loadbalancer.server.port: "{{ kestra.port }}"
+
+# Push the repo-managed flows (rendered by environment.yml into
+# ./data/kestra/flows, mounted at /flows) into the `automation` namespace.
+# --no-delete keeps flows created only in the UI; flows whose id matches a
+# repo file are overwritten (the server bumps a revision only on change,
+# so this is idempotent). Retries cover server startup after (re)create.
+- name: Deploy flows into the automation namespace
+  community.docker.docker_container_exec:
+    container: kestra
+    command: >-
+      /app/kestra flow namespace update automation /flows
+      --no-delete --server http://localhost:8080
+      --user {{ kestra.admin_user }}:{{ kestra.admin_password }}
+  register: kestra_flow_deploy
+  retries: 12
+  delay: 10
+  until: kestra_flow_deploy.rc | default(1) == 0
+  changed_when: false
+  # command line carries the admin password
+  no_log: true

@@ -1,0 +1,66 @@
+---
+- name: Create directories if they don't exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ kestra.uid }}"
+    group: "{{ user.group }}"
+    mode: "0755"
+  loop:
+    - "./data/kestra"
+    - "./data/kestra/storage"
+    - "./data/kestra/flows"
+
+- name: Render Kestra configuration
+  ansible.builtin.template:
+    src: application.yml.j2
+    dest: ./data/kestra/application.yml
+    owner: "{{ kestra.uid }}"
+    group: "{{ user.group }}"
+    mode: "0600"
+
+# Flow sources use custom Jinja delimiters ([[ var ]] / [% block %]) so
+# Kestra's own {{ ... }} expressions pass through unrendered.
+- name: Render Kestra flows
+  ansible.builtin.template:
+    src: "{{ item }}"
+    dest: "./data/kestra/flows/{{ item | basename | regex_replace('\\.j2$', '') }}"
+    owner: "{{ kestra.uid }}"
+    group: "{{ user.group }}"
+    mode: "0644"
+    variable_start_string: "[["
+    variable_end_string: "]]"
+    block_start_string: "[%"
+    block_end_string: "%]"
+  with_fileglob:
+    - "{{ role_path }}/templates/flows/*.yml.j2"
+
+# Kestra (uid {{ kestra.uid }} inside the container) must be able to read
+# its postgres client key; certs are distributed by update/postgres.yml.
+- name: Check postgres client key
+  ansible.builtin.stat:
+    path: ./data/certs/kestra.key
+  register: kestra_pg_key
+
+# pgjdbc cannot read PEM private keys — sslkey must be PKCS#8 DER.
+# Re-run unconditionally so a rotated key is always re-converted (the
+# DER encoding is deterministic, so the output is stable for a same key).
+- name: Convert postgres client key to PKCS#8 DER for JDBC
+  ansible.builtin.command:
+    cmd: >-
+      openssl pkcs8 -topk8 -inform PEM -outform DER -nocrypt
+      -in ./data/certs/kestra.key -out ./data/certs/kestra.key.pk8
+  changed_when: false
+  when: kestra_pg_key.stat.exists
+
+- name: Set ownership on postgres client cert and keys
+  ansible.builtin.file:
+    path: "{{ item }}"
+    owner: "{{ kestra.uid }}"
+    group: "{{ user.group }}"
+    mode: "0600"
+  loop:
+    - "./data/certs/kestra.crt"
+    - "./data/certs/kestra.key"
+    - "./data/certs/kestra.key.pk8"
+  when: kestra_pg_key.stat.exists

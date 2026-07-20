@@ -1,0 +1,335 @@
+{
+  "uid": "homelab-http-uptime",
+  "title": "Homelab — HTTP Uptime (Kuma-like)",
+  "tags": ["homelab", "telegraf", "http_response", "uptime"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "editable": true,
+  "graphTooltip": 1,
+  "fiscalYearStartMonth": 0,
+  "liveNow": false,
+  "weekStart": "",
+  "style": "dark",
+  "annotations": { "list": [] },
+  "templating": {
+    "list": [
+      {
+        "name": "bucket",
+        "label": "Node",
+        "type": "query",
+        "datasource": { "type": "influxdb", "uid": "__INFLUXDB_UID__" },
+        "definition": "buckets() |> filter(fn: (r) => r.name =~ /^telegraf-/) |> keep(columns: [\"name\"]) |> rename(columns: {name: \"_value\"}) |> sort()",
+        "query": "buckets() |> filter(fn: (r) => r.name =~ /^telegraf-/) |> keep(columns: [\"name\"]) |> rename(columns: {name: \"_value\"}) |> sort()",
+        "refresh": 1,
+        "includeAll": true,
+        "allValue": "",
+        "multi": true,
+        "hide": 0,
+        "regex": "",
+        "sort": 1,
+        "options": [],
+        "current": { "text": ["All"], "value": ["$__all"], "selected": true }
+      },
+      {
+        "name": "via",
+        "label": "Via",
+        "type": "custom",
+        "query": "internal,domain",
+        "current": { "text": "internal", "value": "internal" },
+        "options": [
+          { "text": "internal", "value": "internal", "selected": true },
+          { "text": "domain",  "value": "domain",  "selected": false }
+        ],
+        "multi": false,
+        "includeAll": false,
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Cross-Node Overview",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Services Up (all nodes)",
+      "datasource": { "type": "influxdb", "uid": "__INFLUXDB_UID__" },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+      "targets": [{
+        "refId": "A",
+        "query": "import \"array\"\n\nbuckets_arr = ${bucket:json}\n\nstreams = buckets_arr |> array.map(fn: (x) =>\n  from(bucket: x)\n    |> range(start: -5m)\n    |> filter(fn: (r) => r._measurement == \"http_response\" and r.via == \"${via}\" and r._field == \"result_code\")\n    |> last()\n    |> filter(fn: (r) => r._value == 0)\n    |> keep(columns: [\"service\"])\n    |> map(fn: (r) => ({ r with node: x }))\n)\n\nunion(tables: streams)\n  |> group()\n  |> count(column: \"service\")\n  |> rename(columns: {service: \"_value\"})"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        }, "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Services Down (all nodes)",
+      "datasource": { "type": "influxdb", "uid": "__INFLUXDB_UID__" },
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+      "targets": [{
+        "refId": "A",
+        "query": "import \"array\"\n\nbuckets_arr = ${bucket:json}\n\nstreams = buckets_arr |> array.map(fn: (x) =>\n  from(bucket: x)\n    |> range(start: -5m)\n    |> filter(fn: (r) => r._measurement == \"http_response\" and r.via == \"${via}\" and r._field == \"result_code\")\n    |> last()\n    |> filter(fn: (r) => r._value != 0)\n    |> keep(columns: [\"service\"])\n    |> map(fn: (r) => ({ r with node: x }))\n)\n\nunion(tables: streams)\n  |> group()\n  |> count(column: \"service\")\n  |> rename(columns: {service: \"_value\"})"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] }
+        }, "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Total Checks (all nodes)",
+      "datasource": { "type": "influxdb", "uid": "__INFLUXDB_UID__" },
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+      "targets": [{
+        "refId": "A",
+        "query": "import \"array\"\n\nbuckets_arr = ${bucket:json}\n\nstreams = buckets_arr |> array.map(fn: (x) =>\n  from(bucket: x)\n    |> range(start: -5m)\n    |> filter(fn: (r) => r._measurement == \"http_response\" and r.via == \"${via}\" and r._field == \"result_code\")\n    |> last()\n    |> keep(columns: [\"service\"])\n    |> map(fn: (r) => ({ r with node: x }))\n)\n\nunion(tables: streams)\n  |> group()\n  |> count(column: \"service\")\n  |> rename(columns: {service: \"_value\"})"
+      }],
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Global Uptime % (range)",
+      "datasource": { "type": "influxdb", "uid": "__INFLUXDB_UID__" },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 1 },
+      "targets": [{
+        "refId": "A",
+        "query": "import \"array\"\n\nbuckets_arr = ${bucket:json}\n\nall = union(tables: buckets_arr |> array.map(fn: (x) =>\n  from(bucket: x)\n    |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n    |> filter(fn: (r) => r._measurement == \"http_response\" and r.via == \"${via}\" and r._field == \"result_code\")\n    |> keep(columns: [\"_time\", \"_value\", \"service\"])\n    |> map(fn: (r) => ({ r with node: x }))\n))\n\ntotalT = all |> group() |> count(column: \"_value\")\nokT = all |> filter(fn: (r) => r._value == 0) |> group() |> count(column: \"_value\")\n\ntotalR = totalT |> findRecord(fn: (key) => true, idx: 0)\nokR = okT |> findRecord(fn: (key) => true, idx: 0)\n\npct = if totalR._value == 0 then 0.0 else float(v: okR._value) / float(v: totalR._value) * 100.0\n\narray.from(rows: [{ _time: now(), _value: pct }])"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent", "min": 0, "max": 100,
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 95 }, { "color": "green", "value": 99 }] }
+        }, "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Avg Response (5m, all nodes)",
+      "datasource": { "type": "influxdb", "uid": "__INFLUXDB_UID__" },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 1 },
+      "targets": [{
+        "refId": "A",
+        "query": "import \"array\"\n\nbuckets_arr = ${bucket:json}\n\nunion(tables: buckets_arr |> array.map(fn: (x) =>\n  from(bucket: x)\n    |> range(start: -5m)\n    |> filter(fn: (r) => r._measurement == \"http_response\" and r.via == \"${via}\" and r._field == \"response_time\")\n    |> keep(columns: [\"_time\", \"_value\"])\n))\n  |> group()\n  |> mean()"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 0.5 }, { "color": "red", "value": 2 }] }
+        }, "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" }
+    },
+    {
+      "id": 100,
+      "type": "row",
+      "title": "$bucket",
+      "repeat": "bucket",
+      "repeatDirection": "v",
+      "collapsed": true,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "panels": [
+        {
+          "id": 101,
+          "type": "table",
+          "title": "Services — Status & Response Time",
+          "datasource": { "type": "influxdb", "uid": "__INFLUXDB_UID__" },
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 6 },
+          "targets": [
+            {
+              "refId": "A",
+              "query": "from(bucket: \"${bucket}\")\n  |> range(start: -5m)\n  |> filter(fn: (r) => r._measurement == \"http_response\" and r.via == \"${via}\" and r._field == \"result_code\")\n  |> last()\n  |> keep(columns: [\"service\", \"_value\"])\n  |> rename(columns: {_value: \"Status\"})\n  |> group()"
+            },
+            {
+              "refId": "B",
+              "query": "from(bucket: \"${bucket}\")\n  |> range(start: -5m)\n  |> filter(fn: (r) => r._measurement == \"http_response\" and r.via == \"${via}\" and r._field == \"response_time\")\n  |> last()\n  |> keep(columns: [\"service\", \"_value\"])\n  |> rename(columns: {_value: \"Latest\"})\n  |> group()"
+            },
+            {
+              "refId": "C",
+              "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"http_response\" and r.via == \"${via}\" and r._field == \"response_time\")\n  |> group(columns: [\"service\"])\n  |> mean()\n  |> keep(columns: [\"service\", \"_value\"])\n  |> rename(columns: {_value: \"Avg\"})\n  |> group()"
+            },
+            {
+              "refId": "D",
+              "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"http_response\" and r.via == \"${via}\" and r._field == \"response_time\")\n  |> group(columns: [\"service\"])\n  |> min()\n  |> keep(columns: [\"service\", \"_value\"])\n  |> rename(columns: {_value: \"Min\"})\n  |> group()"
+            },
+            {
+              "refId": "E",
+              "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"http_response\" and r.via == \"${via}\" and r._field == \"response_time\")\n  |> group(columns: [\"service\"])\n  |> max()\n  |> keep(columns: [\"service\", \"_value\"])\n  |> rename(columns: {_value: \"Max\"})\n  |> group()"
+            },
+            {
+              "refId": "F",
+              "query": "data = from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"http_response\" and r.via == \"${via}\" and r._field == \"result_code\")\n\ntotal = data\n  |> group(columns: [\"service\"])\n  |> count()\n  |> rename(columns: {_value: \"total\"})\n\nok = data\n  |> filter(fn: (r) => r._value == 0)\n  |> group(columns: [\"service\"])\n  |> count()\n  |> rename(columns: {_value: \"ok\"})\n\njoin(tables: {t: total, o: ok}, on: [\"service\"], method: \"left\")\n  |> map(fn: (r) => ({ service: r.service, _value: float(v: r.ok) / float(v: r.total) * 100.0 }))\n  |> rename(columns: {_value: \"Uptime %\"})\n  |> group()"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "joinByField",
+              "options": { "byField": "service", "mode": "outer" }
+            },
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {},
+                "indexByName": {
+                  "service": 0,
+                  "Status": 1,
+                  "Uptime %": 2,
+                  "Latest": 3,
+                  "Avg": 4,
+                  "Min": 5,
+                  "Max": 6
+                },
+                "renameByName": {
+                  "service": "Service"
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": { "custom": { "align": "auto", "filterable": true } },
+            "overrides": [
+              {
+                "matcher": { "id": "byName", "options": "Status" },
+                "properties": [
+                  { "id": "mappings", "value": [{ "type": "value", "options": {
+                    "0": { "text": "UP",           "color": "green",  "index": 0 },
+                    "1": { "text": "CONNECT FAIL", "color": "red",    "index": 1 },
+                    "2": { "text": "TIMEOUT",      "color": "red",    "index": 2 },
+                    "3": { "text": "BODY ERR",     "color": "orange", "index": 3 },
+                    "4": { "text": "RESP ERR",     "color": "orange", "index": 4 },
+                    "5": { "text": "DNS ERROR",    "color": "red",    "index": 5 }
+                  } }] },
+                  { "id": "custom.cellOptions", "value": { "type": "color-background" } },
+                  { "id": "custom.width", "value": 140 }
+                ]
+              },
+              {
+                "matcher": { "id": "byName", "options": "Uptime %" },
+                "properties": [
+                  { "id": "unit", "value": "percent" }, { "id": "min", "value": 0 }, { "id": "max", "value": 100 },
+                  { "id": "custom.cellOptions", "value": { "type": "gauge", "mode": "gradient" } },
+                  { "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 95 }, { "color": "green", "value": 99 }] } },
+                  { "id": "custom.width", "value": 140 }
+                ]
+              },
+              {
+                "matcher": { "id": "byName", "options": "Latest" },
+                "properties": [
+                  { "id": "unit", "value": "s" }, { "id": "decimals", "value": 3 },
+                  { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+                  { "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 0.5 }, { "color": "red", "value": 2 }] } }
+                ]
+              },
+              {
+                "matcher": { "id": "byName", "options": "Avg" },
+                "properties": [
+                  { "id": "unit", "value": "s" }, { "id": "decimals", "value": 3 },
+                  { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+                  { "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 0.5 }, { "color": "red", "value": 2 }] } }
+                ]
+              },
+              {
+                "matcher": { "id": "byName", "options": "Min" },
+                "properties": [
+                  { "id": "unit", "value": "s" }, { "id": "decimals", "value": 3 }
+                ]
+              },
+              {
+                "matcher": { "id": "byName", "options": "Max" },
+                "properties": [
+                  { "id": "unit", "value": "s" }, { "id": "decimals", "value": 3 },
+                  { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+                  { "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 0.5 }, { "color": "red", "value": 2 }] } }
+                ]
+              },
+              {
+                "matcher": { "id": "byName", "options": "Service" },
+                "properties": [
+                  { "id": "custom.width", "value": 220 }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "showHeader": true,
+            "footer": { "show": false },
+            "sortBy": [{ "displayName": "Service", "desc": false }]
+          }
+        },
+        {
+          "id": 108,
+          "type": "status-history",
+          "title": "Status Heatmap",
+          "datasource": { "type": "influxdb", "uid": "__INFLUXDB_UID__" },
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+          "targets": [{
+            "refId": "A",
+            "query": "windowDur = duration(v: (int(v: v.timeRangeStop) - int(v: v.timeRangeStart)) / 150)\n\nfrom(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"http_response\" and r.via == \"${via}\" and r._field == \"result_code\")\n  |> aggregateWindow(every: windowDur, fn: max, createEmpty: false)\n  |> keep(columns: [\"_time\", \"service\", \"_value\"])"
+          }],
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] },
+              "mappings": [
+                { "type": "value", "options": {
+                  "0": { "text": "UP",           "color": "green",  "index": 0 },
+                  "1": { "text": "CONNECT FAIL", "color": "red",    "index": 1 },
+                  "2": { "text": "TIMEOUT",      "color": "red",    "index": 2 },
+                  "3": { "text": "BODY ERR",     "color": "orange", "index": 3 },
+                  "4": { "text": "RESP ERR",     "color": "orange", "index": 4 },
+                  "5": { "text": "DNS ERROR",    "color": "red",    "index": 5 }
+                } }
+              ]
+            }, "overrides": []
+          },
+          "options": { "showValue": "never", "rowHeight": 0.9, "colWidth": 0.95, "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+        },
+        {
+          "id": 106,
+          "type": "timeseries",
+          "title": "Response Time per Service",
+          "datasource": { "type": "influxdb", "uid": "__INFLUXDB_UID__" },
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 24 },
+          "targets": [{
+            "refId": "A",
+            "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"http_response\" and r.via == \"${via}\" and r._field == \"response_time\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> keep(columns: [\"_time\", \"service\", \"_value\"])"
+          }],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "showPoints": "never", "spanNulls": true }
+            }, "overrides": []
+          },
+          "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max", "last"] }, "tooltip": { "mode": "multi" } }
+        }
+      ]
+    }
+  ]
+}

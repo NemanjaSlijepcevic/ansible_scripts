@@ -1,0 +1,19 @@
+---
+- name: "Update Automation"
+  hosts: automations
+  gather_facts: true
+  remote_user: "{{ user.name }}"
+  become: true
+  vars:
+    current_host: "automation"
+  roles:
+    - { role: common, tags: ['common'] }
+    - { role: authelia, tags: ['authelia', 'proxy', 'security'] }
+    - { role: traefik, tags: ['traefik', 'proxy', 'security'] }
+    - { role: crowdsec, tags: ['crowdsec', 'proxy', 'security'] }
+    - { role: socket_proxy, tags: ['socket_proxy', 'kestra', 'automation'] }
+    - { role: claude_runner, tags: ['claude_runner', 'kestra', 'automation'] }
+    - { role: ansible_runner, tags: ['ansible_runner', 'kestra', 'automation'] }
+    # - { role: kestra, tags: ['kestra', 'automation'] }
+    - { role: telegraf, tags: ['telegraf', 'metrics', 'monitoring'] }
+    - { role: promtail, tags: ['promtail', 'logs', 'monitoring'] }

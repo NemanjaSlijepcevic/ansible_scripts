@@ -1,0 +1,13 @@
+---
+- name: Create Immich Redis container
+  community.docker.docker_container:
+    name: immich-redis
+    image: docker.io/valkey/valkey:8-bookworm
+    restart_policy: unless-stopped
+    networks:
+      - name: proxy
+    healthcheck:
+      test: ["CMD-SHELL", "valkey-cli ping || exit 1"]
+      interval: 1m
+      timeout: 10s
+      retries: 3

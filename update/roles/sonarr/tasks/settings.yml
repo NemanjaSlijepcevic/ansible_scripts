@@ -1,0 +1,49 @@
+---
+- name: Get current UI config
+  ansible.builtin.uri:
+    url: "{{ sonarr.url }}/api/v3/config/ui"
+    method: GET
+    headers:
+      X-Api-Key: "{{ sonarr.api_key }}"
+    return_content: true
+  register: sonarr_ui_config
+
+- name: Build UI config body
+  ansible.builtin.set_fact:
+    sonarr_ui_body: "{{ sonarr_ui_config.json | combine({'firstDayOfWeek': 1,
+      'calendarWeekColumnHeader': 'ddd D/M', 'shortDateFormat': 'DD/MM/YYYY',
+      'longDateFormat': 'dddd, DD MMMM YYYY', 'timeFormat': 'HH:mm'}) }}"
+
+- name: Set UI config
+  ansible.builtin.uri:
+    url: "{{ sonarr.url }}/api/v3/config/ui"
+    method: PUT
+    headers:
+      X-Api-Key: "{{ sonarr.api_key }}"
+    body_format: json
+    body: "{{ sonarr_ui_body }}"
+    status_code: [200, 202]
+
+- name: Get current host config
+  ansible.builtin.uri:
+    url: "{{ sonarr.url }}/api/v3/config/host"
+    method: GET
+    headers:
+      X-Api-Key: "{{ sonarr.api_key }}"
+    return_content: true
+  register: sonarr_host_config
+
+- name: Build host config body
+  ansible.builtin.set_fact:
+    sonarr_host_body: "{{ sonarr_host_config.json | combine({'analyticsEnabled':
+      false, 'urlBase': ''}) }}"
+
+- name: Set host config
+  ansible.builtin.uri:
+    url: "{{ sonarr.url }}/api/v3/config/host"
+    method: PUT
+    headers:
+      X-Api-Key: "{{ sonarr.api_key }}"
+    body_format: json
+    body: "{{ sonarr_host_body }}"
+    status_code: [200, 202]

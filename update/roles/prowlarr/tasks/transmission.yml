@@ -1,0 +1,58 @@
+---
+- name: Get existing download clients
+  ansible.builtin.uri:
+    url: "{{ prowlarr.url }}/api/v1/downloadclient"
+    method: GET
+    headers:
+      X-Api-Key: "{{ prowlarr.api_key }}"
+    return_content: true
+  register: existing_download_clients
+
+- name: Add Transmission download client
+  ansible.builtin.uri:
+    url: "{{ prowlarr.url }}/api/v1/downloadclient"
+    method: POST
+    headers:
+      X-Api-Key: "{{ prowlarr.api_key }}"
+    body_format: json
+    body:
+      name: "Transmission"
+      implementation: "Transmission"
+      configContract: "TransmissionSettings"
+      protocol: "torrent"
+      enable: true
+      priority: 1
+      categories: []
+      fields:
+        - name: host
+          value: "transmission"
+        - name: port
+          value: 9091
+        - name: useSsl
+          value: false
+        - name: urlBase
+          value: "/transmission/"
+        - name: username
+          value: ""
+        - name: password
+          value: ""
+        - name: category
+          value: ""
+        - name: directory
+          value: ""
+        - name: priority
+          value: 0
+        - name: addPaused
+          value: false
+    status_code: 201
+  when: "existing_download_clients.json | selectattr('name', 'equalto', 'Transmission') | list | length == 0"
+
+- name: Verify Transmission download client exists
+  ansible.builtin.uri:
+    url: "{{ prowlarr.url }}/api/v1/downloadclient"
+    method: GET
+    headers:
+      X-Api-Key: "{{ prowlarr.api_key }}"
+    return_content: true
+  register: verify_download_clients
+  failed_when: "verify_download_clients.json | selectattr('name', 'equalto', 'Transmission') | list | length == 0"

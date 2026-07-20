@@ -1,0 +1,32 @@
+---
+postgres:
+  static: "172.20.0.8"
+  adm_user: "postgres"
+  adm_pass: "changeme"
+
+# GID the postgres container runs as (owns TLS client cert files).
+pgid: "999"
+
+# Sibling-service reference: pgAdmin's static IP gets a password-auth
+# exception in pg_hba.conf (it has no client certificate).
+pgadmin:
+  static: "172.20.0.9"
+
+postgres_tls_client_hosts: []
+postgres_tls_clients: []
+postgres_migrate_source_host: primary_postgres
+postgres_tls_client_base_dir: "./data/certs"
+postgres_tls_dir: "./data/postgres/certs"
+postgres_tls_client_dir: "./data/postgres/certs/clients"
+postgres_tls_ca_key: "./data/postgres/certs/ca.key"
+postgres_tls_ca_cert: "./data/postgres/certs/ca.crt"
+postgres_tls_ca_serial: "./data/postgres/certs/ca.srl"
+postgres_tls_server_key: "./data/postgres/certs/server.key"
+postgres_tls_server_cert: "./data/postgres/certs/server.crt"
+
+# Source paths on PG15 host (native install, not Docker)
+postgres_migrate_tls_dir: "/etc/postgresql/15/main/certs"
+postgres_migrate_tls_ca_cert: "{{ postgres_migrate_tls_dir }}/ca.crt"
+postgres_migrate_tls_ca_key: "{{ postgres_migrate_tls_dir }}/ca.key"
+postgres_migrate_tls_ca_serial: "{{ postgres_migrate_tls_dir }}/ca.srl"
+postgres_migrate_tls_client_dir: "{{ postgres_migrate_tls_dir }}/clients"

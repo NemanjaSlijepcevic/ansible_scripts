@@ -1,0 +1,26 @@
+---
+user:
+  name: "deploy"
+  group: "docker"
+
+immich:
+  static: "172.20.0.110"
+  host: "Host(`immich.example.com`)"
+  port: "2283"
+  url: "https://immich.example.com"
+  upload_location: "/usr/src/app/upload"
+  external_path: "/external"
+  db:
+    user: "immich"
+    password: "changeme"
+    name: "immich"
+  postgres:
+    static: "172.20.0.111"
+  redis:
+    static: "172.20.0.112"
+  ml:
+    static: "172.20.0.113"
+
+# Authelia OIDC endpoint used for SSO login.
+authelia_links:
+  url: "https://auth.example.com"

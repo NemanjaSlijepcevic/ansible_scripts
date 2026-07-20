@@ -21,15 +21,12 @@
     restart_policy: unless-stopped
     networks:
       - name: proxy
-        ipv4_address: "{{ static }}"
-        links:
-          - skup-ghost-db:db
     volumes:
       - "{{ volume_name }}:/var/lib/ghost/content"
     env:
       TZ: Europe/Belgrade
       database__client: mysql
-      database__connection__host: db
+      database__connection__host: "{{ db_host }}"
       database__connection__user: "{{ db_user }}"
       database__connection__password: "{{ db_pass }}"
       database__connection__database: "{{ db_name }}"

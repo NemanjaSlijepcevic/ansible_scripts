@@ -1,0 +1,17 @@
+# Port configuration
+Port {{ sshd_port | default(22) }}
+
+# Authentication rules
+PermitRootLogin no
+PasswordAuthentication no
+PermitEmptyPasswords no
+ChallengeResponseAuthentication no
+
+# Security hardening
+UsePAM yes
+AllowTcpForwarding no
+PrintMotd no
+
+# Logging and banners (optional)
+SyslogFacility AUTH
+LogLevel VERBOSE

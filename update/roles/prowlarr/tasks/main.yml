@@ -18,11 +18,65 @@
       PUID: "{{ puid }}"
       PGID: "{{ pgid }}"
       TZ: "Europe/Belgrade"
+      PROWLARR__AUTH__APIKEY: "{{ prowlarr.api_key }}"
+      PROWLARR__AUTH__METHOD: "External"
+      PROWLARR__AUTH__REQUIRED: "DisabledForLocalAddresses"
+      PROWLARR__SERVER__PORT: "{{ prowlarr.port }}"
+      PROWLARR__POSTGRES__HOST: "{{ postgres.ip }}"
+      PROWLARR__POSTGRES__PORT: "{{ postgres.port | string }}"
+      PROWLARR__POSTGRES__USER: "{{ postgres.user }}"
+      PROWLARR__POSTGRES__PASSWORD: "{{ postgres.password }}"
+      PROWLARR__POSTGRES__MAINDB: prowlarr
+      PROWLARR__POSTGRES__LOGDB: prowlarr-log
+      PGSSLMODE: "verify-ca"
+      PGSSLCERT: "/postgres-certs/prowlarr.crt"
+      PGSSLKEY: "/postgres-certs/prowlarr.key"
+      PGSSLROOTCERT: "/postgres-certs/ca.crt"
     volumes:
       - ./data/prowlarr/config:/config
+      - ./data/certs:/postgres-certs:ro
     labels:
       traefik.enable: "true"
       traefik.http.routers.prowlarr.entrypoints: "https"
       traefik.http.routers.prowlarr.rule: "{{ prowlarr.host }}"
       traefik.http.routers.prowlarr.tls: "true"
+      traefik.http.routers.prowlarr.middlewares: "chain-auth@file"
       traefik.http.services.prowlarr.loadbalancer.server.port: "{{ prowlarr.port }}"
+    healthcheck:
+      test: curl --fail http://localhost:9696/ping || exit 1
+      interval: 1m30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+      start_interval: 10s
+
+- name: Wait for Prowlarr to be ready
+  ansible.builtin.uri:
+    url: "{{ prowlarr.url }}/ping"
+    method: GET
+    status_code: 200
+  register: result
+  until: result.status == 200
+  retries: 10
+  delay: 10
+
+- name: Configure Transmission download client
+  ansible.builtin.include_tasks: transmission.yml
+
+- name: Configure Telegram notification
+  ansible.builtin.include_tasks: telegram.yml
+
+- name: Configure settings
+  ansible.builtin.include_tasks: settings.yml
+
+- name: Configure public indexers
+  ansible.builtin.include_tasks: indexers.yml
+
+- name: Configure Radarr application
+  ansible.builtin.include_tasks: radarr.yml
+
+- name: Configure Sonarr application
+  ansible.builtin.include_tasks: sonarr.yml
+
+- name: Configure Lidarr application
+  ansible.builtin.include_tasks: lidarr.yml

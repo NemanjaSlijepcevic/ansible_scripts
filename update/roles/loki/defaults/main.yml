@@ -1,0 +1,21 @@
+---
+# Documentation-only defaults for the loki role.
+# Copy the shape into host_vars/group_vars and replace with real values,
+# then keep the real inventory encrypted. Values below are placeholders.
+
+loki:
+  host: "Host(`loki.example.com`)"
+  url: "https://loki.example.com"
+  port: "3100"
+
+# Loki server log verbosity (debug|info|warn|error). Kept at info (Loki's
+# default) on purpose — the per-query stats lines are filtered OUT of the
+# error-only dashboard via a `!= "query_hash"` guard instead of being
+# silenced here, so the query logs stay available for debugging.
+loki_log_level: "info"
+
+# Used to register Loki as a Grafana data source.
+grafana:
+  url: "https://grafana.example.com"
+  admin_user: "admin"
+  admin_password: "changeme"

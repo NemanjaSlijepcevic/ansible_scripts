@@ -1,11 +1,25 @@
 ---
+- name: Set permissions on media drives
+  ansible.builtin.file:
+    path: "{{ item }}"
+    mode: "0755"
+    state: directory
+  loop:
+    - "{{ music_drive }}"
+    - "{{ download_drive }}"
+  register: media_drive_perms
+  failed_when: false
+
 - name: Create directory if they don't exist
   ansible.builtin.file:
-    path: ./data/lidarr
+    path: "{{ item }}"
     state: directory
     owner: "{{ user.name }}"
     group: "{{ user.group }}"
     mode: "0755"
+  loop:
+    - "./data/lidarr"
+    - "{{ download_drive }}/Download/complete/lidarr"
 
 - name: Deploy Lidarr container
   community.docker.docker_container:
@@ -18,13 +32,58 @@
       PUID: "{{ puid }}"
       PGID: "{{ pgid }}"
       TZ: "Europe/Belgrade"
+      LIDARR__AUTH__APIKEY: "{{ lidarr.api_key }}"
+      LIDARR__AUTH__METHOD: "External"
+      LIDARR__AUTH__REQUIRED: "DisabledForLocalAddresses"
+      LIDARR__SERVER__PORT: "{{ lidarr.port }}"
+      LIDARR__POSTGRES__HOST: "{{ postgres.ip }}"
+      LIDARR__POSTGRES__PORT: "{{ postgres.port | string }}"
+      LIDARR__POSTGRES__USER: "{{ postgres.user }}"
+      LIDARR__POSTGRES__PASSWORD: "{{ postgres.password }}"
+      LIDARR__POSTGRES__MAINDB: lidarr
+      LIDARR__POSTGRES__LOGDB: lidarr-log
+      PGSSLMODE: "verify-ca"
+      PGSSLCERT: "/postgres-certs/lidarr.crt"
+      PGSSLKEY: "/postgres-certs/lidarr.key"
+      PGSSLROOTCERT: "/postgres-certs/ca.crt"
     volumes:
       - ./data/lidarr/config:/config
-      - "{{ data_drive }}/Muzika:/music"
+      - ./data/certs:/postgres-certs:ro
+      - "{{ music_drive }}:/music"
       - "{{ download_drive }}/Download:/downloads"
     labels:
       traefik.enable: "true"
       traefik.http.routers.lidarr.entrypoints: "https"
       traefik.http.routers.lidarr.rule: "{{ lidarr.host }}"
       traefik.http.routers.lidarr.tls: "true"
+      traefik.http.routers.lidarr.middlewares: "chain-auth@file"
       traefik.http.services.lidarr.loadbalancer.server.port: "{{ lidarr.port }}"
+    healthcheck:
+      test: curl --fail http://localhost:8686/ping || exit 1
+      interval: 1m30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+      start_interval: 10s
+
+- name: Wait for Lidarr to be ready
+  ansible.builtin.uri:
+    url: "{{ lidarr.url }}/ping"
+    method: GET
+    status_code: 200
+  register: result
+  until: result.status == 200
+  retries: 10
+  delay: 10
+
+- name: Configure Transmission download client
+  ansible.builtin.include_tasks: transmission.yml
+
+- name: Configure Telegram notification
+  ansible.builtin.include_tasks: telegram.yml
+
+- name: Configure Jellyfin connection
+  ansible.builtin.include_tasks: jellyfin.yml
+
+- name: Configure settings
+  ansible.builtin.include_tasks: settings.yml

@@ -1,0 +1,15 @@
+http:
+  middlewares:
+    chain-no-auth:
+      chain:
+        middlewares:
+{% if current_host == 'server' %}
+          - cloudflarewarp
+{%   if (geoblock_blocked_countries | default([])) | length > 0 %}
+          - geoblock
+{%   endif %}
+{% endif %}
+          - default-whitelist
+          - crowdsec-bouncer
+          - secure-headers
+          - rate-limit

@@ -1,0 +1,5 @@
+---
+# Documentation-only defaults for the install_packages role.
+# The apt package list and unattended-upgrades config are hardcoded in tasks;
+# this role takes NO inventory-driven variables.
+# Nothing here needs to be added to host_vars/group_vars.

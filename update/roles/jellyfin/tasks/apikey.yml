@@ -1,0 +1,110 @@
+---
+- name: Get Jellyfin public info
+  ansible.builtin.uri:
+    url: "{{ jellyfin.url }}/System/Info/Public"
+    method: GET
+    status_code: 200
+  register: jellyfin_info
+
+- name: Set startup configuration
+  ansible.builtin.uri:
+    url: "{{ jellyfin.url }}/Startup/Configuration"
+    method: POST
+    body_format: json
+    body:
+      ServerName: "Jellyfin"
+      UICulture: "en-US"
+      MetadataCountryCode: "US"
+      PreferredMetadataLanguage: "en"
+    status_code: 204
+  when: not jellyfin_info.json.StartupWizardCompleted
+
+- name: Configure remote access
+  ansible.builtin.uri:
+    url: "{{ jellyfin.url }}/Startup/RemoteAccess"
+    method: POST
+    body_format: json
+    body:
+      EnableRemoteAccess: true
+      EnableAutomaticPortMapping: false
+    status_code: 204
+  when: not jellyfin_info.json.StartupWizardCompleted
+
+- name: Wait for Jellyfin default user to be initialized
+  ansible.builtin.uri:
+    url: "{{ jellyfin.url }}/Startup/User"
+    method: GET
+    status_code: 200
+  register: startup_user_check
+  until: startup_user_check.json.Name is not none
+  retries: 12
+  delay: 5
+  when: not jellyfin_info.json.StartupWizardCompleted
+
+- name: Create initial admin user
+  ansible.builtin.uri:
+    url: "{{ jellyfin.url }}/Startup/User"
+    method: POST
+    body_format: json
+    body:
+      Name: "{{ jellyfin.admin_user }}"
+      Password: "{{ jellyfin.admin_password }}"
+    status_code: 204
+  when: not jellyfin_info.json.StartupWizardCompleted
+
+- name: Complete setup wizard
+  ansible.builtin.uri:
+    url: "{{ jellyfin.url }}/Startup/Complete"
+    method: POST
+    status_code: 204
+  when: not jellyfin_info.json.StartupWizardCompleted
+
+- name: Authenticate with Jellyfin admin
+  ansible.builtin.uri:
+    url: "{{ jellyfin.url }}/Users/AuthenticateByName"
+    method: POST
+    headers:
+      X-Emby-Authorization: 'MediaBrowser Client="Ansible", Device="Ansible", DeviceId="ansible", Version="1.0"'
+    body_format: json
+    body:
+      Username: "{{ jellyfin.admin_user }}"
+      Pw: "{{ jellyfin.admin_password }}"
+    status_code: 200
+  register: jellyfin_auth
+
+- name: Get existing API keys
+  ansible.builtin.uri:
+    url: "{{ jellyfin.url }}/Auth/Keys"
+    method: GET
+    headers:
+      X-Emby-Token: "{{ jellyfin_auth.json.AccessToken }}"
+    status_code: 200
+  register: jellyfin_keys
+
+- name: Create Ansible API key
+  ansible.builtin.uri:
+    url: "{{ jellyfin.url }}/Auth/Keys?app=Ansible"
+    method: POST
+    headers:
+      X-Emby-Token: "{{ jellyfin_auth.json.AccessToken }}"
+    status_code: 204
+  register: jellyfin_new_key
+  when: "jellyfin_keys.json.Items | selectattr('AppName', 'equalto', 'Ansible') | list | length == 0"
+
+- name: Get API keys after creation
+  ansible.builtin.uri:
+    url: "{{ jellyfin.url }}/Auth/Keys"
+    method: GET
+    headers:
+      X-Emby-Token: "{{ jellyfin_auth.json.AccessToken }}"
+    status_code: 200
+  register: jellyfin_keys_final
+  when: jellyfin_new_key is changed  # noqa: no-handler
+
+- name: Print generated API key
+  ansible.builtin.debug:
+    msg: >-
+      Jellyfin API key:
+      {{ (jellyfin_keys_final.json.Items | selectattr('AppName', 'equalto', 'Ansible') | list | first).AccessToken }}
+      — update jellyfin.api_key in host_vars
+  when: jellyfin_new_key is changed  # noqa: no-handler

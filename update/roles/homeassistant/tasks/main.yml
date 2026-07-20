@@ -10,6 +10,25 @@
     - "./data/homeassistant"
     - "./data/homeassistant/config"
 
+- name: Render configuration.yaml
+  ansible.builtin.template:
+    src: configuration.yaml.j2
+    dest: ./data/homeassistant/config/configuration.yaml
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0644"
+  register: ha_config
+
+- name: Sync automations.yaml
+  ansible.builtin.copy:
+    src: automations.yaml
+    dest: ./data/homeassistant/config/automations.yaml
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0644"
+    force: false
+  register: ha_automations
+
 - name: Add MQTT
   ansible.builtin.include_tasks: mqtt.yml
 
@@ -18,6 +37,7 @@
     name: homeassistant
     image: ghcr.io/home-assistant/home-assistant:stable
     # privileged: true
+    restart: "{{ ha_config.changed or ha_automations.changed }}"
     restart_policy: unless-stopped
     networks:
       - name: proxy
@@ -33,4 +53,5 @@
       traefik.http.routers.homeassistant.entrypoints: "https"
       traefik.http.routers.homeassistant.rule: "{{ homeassistant.host }}"
       traefik.http.routers.homeassistant.tls: "true"
+      traefik.http.routers.homeassistant.middlewares: "chain-no-auth@file"
       traefik.http.services.homeassistant.loadbalancer.server.port: "{{ homeassistant.port }}"

@@ -1,0 +1,9 @@
+---
+user:
+  name: "deploy"
+  group: "docker"
+
+kuma:
+  static: "172.20.0.40"
+  host: "Host(`kuma.example.com`)"
+  port: "3001"

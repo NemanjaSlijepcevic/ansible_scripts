@@ -1,0 +1,17 @@
+---
+- name: "Update Immich"
+  hosts: immichs
+  gather_facts: true
+  remote_user: "{{ user.name }}"
+  become: true
+  vars:
+    current_host: "immich"
+  roles:
+    - { role: common, tags: ['common'] }
+    - { role: prepare_postgres, tags: ['prepare_postgres', 'postgres', 'database'] }
+    - { role: authelia, tags: ['authelia', 'proxy', 'security'] }
+    - { role: traefik, tags: ['traefik', 'proxy', 'security'] }
+    - { role: crowdsec, tags: ['crowdsec', 'proxy', 'security'] }
+    - { role: immich, tags: ['immich', 'media'] }
+    - { role: telegraf, tags: ['telegraf', 'metrics', 'monitoring'] }
+    - { role: promtail, tags: ['promtail', 'logs', 'monitoring'] }

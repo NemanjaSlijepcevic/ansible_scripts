@@ -7,18 +7,21 @@
   vars:
     current_host: "nas"
   roles:
-    - common
-    - authelia
-    - traefik
-    - crowdsec
-    - node_exporter
-    - transmission
-    - prowlarr
-    - radarr
-    - sonarr
-    - lidarr
-    - bazarr
-    - emby
-    - plex
-    - netboot
-    - watchtower
+    - { role: common, tags: ['common'] }
+    - { role: telegraf, tags: ['telegraf', 'metrics', 'monitoring'] }
+    - { role: promtail, tags: ['promtail', 'logs', 'monitoring'] }
+    - { role: prepare_smb, tags: ['prepare_smb'] }
+    - { role: prepare_postgres, tags: ['prepare_postgres', 'postgres', 'database'] }
+    - { role: authelia, tags: ['authelia', 'proxy', 'security'] }
+    - { role: traefik, tags: ['traefik', 'proxy', 'security'] }
+    - { role: crowdsec, tags: ['crowdsec', 'proxy', 'security'] }
+    - { role: filebrowser, tags: ['filebrowser'] }
+    - { role: transmission, tags: ['transmission', 'media'] }
+    - { role: jellyfin, tags: ['jellyfin', 'media'] }
+    - { role: radarr, tags: ['radarr', 'arr', 'media'] }
+    - { role: sonarr, tags: ['sonarr', 'arr', 'media'] }
+    - { role: lidarr, tags: ['lidarr', 'arr', 'media'] }
+    - { role: prowlarr, tags: ['prowlarr', 'arr', 'media'] }
+    - { role: bazarr, tags: ['bazarr', 'arr', 'media'] }
+    - { role: recyclarr, tags: ['recyclarr', 'arr', 'media'] }
+    - { role: seerr, tags: ['seerr', 'arr', 'media'] }

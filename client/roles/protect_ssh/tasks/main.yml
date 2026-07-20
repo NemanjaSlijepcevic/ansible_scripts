@@ -1,0 +1,19 @@
+---
+- name: Deploy SSH daemon drop-in config
+  ansible.builtin.template:
+    src: 10-default-sshd.conf.j2
+    dest: /etc/ssh/sshd_config.d/10-default-sshd.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart ssh
+
+- name: Create logrotate config for Docker
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/templates/logrotate.j2"
+    dest: "/etc/logrotate.d/ssh"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+  vars:
+    log_path: "/var/log/auth.log"

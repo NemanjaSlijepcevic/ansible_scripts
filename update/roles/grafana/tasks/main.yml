@@ -1,14 +1,6 @@
 ---
-- name: Create directories if they don't exist
-  ansible.builtin.file:
-    path: "{{ item }}"
-    state: directory
-    owner: "{{ user.name }}"
-    group: "{{ user.group }}"
-    mode: "0755"
-  loop:
-    - "./data/grafana"
-    - "./data/grafana/lib"
+- name: Create environment
+  ansible.builtin.include_tasks: environment.yml
 
 - name: Add grafana
   community.docker.docker_container:
@@ -16,6 +8,7 @@
     image: grafana/grafana-oss:latest
     pull: true
     state: started
+    recreate: "{{ grafana_provisioning_changed | default(false) }}"
     restart_policy: always
     user: "{{ puid }}:{{ pgid }}"
     networks:
@@ -24,12 +17,44 @@
       - "{{ default.dns }}"
     env:
       TZ: "Europe/Belgrade"
+      # Quiet specific chatty loggers (logger:level, comma-separated). The
+      # `expr` logger warns "Ignoring InfluxDB data frame due to missing
+      # numeric fields" on every alert eval where a query returns an empty
+      # frame (e.g. a service with no 5xx or no recent requests) — benign,
+      # the rule still evaluates the numeric frames. Keeps expr errors.
+      GF_LOG_FILTERS: "{{ grafana_log_filters | default('expr:error') }}"
       GF_SERVER_ROOT_URL: "{{ grafana.url }}"
+      GF_SECURITY_ADMIN_USER: "{{ grafana.admin_user }}"
+      GF_SECURITY_ADMIN_PASSWORD: "{{ grafana.admin_password }}"
+      GF_PATHS_PROVISIONING: "/etc/grafana/provisioning"
+      GF_AUTH_GENERIC_OAUTH_ENABLED: "true"
+      GF_AUTH_GENERIC_OAUTH_NAME: "Authelia"
+      GF_AUTH_GENERIC_OAUTH_ICON: "signin"
+      GF_AUTH_GENERIC_OAUTH_CLIENT_ID: "{{ authelia.oidc.grafana.client_id }}"
+      GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: "{{ authelia.oidc.grafana.client_secret }}"
+      GF_AUTH_GENERIC_OAUTH_SCOPES: "openid profile email groups"
+      GF_AUTH_GENERIC_OAUTH_EMPTY_SCOPES: "false"
+      GF_AUTH_GENERIC_OAUTH_AUTH_URL: "{{ authelia_links.url }}/api/oidc/authorization"
+      GF_AUTH_GENERIC_OAUTH_TOKEN_URL: "{{ authelia_links.url }}/api/oidc/token"
+      GF_AUTH_GENERIC_OAUTH_API_URL: "{{ authelia_links.url }}/api/oidc/userinfo"
+      GF_AUTH_GENERIC_OAUTH_LOGIN_ATTRIBUTE_PATH: "preferred_username"
+      GF_AUTH_GENERIC_OAUTH_GROUPS_ATTRIBUTE_PATH: "groups"
+      GF_AUTH_GENERIC_OAUTH_NAME_ATTRIBUTE_PATH: "name"
+      GF_AUTH_GENERIC_OAUTH_USE_PKCE: "true"
+      GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH: "contains(groups[*], 'admins') && 'Admin' || 'Viewer'"
+      GF_AUTH_GENERIC_OAUTH_AUTH_STYLE: "InHeader"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     volumes:
       - ./data/grafana:/var/lib/grafana
+      - ./data/grafana/provisioning:/etc/grafana/provisioning:ro
     labels:
       traefik.enable: "true"
       traefik.http.routers.grafana.entrypoints: "https"
       traefik.http.routers.grafana.rule: "{{ grafana.host }}"
       traefik.http.routers.grafana.tls: "true"
+      traefik.http.routers.grafana.middlewares: "chain-no-auth@file"
       traefik.http.services.grafana.loadbalancer.server.port: "{{ grafana.port }}"

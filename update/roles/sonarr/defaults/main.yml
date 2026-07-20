@@ -1,0 +1,30 @@
+---
+user:
+  name: "deploy"
+  group: "docker"
+
+puid: "1000"
+pgid: "1000"
+
+tv_drive: "/mnt/tv"
+download_drive: "/mnt/downloads"
+
+postgres:
+  ip: "192.0.2.10"
+  port: 5432
+  user: "mediauser"
+  password: "changeme"
+
+sonarr:
+  api_key: "changeme"
+  port: "8989"
+  host: "Host(`sonarr.example.com`)"
+  url: "https://sonarr.example.com"
+
+# Sibling services sonarr connects to (media server + download client).
+jellyfin:
+  api_key: "changeme"
+
+transmission:
+  user: "changeme"
+  password: "changeme"

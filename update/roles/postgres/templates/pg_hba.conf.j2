@@ -1,0 +1,15 @@
+# TYPE  DATABASE  USER  ADDRESS              METHOD
+local   all       all                         trust
+host    all       all   127.0.0.1/32          scram-sha-256
+# pgAdmin is the only client without a client certificate (CA-only trust) -
+# TLS + password. It reaches postgres via the host IP, so its connections
+# hairpin through the docker gateway NAT as well as its own static IP.
+hostssl all       all   {{ pgadmin.static }}/32   scram-sha-256
+hostssl all       all   {{ docker.gateway }}/32   scram-sha-256
+# Everything else: SSL + client certificate required. pg_hba is first-match-
+# wins top to bottom, so these broad lines must stay BELOW the pgAdmin
+# exceptions and no broad password line may sit above them.
+{% for ip in private_ips %}
+hostssl all       all   {{ ip }}              cert clientcert=verify-full
+{% endfor %}
+hostssl all       all   {{ docker.subnet }}   cert clientcert=verify-full

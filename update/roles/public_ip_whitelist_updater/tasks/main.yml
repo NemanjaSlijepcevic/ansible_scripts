@@ -12,14 +12,26 @@
     path: ./data/public_ip_whitelist_updater/app.log
   register: file_check
 
+# Container runs as root, so it writes regardless of owner; 0640 keeps the log
+# non-world-readable/writable (it is not an executable, 0755 was needless).
 - name: Touch app.log file
   ansible.builtin.file:
     path: ./data/public_ip_whitelist_updater/app.log
     state: touch
-    mode: "0755"
+    mode: "0640"
     owner: "{{ user.name }}"
     group: "{{ user.group }}"
   when: not file_check.stat.exists
+
+# Enforce ownership/mode every run (idempotent) so an existing app.log is
+# corrected on redeploy rather than keeping stale looser permissions.
+- name: Enforce app.log ownership and permissions
+  ansible.builtin.file:
+    path: ./data/public_ip_whitelist_updater/app.log
+    state: file
+    mode: "0640"
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
 
 - name: Run Docker container from built image
   community.docker.docker_container:
@@ -29,7 +41,6 @@
     pull: true
     networks:
       - name: proxy
-        ipv4_address: "{{ public_ip_whitelist_updater.static }}"
     dns_servers:
       - "{{ default.dns }}"
     env:
@@ -50,4 +61,3 @@
     mode: "0644"
   vars:
     log_path: "{{ ansible_env.PWD }}/data/public_ip_whitelist_updater/app.log"
-    log_permissions: "0755"

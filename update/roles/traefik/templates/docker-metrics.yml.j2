@@ -1,12 +1,11 @@
 http:
- #region routers
   routers:
     docker-metrics:
       entryPoints:
         - "https"
       rule: "{{ node.docker.host }}"
       middlewares:
-        - basic-auth
+        - chain-basic-auth
       tls: {}
       service: docker-metrics
   services:     

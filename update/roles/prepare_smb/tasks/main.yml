@@ -1,0 +1,73 @@
+- name: Install Samba packages
+  ansible.builtin.apt:
+    name:
+      - samba
+      - samba-common
+      - smbclient
+    state: present
+    update_cache: true
+
+- name: Ensure Samba service is enabled
+  ansible.builtin.systemd:
+    name: smbd
+    enabled: true
+    state: started
+
+- name: Check system users
+  ansible.builtin.command: getent passwd "{{ item.user }}"
+  loop: "{{ samba.users }}"
+  loop_control:
+    index_var: samba_user_index
+  register: system_user_check
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: Create system users
+  ansible.builtin.user:
+    name: "{{ item.user }}"
+    groups: "{{ item.groups | default('') }}"
+    shell: /usr/sbin/nologin
+    create_home: false
+  loop: "{{ samba.users }}"
+  loop_control:
+    index_var: samba_user_index
+  when: system_user_check.results[samba_user_index].rc != 0
+  no_log: true
+
+- name: Check Samba users
+  ansible.builtin.command: pdbedit -L "{{ item.user }}"
+  loop: "{{ samba.users }}"
+  loop_control:
+    index_var: samba_user_index
+  register: samba_user_check
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: Create Samba users
+  ansible.builtin.command: smbpasswd -s -a "{{ item.user }}"
+  loop: "{{ samba.users }}"
+  loop_control:
+    index_var: samba_user_index
+  when: samba_user_check.results[samba_user_index].rc != 0
+  changed_when: true
+  args:
+    stdin: "{{ item.password }}\n{{ item.password }}\n"
+  no_log: true
+
+- name: Ensure Samba shares directories exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    mode: "0755"
+  loop: "{{ samba.shares }}"
+
+- name: Deploy smb.conf
+  ansible.builtin.template:
+    src: smb.conf.j2
+    dest: /etc/samba/smb.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart Samba

@@ -1,0 +1,8 @@
+---
+# Documentation-only defaults for the protect_ssh role.
+# Copy the shape into group_vars/host_vars and replace with real values,
+# then keep the real inventory encrypted. Values below are placeholders.
+
+# SSH daemon listen port rendered into the sshd drop-in config.
+# Falls back to 22 in the template if unset.
+sshd_port: 22

@@ -1,0 +1,21 @@
+---
+user:
+  name: "deploy"
+  group: "docker"
+
+puid: "1000"
+pgid: "1000"
+
+music_drive: "/mnt/music"
+data_drive: "/mnt/data"
+movie_drive: "/mnt/movies"
+tv_drive: "/mnt/tv"
+
+jellyfin:
+  url: "https://jellyfin.example.com"
+  host: "Host(`jellyfin.example.com`)"
+  port: "8096"
+
+# Authelia OIDC endpoint used for SSO login.
+authelia_links:
+  url: "https://auth.example.com"

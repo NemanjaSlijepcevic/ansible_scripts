@@ -1,0 +1,86 @@
+---
+- name: Create grafana directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ puid }}"
+    group: "{{ pgid }}"
+    mode: "0755"
+  loop:
+    - "./data/grafana"
+    - "./data/grafana/lib"
+    - "./data/grafana/provisioning"
+    - "./data/grafana/provisioning/datasources"
+    - "./data/grafana/provisioning/dashboards"
+    - "./data/grafana/provisioning/dashboards/json"
+    - "./data/grafana/provisioning/alerting"
+
+- name: Render datasources provisioning
+  ansible.builtin.template:
+    src: provisioning/datasources/datasources.yaml.j2
+    dest: ./data/grafana/provisioning/datasources/datasources.yaml
+    owner: "{{ puid }}"
+    group: "{{ pgid }}"
+    mode: "0644"
+  register: grafana_datasources
+
+- name: Render dashboards provider
+  ansible.builtin.template:
+    src: provisioning/dashboards/dashboards.yaml.j2
+    dest: ./data/grafana/provisioning/dashboards/dashboards.yaml
+    owner: "{{ puid }}"
+    group: "{{ pgid }}"
+    mode: "0644"
+  register: grafana_dashboards_provider
+
+- name: Sync dashboard JSON files with UID substitution
+  ansible.builtin.copy:
+    content: >-
+      {{ lookup('ansible.builtin.file', item)
+         | replace('__INFLUXDB_UID__', 'influxdb')
+         | replace('__INFLUXDB_PROXMOX_UID__', 'influxdb-proxmox')
+         | replace('__INFLUXDB_PFSENSE_UID__', 'influxdb-pfsense')
+         | replace('__LOKI_UID__', 'loki') }}
+    dest: "./data/grafana/provisioning/dashboards/json/{{ item | basename }}"
+    owner: "{{ puid }}"
+    group: "{{ pgid }}"
+    mode: "0644"
+  loop: "{{ query('ansible.builtin.fileglob', role_path + '/files/*.json') }}"
+  register: grafana_dashboards_json
+
+- name: Render alerting contact points
+  ansible.builtin.template:
+    src: provisioning/alerting/contact-points.yaml.j2
+    dest: ./data/grafana/provisioning/alerting/contact-points.yaml
+    owner: "{{ puid }}"
+    group: "{{ pgid }}"
+    mode: "0644"
+  register: grafana_contact_points
+
+- name: Render alerting policies
+  ansible.builtin.template:
+    src: provisioning/alerting/policies.yaml.j2
+    dest: ./data/grafana/provisioning/alerting/policies.yaml
+    owner: "{{ puid }}"
+    group: "{{ pgid }}"
+    mode: "0644"
+  register: grafana_policies
+
+- name: Render alerting rules
+  ansible.builtin.template:
+    src: provisioning/alerting/rules.yaml.j2
+    dest: ./data/grafana/provisioning/alerting/rules.yaml
+    owner: "{{ puid }}"
+    group: "{{ pgid }}"
+    mode: "0644"
+  register: grafana_rules
+
+- name: Aggregate provisioning change state
+  ansible.builtin.set_fact:
+    grafana_provisioning_changed: >-
+      {{ grafana_datasources.changed
+         or grafana_dashboards_provider.changed
+         or (grafana_dashboards_json.results | selectattr('changed', 'equalto', true) | list | length > 0)
+         or grafana_contact_points.changed
+         or grafana_policies.changed
+         or grafana_rules.changed }}

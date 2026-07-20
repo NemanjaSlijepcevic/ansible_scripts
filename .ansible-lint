@@ -3,5 +3,7 @@ exclude_paths:
   - client/inventories/production/host_vars
   - update/inventories/production/group_vars
   - update/inventories/production/host_vars
+  # Home Assistant data file synced verbatim to HA — not Ansible YAML.
+  - update/roles/homeassistant/files/automations.yaml
 skip_list:
   - var-naming[no-role-prefix]

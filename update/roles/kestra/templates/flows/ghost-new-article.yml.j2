@@ -1,0 +1,43 @@
+# Managed by Ansible (kestra role, templates/flows/) — UI edits to this
+# flow id are overwritten on the next playbook run.
+# NOTE: square-bracket delimiters are Ansible/Jinja (rendered at deploy
+# time); curly-brace expressions are Kestra's own and reach the server
+# untouched.
+#
+# Wire-up in Ghost admin (manual, one-time): Settings → Integrations →
+# Add custom integration → Add webhook, event "Post published", target:
+#   https://<kestra-domain>/api/v1/main/executions/webhook/automation/ghost-new-article/<ghost_webhook_key>
+# Ghost POSTs { post: { current: {...} } } on publish; the key in the URL
+# is the only auth (the path bypasses Authelia), so treat it as a secret.
+id: ghost-new-article
+namespace: automation
+description: Mail subscribers when a new article is published in Ghost.
+
+variables:
+  # Maintained in host_vars (kestra.ghost_subscribers); redeploy to change.
+  subscribers: "[[ kestra.ghost_subscribers | join(',') ]]"
+
+triggers:
+  - id: ghost_post_published
+    type: io.kestra.plugin.core.trigger.Webhook
+    key: "[[ kestra.ghost_webhook_key ]]"
+
+tasks:
+  # Subscribers go in bcc so recipients never see each other's addresses;
+  # SMTP creds are the same Gmail account Authelia's notifier uses,
+  # injected as Kestra secrets by the container env.
+  - id: notify_subscribers
+    type: io.kestra.plugin.notifications.mail.MailSend
+    host: smtp.gmail.com
+    port: 465
+    transportStrategy: SMTPS
+    username: "{{ secret('SMTP_USERNAME') }}"
+    password: "{{ secret('SMTP_PASSWORD') }}"
+    from: "{{ secret('SMTP_USERNAME') }}"
+    to: "{{ secret('SMTP_USERNAME') }}"
+    bcc: "{{ vars.subscribers }}"
+    subject: "New article: {{ trigger.body.post.current.title }}"
+    htmlTextContent: |
+      <h2>{{ trigger.body.post.current.title }}</h2>
+      <p>{{ trigger.body.post.current.custom_excerpt ?? trigger.body.post.current.excerpt ?? '' }}</p>
+      <p><a href="{{ trigger.body.post.current.url }}">Read the full article</a></p>

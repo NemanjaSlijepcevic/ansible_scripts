@@ -13,16 +13,28 @@
   vars:
     packages:
       - sudo
+      - acl
       - apt-transport-https
+      - bat
+      - btop
       - ca-certificates
       - curl
-      - software-properties-common
+      - fd-find
+      - git
       - gnupg
-      - wget
-      - nano
       - iputils-ping
+      - jq
+      - logrotate
+      - mc
+      - nano
+      - ncdu
+      - ripgrep
       - ufw
       - unattended-upgrades
+      - wget
+
+- name: Install eza
+  ansible.builtin.include_tasks: install_eza.yml
 
 - name: Configure automatic upgrades
   ansible.builtin.copy:

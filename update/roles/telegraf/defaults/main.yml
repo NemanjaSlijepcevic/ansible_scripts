@@ -1,0 +1,36 @@
+---
+user:
+  name: "deploy"
+  group: "docker"
+
+pgid: "1000"
+
+telegraf:
+  static: "172.20.0.70"
+  # Optional HTTP uptime checks scraped by telegraf.
+  http_checks:
+    - name: "example-service"
+      internal_url: "http://example:8080/health"
+      url: "https://service.example.com"
+
+# Per-device disk IO. On LXC guests the container sees the Proxmox host's
+# disks (from /proc/diskstats) but has no /dev nodes → a warning per device
+# and no useful metric. Default OFF; enable only on hosts with real block
+# devices (currently just primary_nas). Two knobs:
+#   telegraf_diskio_enabled: true    → turn the plugin on for this host
+#   telegraf_diskio_devices: [...]   → allow-list the guest's real devices
+#                                       (e.g. ["sda","sdb"]) to drop host-disk
+#                                       noise; empty = collect all
+telegraf_diskio_enabled: false
+telegraf_diskio_devices: []
+
+# Gather/flush interval. Raise (e.g. "30s") on hosts where docker runs on
+# fuse-overlayfs — telegraf's per-gather file access is amplified through
+# FUSE and pins the fuse-overlayfs process's CPU at the default 10s.
+telegraf_agent_interval: "10s"
+
+# Postgres instance telegraf collects metrics from.
+postgres:
+  port: 5432
+  adm_user: "postgres"
+  adm_pass: "changeme"

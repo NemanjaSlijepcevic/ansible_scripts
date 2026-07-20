@@ -1,0 +1,51 @@
+---
+- name: Get existing download clients
+  ansible.builtin.uri:
+    url: "{{ radarr.url }}/api/v3/downloadclient"
+    method: GET
+    headers:
+      X-Api-Key: "{{ radarr.api_key }}"
+    return_content: true
+  register: existing_download_clients
+
+- name: Add Transmission download client
+  ansible.builtin.uri:
+    url: "{{ radarr.url }}/api/v3/downloadclient"
+    method: POST
+    headers:
+      X-Api-Key: "{{ radarr.api_key }}"
+    body_format: json
+    body:
+      name: "Transmission"
+      implementation: "Transmission"
+      configContract: "TransmissionSettings"
+      protocol: "torrent"
+      priority: 1
+      enable: true
+      fields:
+        - name: host
+          value: "transmission"
+        - name: port
+          value: 9091
+        - name: useSsl
+          value: false
+        - name: username
+          value: "{{ transmission.user }}"
+        - name: password
+          value: "{{ transmission.password }}"
+        - name: movieCategory
+          value: "radarr"
+        - name: recentMoviePriority
+          value: 0
+    status_code: 201
+  when: "existing_download_clients.json | selectattr('name', 'equalto', 'Transmission') | list | length == 0"
+
+- name: Verify Transmission download client exists
+  ansible.builtin.uri:
+    url: "{{ radarr.url }}/api/v3/downloadclient"
+    method: GET
+    headers:
+      X-Api-Key: "{{ radarr.api_key }}"
+    return_content: true
+  register: verify_download_clients
+  failed_when: "verify_download_clients.json | selectattr('name', 'equalto', 'Transmission') | list | length == 0"

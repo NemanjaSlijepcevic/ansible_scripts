@@ -1,0 +1,14 @@
+---
+crowdsec:
+  static: "172.20.0.3"
+
+# NOTE: CrowdSec runs on its bundled SQLite (USE_WAL), not Postgres — the
+# image ignores DB_BACKEND/POSTGRES_* env, so there are no DB vars here.
+
+node:
+  crowdsec:
+    host: "Host(`node-cs.example.com`)"
+    port: "6060"
+
+user:
+  gid: "1000"

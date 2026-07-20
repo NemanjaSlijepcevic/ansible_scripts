@@ -1,0 +1,89 @@
+---
+- name: Manage PostgreSQL role, database, and privileges
+  module_defaults:
+    community.postgresql.postgresql_user:
+      login_user: "{{ admin_user }}"
+      login_password: "{{ admin_password }}"
+      login_host: "{{ admin_host | default('localhost') }}"
+      login_port: "{{ admin_port | default(5432) }}"
+    community.postgresql.postgresql_db:
+      login_user: "{{ admin_user }}"
+      login_password: "{{ admin_password }}"
+      login_host: "{{ admin_host | default('localhost') }}"
+      login_port: "{{ admin_port | default(5432) }}"
+    community.postgresql.postgresql_privs:
+      login_user: "{{ admin_user }}"
+      login_password: "{{ admin_password }}"
+      login_host: "{{ admin_host | default('localhost') }}"
+      login_port: "{{ admin_port | default(5432) }}"
+  environment:
+    PGSSLMODE: "verify-ca"
+    PGSSLCERT: "./data/certs/postgres_admin.crt"
+    PGSSLKEY: "./data/certs/postgres_admin.key"
+    PGSSLROOTCERT: "./data/certs/ca.crt"
+  no_log: true
+  block:
+    - name: Create PostgreSQL user
+      community.postgresql.postgresql_user:
+        name: "{{ db_user }}"
+        password: "{{ db_pass }}"
+        role_attr_flags: "{{ 'CREATEDB,CREATEROLE' if admin_rights else omit }}"
+        state: present
+
+    - name: Create PostgreSQL database
+      community.postgresql.postgresql_db:
+        name: "{{ db_name }}"
+        owner: "{{ db_user }}"
+        state: present
+
+    - name: Grant all privileges on public schema to user
+      community.postgresql.postgresql_privs:
+        database: "{{ db_name }}"
+        type: schema
+        objs: public
+        roles: "{{ db_user }}"
+        privs: ALL
+
+    - name: Grant all privileges on existing tables in public schema
+      community.postgresql.postgresql_privs:
+        database: "{{ db_name }}"
+        type: table
+        schema: public
+        objs: ALL_IN_SCHEMA
+        roles: "{{ db_user }}"
+        privs: ALL
+        grant_option: true
+
+    - name: Grant all privileges on sequences in public schema
+      community.postgresql.postgresql_privs:
+        database: "{{ db_name }}"
+        type: sequence
+        schema: public
+        objs: ALL_IN_SCHEMA
+        roles: "{{ db_user }}"
+        privs: ALL
+        grant_option: true
+
+    - name: Set default privileges for future tables in public schema
+      community.postgresql.postgresql_privs:
+        database: "{{ db_name }}"
+        type: default_privs
+        schema: public
+        objs: tables
+        roles: "{{ db_user }}"
+        target_roles: "{{ db_user }}"
+        privs: ALL
+        grant_option: true
+        state: present
+
+    - name: Set default privileges for future sequences in public schema
+      community.postgresql.postgresql_privs:
+        database: "{{ db_name }}"
+        type: default_privs
+        schema: public
+        objs: sequences
+        roles: "{{ db_user }}"
+        target_roles: "{{ db_user }}"
+        privs: ALL
+        grant_option: true
+        state: present

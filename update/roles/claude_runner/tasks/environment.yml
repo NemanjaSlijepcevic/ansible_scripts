@@ -1,0 +1,37 @@
+---
+- name: Create directories if they don't exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ claude_runner.uid }}"
+    group: "{{ user.group }}"
+    mode: "0755"
+  loop:
+    - "./data/claude-runner"
+    - "./data/claude-runner/home"
+    - "./data/claude-runner/workspace"
+
+- name: Create build directory
+  ansible.builtin.file:
+    path: "./data/claude-runner/build"
+    state: directory
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0755"
+
+- name: Copy Dockerfile
+  ansible.builtin.copy:
+    src: Dockerfile
+    dest: ./data/claude-runner/build/Dockerfile
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0644"
+  register: claude_runner_dockerfile
+
+- name: Create sandbox network
+  community.docker.docker_network:
+    name: "{{ claude_runner.network }}"
+    driver: bridge
+    ipam_config:
+      - subnet: "{{ claude_runner.subnet }}"
+        gateway: "{{ claude_runner.gateway }}"

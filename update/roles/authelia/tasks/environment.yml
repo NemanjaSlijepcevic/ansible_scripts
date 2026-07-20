@@ -9,36 +9,49 @@
   loop:
     - "./data/authelia"
     - "./data/authelia/config"
+    - "./data/authelia/logs"
 
-- name: Check if db.sqlite3 file exists
+- name: Check OIDC JWK private key
   ansible.builtin.stat:
-    path: ./data/authelia/config/db.sqlite3
-  register: file_stat
+    path: ./data/authelia/config/authelia_oidc_jwk
+  register: authelia_oidc_jwk_stat
 
-- name: "Copy SQLite database file"
-  ansible.builtin.copy:
-    src: ./db.sqlite3
-    dest: ./data/authelia/config/db.sqlite3
-    owner: "{{ user.name }}"
-    group: "{{ user.group }}"
-    mode: "0755"
-  when: not file_stat.stat.exists
+- name: Generate OIDC JWK RSA private key
+  ansible.builtin.command:
+    cmd: openssl genrsa -out ./data/authelia/config/authelia_oidc_jwk 4096
+    creates: ./data/authelia/config/authelia_oidc_jwk
+  when: not authelia_oidc_jwk_stat.stat.exists
 
+- name: Set permissions for OIDC JWK private key
+  ansible.builtin.file:
+    path: ./data/authelia/config/authelia_oidc_jwk
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Read OIDC JWK private key content
+  ansible.builtin.slurp:
+    src: "{{ ansible_env.PWD }}/data/authelia/config/authelia_oidc_jwk"
+  register: authelia_oidc_jwk_content
+
+# users_database.yml holds the password hash and configuration.yml embeds the
+# plaintext OIDC signing key — same sensitivity as the secret files below.
 - name: "Generate user database file"
   ansible.builtin.template:
     src: ./users_database.yml.j2
     dest: ./data/authelia/config/users_database.yml
-    owner: "{{ user.name }}"
-    group: "{{ user.group }}"
-    mode: '0755'
+    owner: root
+    group: root
+    mode: '0600'
 
 - name: "Generate configuration File"
   ansible.builtin.template:
     src: configuration-{{ current_host }}.yml.j2
     dest: ./data/authelia/config/configuration.yml
-    owner: "{{ user.name }}"
-    group: "{{ user.group }}"
-    mode: '0755'
+    owner: root
+    group: root
+    mode: '0600'
+  notify: Restart Authelia
 
 - name: "Generate secret files"
   ansible.builtin.template:
@@ -53,3 +66,14 @@
     - authelia_session_secret
     - authelia_smtp_password
     - authelia_storage_encryption_key
+
+- name: Create logrotate config for authelia
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/templates/logrotate.j2"
+    dest: "/etc/logrotate.d/authelia"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+  vars:
+    log_path: "{{ ansible_env.PWD }}/data/authelia/logs/authelia.log"
+    copytruncate: true

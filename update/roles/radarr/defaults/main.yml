@@ -1,0 +1,30 @@
+---
+user:
+  name: "deploy"
+  group: "docker"
+
+puid: "1000"
+pgid: "1000"
+
+movie_drive: "/mnt/movies"
+download_drive: "/mnt/downloads"
+
+postgres:
+  ip: "192.0.2.10"
+  port: 5432
+  user: "mediauser"
+  password: "changeme"
+
+radarr:
+  api_key: "changeme"
+  port: "7878"
+  host: "Host(`radarr.example.com`)"
+  url: "https://radarr.example.com"
+
+# Sibling services radarr connects to (media server + download client).
+jellyfin:
+  api_key: "changeme"
+
+transmission:
+  user: "changeme"
+  password: "changeme"

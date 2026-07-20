@@ -1,0 +1,86 @@
+# Managed by Ansible (kestra role, templates/flows/) — UI edits to this
+# flow id are overwritten on the next playbook run.
+# NOTE: square-bracket delimiters are Ansible/Jinja (rendered at deploy
+# time); curly-brace expressions are Kestra's own and reach the server
+# untouched.
+#
+# automation.yml is deliberately NOT in the default playbook list
+# (kestra.update_playbooks): it can recreate the kestra container itself
+# (pull: true → new image → recreate), killing the execution that is
+# orchestrating it. Update this host via the manual ansible-deploy flow
+# or from a workstation.
+id: ansible-update-all
+namespace: automation
+description: Scheduled run of every update/ playbook in the ansible-runner sandbox.
+
+# Also invoked by ansible-on-merge; never let two update runs hit the
+# same hosts at once — a second execution queues behind the first.
+concurrency:
+  limit: 1
+  behavior: QUEUE
+
+inputs:
+  # Scheduled runs use the default (real run); manual executions can
+  # flip this for a dry run.
+  - id: check_mode
+    type: BOOLEAN
+    defaults: false
+    description: "Dry run (ansible-playbook --check)"
+
+triggers:
+  - id: schedule
+    type: io.kestra.plugin.core.trigger.Schedule
+    cron: "[[ kestra.update_schedule ]]"
+
+tasks:
+  # safe.directory: the runner executes as root but the workspace is owned
+  # by the sandbox uid.
+  - id: sync_repo
+    type: io.kestra.plugin.scripts.shell.Commands
+    containerImage: [[ ansible_runner.image ]]
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      networkMode: [[ claude_runner.network ]]
+      volumes:
+        - "[[ ansible_env.PWD ]]/data/ansible-runner/workspace:/workspace"
+    commands:
+      - git config --global --add safe.directory /workspace/ansible_scripts
+      - git -C /workspace/ansible_scripts pull --ff-only
+
+  # allowFailure: one host failing must not block updates for the rest;
+  # the execution ends in WARNING instead — check the UI / failure mail.
+  - id: update_hosts
+    type: io.kestra.plugin.core.flow.ForEach
+    values: [[ kestra.update_playbooks | to_json ]]
+    concurrencyLimit: 1
+    tasks:
+      - id: run_playbook
+        type: io.kestra.plugin.ansible.cli.AnsibleCLI
+        allowFailure: true
+        containerImage: [[ ansible_runner.image ]]
+        taskRunner:
+          type: io.kestra.plugin.scripts.runner.docker.Docker
+          networkMode: [[ claude_runner.network ]]
+          volumes:
+            - "[[ ansible_env.PWD ]]/data/ansible-runner/workspace:/workspace"
+            - "[[ ansible_env.PWD ]]/data/ansible-runner/secrets/[[ user.private_key_path | basename ]]:[[ user.private_key_path ]]:ro"
+            - "[[ ansible_env.PWD ]]/data/ansible-runner/secrets/pass.file:/secrets/pass.file:ro"
+        commands:
+          - "cd /workspace/ansible_scripts/update && ansible-playbook {{ taskrun.value }} --vault-password-file /secrets/pass.file {{ inputs.check_mode ? '--check' : '' }}"
+
+# Fires only on hard failure (e.g. the repo sync breaks) — per-playbook
+# failures are downgraded to WARNING by allowFailure above.
+errors:
+  - id: mail_failure
+    type: io.kestra.plugin.notifications.mail.MailSend
+    host: smtp.gmail.com
+    port: 465
+    transportStrategy: SMTPS
+    username: "{{ secret('SMTP_USERNAME') }}"
+    password: "{{ secret('SMTP_PASSWORD') }}"
+    from: "{{ secret('SMTP_USERNAME') }}"
+    to: "{{ secret('SMTP_USERNAME') }}"
+    subject: "kestra: ansible-update-all FAILED ({{ execution.id }})"
+    htmlTextContent: |
+      <p>Scheduled infrastructure update failed.</p>
+      <p>Execution: <a href="[[ kestra.url ]]/ui/executions/automation/ansible-update-all/{{ execution.id }}">{{ execution.id }}</a></p>

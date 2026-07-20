@@ -1,0 +1,22 @@
+---
+user:
+  name: "deploy"
+  group: "docker"
+
+puid: "1000"
+pgid: "1000"
+
+filebrowser_base_volumes:
+  - ./data/filebrowser/config:/config
+  - ./data/filebrowser/database.db:/database/filebrowser.db
+
+# extra host drives exposed under /srv (host_vars, optional), e.g.
+#   - "/mnt/<drive>:/srv/<drive>"
+access_drives: []
+
+filebrowser:
+  static: "172.20.0.100"
+  host: "Host(`files.example.com`)"
+  port: "80"
+  username: "admin"
+  password: "changeme"

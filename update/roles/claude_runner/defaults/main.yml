@@ -1,0 +1,17 @@
+---
+user:
+  name: "deploy"
+  group: "docker"
+
+# Sandbox image + runtime limits Kestra applies when spawning task
+# containers. uid = in-container runner user (the "node" uid); owns the
+# shared home/workspace volumes.
+claude_runner:
+  image: "claude-runner:latest"
+  network: "sandbox"
+  subnet: "172.20.1.0/24"
+  gateway: "172.20.1.1"
+  memory: "2g"
+  cpus: "1.5"
+  pids_limit: "512"
+  uid: "1000"

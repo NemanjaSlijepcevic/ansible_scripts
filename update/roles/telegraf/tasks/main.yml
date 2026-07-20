@@ -1,10 +1,46 @@
-- name: Create directory if they don't exist
+- name: Create directories if they don't exist
   ansible.builtin.file:
-    path: "./data/telegraf"
+    path: "{{ item }}"
     state: directory
     owner: "{{ user.name }}"
     group: "{{ user.group }}"
     mode: "0755"
+  loop:
+    - "./data/telegraf"
+    - "./data/telegraf/scripts"
+
+- name: Deploy docker-images helper script
+  ansible.builtin.copy:
+    src: docker-images.sh
+    dest: ./data/telegraf/scripts/docker-images.sh
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0755"
+
+- name: Set telegraf volumes
+  ansible.builtin.set_fact:
+    telegraf_volumes:
+      - /:/hostfs:ro
+      - /etc:/hostfs/etc:ro
+      - /proc:/hostfs/proc:ro
+      - /sys:/hostfs/sys:ro
+      - /var/run/utmp:/var/run/utmp:ro
+      - ./data/telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
+      - ./data/telegraf/scripts:/etc/telegraf/scripts:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+- name: Add postgres cert volume
+  ansible.builtin.set_fact:
+    telegraf_volumes: "{{ telegraf_volumes + ['./data/certs:/postgres-certs:ro'] }}"
+  when: current_host == 'postgres'
+
+- name: Get docker socket GID
+  ansible.builtin.stat:
+    path: /var/run/docker.sock
+  register: docker_sock
+
+- name: Create InfluxDB bucket
+  ansible.builtin.include_tasks: influxdb.yml
 
 - name: "Generate config"
   ansible.builtin.template:
@@ -13,31 +49,32 @@
     owner: "{{ user.name }}"
     group: "{{ user.group }}"
     mode: '0755'
+  notify: restart telegraf
 
 - name: Deploy container
   community.docker.docker_container:
     name: telegraf
     image: telegraf:latest
     restart_policy: unless-stopped
-    user: telegraf:{{ pgid }}
-    groups:
-      - "video"
+    user: "telegraf:{{ docker_sock.stat.gid }}"
     # recreate: yes
     networks:
       - name: proxy
     env:
       TZ: "Europe/Belgrade"
+      # fuse-overlayfs hosts: /system/df triggers a runaway layer walk in
+      # dockerd (see docker-images.sh) — emit reclaimable_bytes=0 instead.
+      SKIP_SYSTEM_DF: "{{ 'true' if docker_storage_driver | default('') == 'fuse-overlayfs' else 'false' }}"
       HOST_ETC: "/hostfs/etc"
       HOST_PROC: "/hostfs/proc"
       HOST_SYS: "/hostfs/sys"
       HOST_VAR: "/hostfs/var"
       HOST_RUN: "/hostfs/run"
       HOST_MOUNT_PREFIX: "/hostfs"
-    volumes:
-      - /:/hostfs:ro
-      - /etc:/hostfs/etc:ro
-      - /proc:/hostfs/proc:ro
-      - /sys:/hostfs/sys:ro
-      - /var/run/utmp:/var/run/utmp:ro
-      - './data/telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro'
-      - '/var/run/docker.sock:/var/run/docker.sock:ro'
+    healthcheck:
+      test: ["CMD", "telegraf", "--version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    volumes: "{{ telegraf_volumes }}"

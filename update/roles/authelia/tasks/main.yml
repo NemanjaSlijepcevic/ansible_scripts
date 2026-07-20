@@ -3,23 +3,17 @@
   ansible.builtin.include_tasks: environment.yml
 
 - name: Create container
-  community.docker.docker_container:
-    name: authelia
-    image: authelia/authelia:latest
-    pull: true
-    # recreate: yes
-    restart_policy: unless-stopped
-    networks:
-      - name: proxy
-        ipv4_address: "{{ authelia_links.static }}"
-    volumes:
-      - ./data/authelia/config:/config
-      - ./data/authelia/logs:/var/log/
-    env:
+  vars:
+    authelia_has_oidc: "{{ (immich is defined) or (seerr is defined) or (grafana is defined) or (jellyfin is defined) or (pgadmin is defined) }}"
+    authelia_oidc_env: "{{ {'AUTHELIA_IDENTITY_PROVIDERS_OIDC_HMAC_SECRET_FILE': '/config/authelia_hmac'} if (authelia_has_oidc | bool) else {} }}"
+    authelia_base_env:
       TZ: "Europe/Belgrade"
+      # Enables go-template filters in configuration.yml — needed to load
+      # the postgres client cert/key content (see storage_tls.yml.j2).
+      X_AUTHELIA_CONFIG_FILTERS: "template"
       AUTHELIA_SERVER_ADDRESS: "tcp://0.0.0.0:9091/"
       AUTHELIA_THEME: dark
-      AUTHELIA_LOG_LEVEL: debug
+      AUTHELIA_LOG_LEVEL: "{{ authelia_log_level | default('info') }}"
       AUTHELIA_LOG_FORMAT: json
       AUTHELIA_LOG_FILE_PATH: "/var/log/authelia.log"
       AUTHELIA_LOG_KEEP_STDOUT: "true"
@@ -34,20 +28,39 @@
       AUTHELIA_REGULATION_MAX_RETRIES: "3"
       AUTHELIA_REGULATION_FIND_TIME: "120"
       AUTHELIA_REGULATION_BAN_TIME: "300"
-      AUTHELIA_STORAGE_LOCAL_PATH: /config/db.sqlite3
+      AUTHELIA_STORAGE_POSTGRES_ADDRESS: "tcp://{{ postgres.ip }}:{{ postgres.port }}"
+      AUTHELIA_STORAGE_POSTGRES_DATABASE: authelia
+      AUTHELIA_STORAGE_POSTGRES_SCHEMA: public
+      AUTHELIA_STORAGE_POSTGRES_USERNAME: "{{ authelia_db.user }}"
+      AUTHELIA_STORAGE_POSTGRES_PASSWORD: "{{ authelia_db.password }}"
+      AUTHELIA_STORAGE_POSTGRES_TLS_SERVER_NAME: "{{ postgres.ip }}"
+      AUTHELIA_STORAGE_POSTGRES_TLS_SKIP_VERIFY: "false"
+      AUTHELIA_CERTIFICATES_DIRECTORY: /postgres-certs
       AUTHELIA_STORAGE_ENCRYPTION_KEY_FILE: "/config/authelia_storage_encryption_key"
       AUTHELIA_NOTIFIER_SMTP_ADDRESS: "submissions://smtp.gmail.com:465"
       AUTHELIA_NOTIFIER_SMTP_USERNAME: "{{ authelia.mail.user }}"
       AUTHELIA_NOTIFIER_SMTP_SENDER: "{{ authelia.mail.user }}"
       AUTHELIA_NOTIFIER_SMTP_PASSWORD_FILE: "/config/authelia_smtp_password"
-
+  community.docker.docker_container:
+    name: authelia
+    image: authelia/authelia:latest
+    pull: true
+    # recreate: true
+    restart_policy: unless-stopped
+    networks:
+      - name: proxy
+    volumes:
+      - ./data/authelia/config:/config
+      - ./data/authelia/logs:/var/log/
+      - ./data/certs:/postgres-certs:ro
+    env: "{{ authelia_base_env | combine(authelia_oidc_env) }}"
     labels: >
       {
         "traefik.enable": "true",
         "traefik.http.routers.authelia.entrypoints": "https",
         "traefik.http.routers.authelia.rule": "{{ authelia_links.host }}",
         "traefik.http.routers.authelia.tls": "true",
-        "traefik.http.routers.middlewares": "chain-no-auth@file",
+        "traefik.http.routers.authelia.middlewares": "chain-no-auth@file",
         {% if 'server' == current_host %}
         "traefik.http.routers.authelia-2.rule": "{{ authelia_links.host_2 }}",
         "traefik.http.routers.authelia-2.tls": "true",
@@ -59,14 +72,10 @@
         "traefik.http.routers.authelia-3.entryPoints": "https",
         {% endif %}
       }
-
-- name: Create logrotate config for authelia
-  ansible.builtin.template:
-    src: "{{ playbook_dir }}/templates/logrotate.j2"
-    dest: "/etc/logrotate.d/authelia"
-    owner: "root"
-    group: "root"
-    mode: "0644"
-  vars:
-    log_path: "{{ ansible_env.PWD }}/data/authelia/logs/authelia.log"
-    log_permissions: 644
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --spider http://localhost:9091/api/health || exit 1"]
+      interval: 1m30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+      start_interval: 10s

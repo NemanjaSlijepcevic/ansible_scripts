@@ -1,0 +1,39 @@
+---
+- name: Create workspace directory
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ claude_runner.uid }}"
+    group: "{{ user.group }}"
+    mode: "0755"
+  loop:
+    - "./data/ansible-runner"
+    - "./data/ansible-runner/workspace"
+
+# Holds the deploy SSH private key and the vault pass.file — copied in
+# MANUALLY (scp), never by Ansible and never through git. Root-only: the
+# runner mounts individual files read-only at run time.
+- name: Create secrets directory
+  ansible.builtin.file:
+    path: "./data/ansible-runner/secrets"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Create build directory
+  ansible.builtin.file:
+    path: "./data/ansible-runner/build"
+    state: directory
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0755"
+
+- name: Copy Dockerfile
+  ansible.builtin.copy:
+    src: Dockerfile
+    dest: ./data/ansible-runner/build/Dockerfile
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0644"
+  register: ansible_runner_dockerfile

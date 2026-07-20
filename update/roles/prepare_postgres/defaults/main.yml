@@ -1,0 +1,10 @@
+---
+postgres:
+  adm_user: "postgres"
+  adm_pass: "changeme"
+  ip: "192.0.2.10"
+  port: 5432
+
+authelia_db:
+  user: "authelia"
+  password: "changeme"

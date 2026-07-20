@@ -1,0 +1,13 @@
+{{ log_path }} {
+    size {{ max_size | default('50M') }}
+    rotate {{ rotate_count | default(3) }}
+    compress
+    delaycompress
+    missingok
+    notifempty
+{% if copytruncate | default(false) %}
+    copytruncate
+{% else %}
+    create 0640 {{ user.name }} {{ user.group }}
+{% endif %}
+}

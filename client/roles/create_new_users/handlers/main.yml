@@ -1,0 +1,6 @@
+---
+- name: Validate sudoers
+  ansible.builtin.command: visudo -cf /etc/sudoers
+  register: sudoers_check
+  changed_when: false
+  failed_when: sudoers_check.rc != 0

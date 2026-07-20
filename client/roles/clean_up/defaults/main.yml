@@ -1,0 +1,5 @@
+---
+# Documentation-only defaults for the clean_up role.
+# This role takes NO inventory-driven variables — it runs logrotate setup,
+# apt autoclean/autoremove, and reboots only if /var/run/reboot-required exists.
+# Nothing here needs to be added to host_vars/group_vars.

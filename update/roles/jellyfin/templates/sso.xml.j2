@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PluginConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <SamlConfigs />
+  <OidConfigs>
+    <item>
+      <key>
+        <string>authelia</string>
+      </key>
+      <value>
+        <PluginConfiguration>
+          <OidEndpoint>{{ authelia_links.url }}</OidEndpoint>
+          <OidClientId>{{ authelia.oidc.jellyfin.client_id }}</OidClientId>
+          <OidSecret>{{ authelia.oidc.jellyfin.client_secret }}</OidSecret>
+          <Enabled>true</Enabled>
+          <EnableAuthorization>true</EnableAuthorization>
+          <EnableAllFolders>true</EnableAllFolders>
+          <AdminRoles>
+            <string>admins</string>
+          </AdminRoles>
+          <Roles>
+            <string>admins</string>
+            <string>dev</string>
+          </Roles>
+          <RoleClaim>groups</RoleClaim>
+          <OidScopes>
+            <string>groups</string>
+          </OidScopes>
+          <DisableHttps>false</DisableHttps>
+          <DoNotValidateEndpoints>false</DoNotValidateEndpoints>
+          <DoNotValidateIssuerName>false</DoNotValidateIssuerName>
+        </PluginConfiguration>
+      </value>
+    </item>
+  </OidConfigs>
+</PluginConfiguration>

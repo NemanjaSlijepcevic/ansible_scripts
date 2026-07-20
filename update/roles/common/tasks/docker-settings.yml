@@ -1,0 +1,56 @@
+---
+- name: Deploy Docker daemon.json configuration
+  ansible.builtin.template:
+    src: daemon.json.j2
+    dest: "/etc/docker/daemon.json"
+    owner: root
+    group: root
+    mode: '0644'
+  register: daemon_template
+  notify: Validate and Restart Docker
+
+# live-restore keeps containers up across daemon restarts (upgrades), but
+# containers that file-bind /var/run/docker.sock are left holding a dead
+# inode. This unit restarts them whenever docker.service restarts.
+# MUST be deployed + enabled BEFORE the flush_handlers restart below, or
+# the very restart that breaks the sockets happens before the unit exists
+# to catch it (telegraf/promtail then stay on a dead socket until the next
+# daemon restart).
+- name: Deploy docker-sock-rebind systemd unit
+  ansible.builtin.copy:
+    src: docker-sock-rebind.service
+    dest: /etc/systemd/system/docker-sock-rebind.service
+    owner: root
+    group: root
+    mode: '0644'
+  register: sock_rebind_unit
+
+- name: Enable docker-sock-rebind unit
+  ansible.builtin.systemd:
+    name: docker-sock-rebind.service
+    enabled: true
+    daemon_reload: "{{ sock_rebind_unit.changed }}"
+
+- name: Flush handlers to restart Docker before network creation
+  ansible.builtin.meta: flush_handlers
+
+- name: Ensure Docker is running
+  ansible.builtin.service:
+    name: docker
+    state: started
+    enabled: true
+
+- name: Wait for Docker socket
+  ansible.builtin.wait_for:
+    path: /var/run/docker.sock
+    state: present
+    timeout: 30
+
+- name: Create proxy network
+  community.docker.docker_network:
+    name: proxy
+    driver: bridge
+    ipam_config:
+      - subnet: "{{ docker.subnet }}"
+        gateway: "{{ docker.gateway }}"
+        iprange: "{{ docker.net_range }}"

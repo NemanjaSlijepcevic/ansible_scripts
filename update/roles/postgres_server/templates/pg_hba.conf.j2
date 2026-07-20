@@ -1,0 +1,10 @@
+# TYPE  DATABASE  USER  ADDRESS              METHOD
+local   all       all                         trust
+host    all       all   127.0.0.1/32          scram-sha-256
+# All docker/LAN clients: SSL + client certificate required. pg_hba is
+# first-match-wins top to bottom, so no broad password line may sit above
+# these (that would make the client-cert requirement unreachable).
+{% for ip in private_ips %}
+hostssl all       all   {{ ip }}              cert clientcert=verify-full
+{% endfor %}
+hostssl all       all   {{ docker.subnet }}   cert clientcert=verify-full

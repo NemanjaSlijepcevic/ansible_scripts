@@ -1,0 +1,68 @@
+---
+user:
+  name: "deploy"
+  group: "docker"
+
+# host_vars service block consumed by this role.
+kestra:
+  domain: "kestra.example.com"
+  host: "Host(`kestra.example.com`)"
+  url: "https://kestra.example.com"
+  port: "8080"
+  static: "172.20.0.13"
+  # AES key for SECRET inputs/outputs at rest — base64 of 32 random bytes
+  # (openssl rand -base64 32). Changing it makes stored secrets unreadable.
+  encryption_key: "changeme"
+  # Kestra OSS basic auth (its own login, behind Authelia); username must
+  # be an email address.
+  admin_user: "admin@example.com"
+  admin_password: "changeme"
+  uid: "1000"          # in-container kestra user; owns storage + pg key
+  # ghost-new-article flow: webhook key = only auth on the (Authelia-
+  # bypassed) trigger URL configured in Ghost admin; subscribers are
+  # mailed via bcc.
+  ghost_webhook_key: "changeme"
+  ghost_subscribers:
+    - "subscriber@example.com"
+  # ansible-update-all flow: cron schedule + update/ playbooks it runs
+  # sequentially (never include automation.yml — it can recreate the
+  # kestra container mid-run).
+  update_schedule: "0 5 * * 0"
+  update_playbooks:
+    - "nas.yml"
+    - "server.yml"
+  # ansible-on-merge flow: webhook key for the GitHub push hook (only
+  # auth on the Authelia-bypassed trigger URL).
+  github_webhook_key: "changeme"
+  # grafana-alert-triage flow: webhook key for Grafana's "Kestra" contact
+  # point; the grafana role's grafana_alert_webhook URL must embed the
+  # same key.
+  grafana_webhook_key: "changeme"
+
+# group_vars/all.yml service DB credentials (provisioned by prepare_postgres).
+kestra_db:
+  user: "kestra"
+  password: "changeme"
+
+# Central postgres server (host_vars); client certs land in ./data/certs
+# via update/postgres.yml (postgres_tls_clients entry "kestra").
+postgres:
+  ip: "192.0.2.10"
+  port: 5432
+
+# Telegram bot reused from log_notification (group_vars/all.yml); exposed
+# to flows as Kestra secrets TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID.
+log_notification:
+  chat_id: "changeme"
+  telegram_bot: "changeme"
+
+# Gmail account reused from the central authelia dict (group_vars/all.yml);
+# exposed to flows as Kestra secrets SMTP_USERNAME / SMTP_PASSWORD
+# (smtp.gmail.com:465, used by the ghost-new-article flow).
+authelia:
+  mail:
+    user: "changeme@example.com"
+    password: "changeme"
+
+default:
+  dns: "192.0.2.1"

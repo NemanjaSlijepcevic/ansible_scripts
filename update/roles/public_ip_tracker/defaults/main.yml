@@ -1,0 +1,19 @@
+---
+user:
+  name: "deploy"
+  group: "docker"
+
+api_ip_token: "changeme"
+
+public_ip_tracker:
+  static: "172.20.0.130"
+
+# uid/gid the image's `appuser` runs as — the app.log bind must be owned by it
+# so the container can write without a world-writable file.
+public_ip_tracker_app_uid: "1000"
+public_ip_tracker_app_gid: "1000"
+
+node:
+  ip:
+    host: "Host(`node-ip.example.com`)"
+    port: "8080"

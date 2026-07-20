@@ -1,11 +1,15 @@
 ---
-- name: Create directory if they don't exist
+- name: Create directories if they don't exist
   ansible.builtin.file:
-    path: ./data/netboot
+    path: "{{ item }}"
     state: directory
     owner: "{{ user.name }}"
     group: "{{ user.group }}"
     mode: "0755"
+  loop:
+    - ./data/netboot
+    - ./data/netboot/config
+    - ./data/netboot/assets
 
 - name: Create container
   community.docker.docker_container:
@@ -14,10 +18,8 @@
     restart_policy: unless-stopped
     networks:
       - name: proxy
-      - name: streamingMedia
-        ipv4_address: "{{ netboot.ip }}"
     env:
-      MENU_VERSION: "2.0.59"
+      TFTPD_OPTS: "--tftp-single-port"
     volumes:
       - ./data/netboot/config:/config
       - ./data/netboot/assets:/assets
@@ -26,7 +28,29 @@
       traefik.http.routers.netbootxyz.entrypoints: "https"
       traefik.http.routers.netbootxyz.rule: "{{ netboot.host }}"
       traefik.http.routers.netbootxyz.tls: "true"
+      traefik.http.routers.netbootxyz.middlewares: "chain-auth@file"
+      traefik.http.routers.netbootxyz.service: "netbootxyz"
       traefik.http.services.netbootxyz.loadbalancer.server.port: "{{ netboot.port }}"
+      traefik.http.routers.netbootxyz-assets.entrypoints: "https"
+      traefik.http.routers.netbootxyz-assets.rule: "{{ netboot.assets_host }}"
+      traefik.http.routers.netbootxyz-assets.tls: "true"
+      traefik.http.routers.netbootxyz-assets.middlewares: "chain-no-auth@file"
+      traefik.http.routers.netbootxyz-assets.service: "netbootxyz-assets"
+      traefik.http.services.netbootxyz-assets.loadbalancer.server.port: "80"
     ports:
       - "69:69/udp"
-      - "8080:80"
+    healthcheck:
+      test: curl --fail http://localhost:3000 || exit 1
+      interval: 1m30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+      start_interval: 10s
+
+- name: Wait for netboot to be ready
+  community.docker.docker_container_info:
+    name: netbootxyz
+  register: netboot_info
+  until: netboot_info.container.State.Health.Status == 'healthy'
+  retries: 12
+  delay: 10

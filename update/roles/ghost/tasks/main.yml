@@ -6,6 +6,7 @@
     loop_var: site
   vars:
     container_name: "{{ site.container_name }}"
+    db_host: "{{ site.db_host }}"
     db_user: "{{ site.db_user }}"
     db_pass: "{{ site.db_pass }}"
     db_name: "{{ site.db_name }}"

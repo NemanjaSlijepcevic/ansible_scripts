@@ -1,0 +1,67 @@
+general:
+  use_radarr: true
+  use_sonarr: true
+  language_equals:
+    - bos:srp
+    - hrv:srp
+    - hbs:srp
+  enabled_providers:
+    - podnapisi
+    - titlovi
+
+auth:
+  apikey: {{ bazarr.api_key }}
+  type: null
+  username: ''
+  password: ''
+
+postgresql:
+  enabled: true
+  host: {{ postgres.ip }}
+  port: {{ postgres.port }}
+  database: bazarr
+  username: {{ postgres.user }}
+  password: {{ postgres.password }}
+
+sonarr:
+  ip: sonarr
+  port: 8989
+  base_url: ''
+  ssl: false
+  apikey: {{ sonarr.api_key }}
+  http_timeout: 60
+  full_update: Daily
+  full_update_day: 6
+  full_update_hour: 4
+  only_monitored: false
+  series_sync: 60
+  series_sync_on_live: true
+  use_ffprobe_cache: true
+  exclude_season_zero: false
+  defer_search_signalr: false
+  sync_only_monitored_series: false
+  sync_only_monitored_episodes: false
+  excluded_tags: []
+  excluded_series_types: []
+
+titlovi:
+  username: {{ titlovi.username }}
+  password: {{ titlovi.password }}
+
+radarr:
+  ip: radarr
+  port: 7878
+  base_url: ''
+  ssl: false
+  apikey: {{ radarr.api_key }}
+  http_timeout: 60
+  full_update: Daily
+  full_update_day: 6
+  full_update_hour: 4
+  only_monitored: false
+  movies_sync: 60
+  movies_sync_on_live: true
+  use_ffprobe_cache: true
+  defer_search_signalr: false
+  sync_only_monitored_movies: false
+  excluded_tags: []

@@ -1,0 +1,13 @@
+{{ log_path }} {
+    size {{ max_size | default('50M') }}
+    rotate {{ rotate_count | default(3) }}
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create {{ log_permissions | default('0640 root adm') }}
+    sharedscripts
+    postrotate
+        systemctl reload rsyslog > /dev/null 2>&1 || true
+    endscript
+}

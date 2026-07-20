@@ -7,17 +7,18 @@
   vars:
     current_host: "server"
   roles:
-    - common
-    - authelia
-    - traefik
-    - crowdsec
-    - public_ip_whitelist_updater
-    - node_exporter
-    - sql
-    - nextcloud
-    - family_trees
-    - ghost
-    - bibliography
-    - kavita
-    - log_notification
-    - watchtower
+    - { role: common, tags: ['common', 'base'] }
+    - { role: postgres_server, tags: ['postgres_server', 'postgres', 'database'] }
+    - { role: authelia, tags: ['authelia', 'auth', 'proxy', 'security'] }
+    - { role: traefik, tags: ['traefik', 'proxy', 'security'] }
+    - { role: crowdsec, tags: ['crowdsec', 'ids', 'proxy', 'security'] }
+    - { role: public_ip_whitelist_updater, tags: ['public_ip_whitelist_updater', 'network', 'security'] }
+    - { role: sql, tags: ['sql', 'database'] }
+    - { role: filebrowser, tags: ['filebrowser'] }
+    - { role: family_trees, tags: ['family_trees', 'web'] }
+    - { role: ghost, tags: ['ghost', 'web'] }
+    - { role: bibliography, tags: ['bibliography', 'web'] }
+    - { role: kaleidoscope, tags: ['kaleidoscope', 'web'] }
+    - { role: log_notification, tags: ['log_notification', 'notifications', 'monitoring'] }
+    - { role: telegraf, tags: ['telegraf', 'metrics', 'monitoring'] }
+    - { role: promtail, tags: ['promtail', 'logs', 'monitoring'] }

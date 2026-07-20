@@ -1,0 +1,45 @@
+---
+- name: Get existing indexers
+  ansible.builtin.uri:
+    url: "{{ prowlarr.url }}/api/v1/indexer"
+    method: GET
+    headers:
+      X-Api-Key: "{{ prowlarr.api_key }}"
+    return_content: true
+  register: existing_indexers
+
+- name: Add public indexers
+  ansible.builtin.uri:
+    url: "{{ prowlarr.url }}/api/v1/indexer"
+    method: POST
+    headers:
+      X-Api-Key: "{{ prowlarr.api_key }}"
+    body_format: json
+    body:
+      name: "{{ item.name }}"
+      implementation: "Cardigann"
+      configContract: "CardigannSettings"
+      protocol: "torrent"
+      privacy: "public"
+      definitionName: "{{ item.definition }}"
+      enableRss: true
+      enableAutomaticSearch: true
+      enableInteractiveSearch: true
+      appProfileId: 1
+      priority: 25
+      fields:
+        - name: definitionFile
+          value: "{{ item.definition }}"
+    status_code: 201
+  loop: "{{ prowlarr.indexers }}"
+  when: "existing_indexers.json | selectattr('name', 'equalto', item.name) | list | length == 0"
+
+- name: Verify indexers were added
+  ansible.builtin.uri:
+    url: "{{ prowlarr.url }}/api/v1/indexer"
+    method: GET
+    headers:
+      X-Api-Key: "{{ prowlarr.api_key }}"
+    return_content: true
+  register: verify_indexers
+  failed_when: "verify_indexers.json | length == 0"

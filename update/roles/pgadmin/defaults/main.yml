@@ -1,0 +1,18 @@
+---
+pgadmin:
+  static: "172.20.0.120"
+  email: "admin@example.com"
+  password: "changeme"
+  host: "Host(`pgadmin.example.com`)"
+  port: "80"
+
+# Postgres server pgadmin auto-registers a connection to.
+postgres:
+  ip: "postgres-db"
+  port: 5432
+  adm_user: "postgres"
+  adm_pass: "changeme"
+
+# Authelia OIDC endpoint used for SSO login.
+authelia_links:
+  url: "https://auth.example.com"

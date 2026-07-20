@@ -2,10 +2,17 @@
 crowdsec_lapi_url: http://crowdsec:8080/
 crowdsec_lapi_key: {{ crowdsec.cloudflare.bouncer_key }}
 crowdsec_insecure_skip_verify: false
-crowdsec_update_frequency: 10s
+# 60s (was 10s): local bans don't need edge-push every 10s. 10s hammered the
+# Cloudflare API → 10040 "you have been ratelimited". Both freqs must match.
+crowdsec_update_frequency: 60s
 include_scenarios_containing: [] # ignore IPs banned for triggering scenarios not containing either of provided word
 exclude_scenarios_containing: [] # ignore IPs banned for triggering scenarios containing either of provided word
-only_include_decisions_from: [] # only include IPs banned due to decisions orginating from provided sources. eg value ["cscli", "crowdsec"]
+# Only push LOCAL decisions to Cloudflare's edge (your scenario + manual
+# bans — a small, high-value set that fits the ~10k Cloudflare Lists cap).
+# The full community blocklist (~27k) stays enforced at the Traefik bouncer
+# (stream mode, local LAPI, no size cap), so pushing it here would only
+# overflow the list and rate-limit the Cloudflare API.
+only_include_decisions_from: ["cscli", "crowdsec"]
 cloudflare_config:
     accounts:
         - id: {{ cloudflare.account_id }}
@@ -25,7 +32,7 @@ cloudflare_config:
           ip_list_prefix: crowdsec
           default_action: managed_challenge
           total_ip_list_capacity: 9000
-    update_frequency: 10s
+    update_frequency: 60s
 daemon: false
 log_level: info
 log_mode: stdout

@@ -1,0 +1,16 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "Primary PostgreSQL",
+      "Group": "Servers",
+      "Host": "{{ postgres.ip }}",
+      "Port": {{ postgres.port }},
+      "MaintenanceDB": "postgres",
+      "Username": "{{ postgres.adm_user }}",
+      "SSLMode": "verify-full",
+      "SSLRootCert": "/postgres-certs/ca.crt",
+      "PassFile": "/pgpass",
+      "Shared": false
+    }
+  }
+}

@@ -1,0 +1,74 @@
+---
+- name: Check existing service roles
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - postgres-db
+      - psql
+      - -U
+      - "{{ postgres.adm_user }}"
+      - -tAc
+      - "SELECT 1 FROM pg_roles WHERE rolname = '{{ item.user }}'"
+  register: role_exists
+  changed_when: false
+  loop: "{{ postgres_service_users }}"
+  loop_control:
+    label: "{{ item.user }}"
+
+- name: Create missing service roles
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - postgres-db
+      - psql
+      - -U
+      - "{{ postgres.adm_user }}"
+      - -c
+      - "CREATE ROLE {{ item.item.user }} WITH LOGIN PASSWORD '{{ item.item.password }}'"
+  loop: "{{ role_exists.results }}"
+  loop_control:
+    label: "{{ item.item.user }}"
+  when: (item.stdout | default('')).strip() != '1'
+  changed_when: true
+  no_log: true
+
+- name: Create service databases
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - postgres-db
+      - createdb
+      - -U
+      - "{{ postgres.adm_user }}"
+      - -O
+      - "{{ item.user }}"
+      - "{{ item.db }}"
+  loop: "{{ postgres_service_users }}"
+  loop_control:
+    label: "{{ item.db }}"
+  register: createdb_result
+  changed_when: createdb_result.rc == 0
+  failed_when:
+    - createdb_result.rc != 0
+    - '"already exists" not in (createdb_result.stderr | default(""))'
+
+- name: Grant schema privileges
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - postgres-db
+      - psql
+      - -U
+      - "{{ postgres.adm_user }}"
+      - -d
+      - "{{ item.db }}"
+      - -c
+      - "GRANT ALL ON SCHEMA public TO {{ item.user }}"
+  loop: "{{ postgres_service_users }}"
+  loop_control:
+    label: "{{ item.db }}"
+  changed_when: false

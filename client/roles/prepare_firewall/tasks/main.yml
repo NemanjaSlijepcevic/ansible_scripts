@@ -30,3 +30,13 @@
   community.general.ufw:
     state: enabled
     logging: 'on'
+
+- name: Create logrotate config for access
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/templates/logrotate.j2"
+    dest: "/etc/logrotate.d/uwf"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+  vars:
+    log_path: "/var/log/ufw.log"

@@ -1,0 +1,21 @@
+http:
+  middlewares:
+    geoblock:
+      plugin:
+        geoblock:
+          silentStartUp: false
+          allowLocalRequests: true
+          logLocalRequests: false
+          logAllowedRequests: false
+          logApiRequests: false
+          api: "https://get.geojs.io/v1/ip/country/{ip}"
+          apiTimeoutMs: 750
+          cacheSize: 15
+          forceMonthlyUpdate: true
+          allowUnknownCountries: true
+          unknownCountryApiResponse: "nil"
+          blackListMode: true
+          countries:
+{% for country in geoblock_blocked_countries %}
+            - {{ country }}
+{% endfor %}

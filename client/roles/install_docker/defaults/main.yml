@@ -1,0 +1,12 @@
+---
+# Documentation-only defaults for the install_docker role.
+# Copy the shape into group_vars/host_vars and replace with real values,
+# then keep the real inventory encrypted. Values below are placeholders.
+
+# Each listed user is added to the docker group. Shares the same list the
+# create_new_users role consumes; see that role's defaults for full shape.
+default_user:
+  - name: "botuser"
+    robot: true
+  - name: "adminuser"
+    robot: false

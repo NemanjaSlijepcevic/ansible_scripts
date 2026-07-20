@@ -1,0 +1,25 @@
+---
+postgres:
+  ip: "postgres-db"
+  port: 5432
+  static: "172.20.0.8"
+  adm_user: "postgres"
+  adm_pass: "changeme"
+
+# GID the postgres container runs as (owns TLS client cert files).
+pgid: "999"
+
+postgres_service_users: []
+postgres_migrate_local_dbs: []
+postgres_migrate_source_host: primary_postgres
+
+postgres_tls_client_hosts: []
+postgres_tls_clients: []
+postgres_tls_client_base_dir: "./data/certs"
+postgres_tls_dir: "./data/postgres/certs"
+postgres_tls_client_dir: "./data/postgres/certs/clients"
+postgres_tls_ca_key: "./data/postgres/certs/ca.key"
+postgres_tls_ca_cert: "./data/postgres/certs/ca.crt"
+postgres_tls_ca_serial: "./data/postgres/certs/ca.srl"
+postgres_tls_server_key: "./data/postgres/certs/server.key"
+postgres_tls_server_cert: "./data/postgres/certs/server.crt"

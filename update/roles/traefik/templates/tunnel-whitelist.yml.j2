@@ -1,0 +1,8 @@
+http:
+  middlewares:
+    tunnel-whitelist:
+      ipAllowList:
+        sourceRange:
+{% for ip in private_ips %}
+          - {{ ip }}
+{% endfor %}

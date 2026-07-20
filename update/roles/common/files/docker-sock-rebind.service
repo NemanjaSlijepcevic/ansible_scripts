@@ -1,0 +1,21 @@
+[Unit]
+Description=Restart containers with stale /var/run/docker.sock binds after dockerd restart
+# live-restore keeps containers running across daemon restarts, but their
+# file-bind of docker.sock then points at a dead inode — traefik, telegraf,
+# promtail and socket-proxy all silently break until restarted.
+After=docker.service
+Requires=docker.service
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# give dockerd time to finish live-restore reconciliation
+ExecStartPre=/bin/sleep 15
+# stop+start, NOT `docker restart`: on fuse-overlayfs hosts a restart races the
+# stale graphdriver state and the fresh merged mount vanishes again — the
+# container then stays permanently unhealthy (exec: setns /proc/self/fd errors).
+ExecStart=/bin/sh -c 'for c in traefik telegraf promtail socket-proxy; do docker ps -q --filter "name=^$c$" | grep -q . && { docker stop "$c"; docker start "$c"; } || true; done'
+
+[Install]
+WantedBy=docker.service

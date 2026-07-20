@@ -1,0 +1,21 @@
+---
+user:
+  name: "deploy"
+  group: "docker"
+
+postgres:
+  ip: "192.0.2.10"
+  port: 5432
+  user: "mediauser"
+  password: "changeme"
+
+seerr:
+  static: "172.20.0.50"
+  api_key: "changeme"
+  host: "Host(`seerr.example.com`)"
+  port: "5055"
+  url: "https://seerr.example.com"
+
+# Authelia OIDC endpoint used for SSO login.
+authelia_links:
+  url: "https://auth.example.com"

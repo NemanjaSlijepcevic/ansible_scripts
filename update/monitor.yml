@@ -7,17 +7,15 @@
   vars:
     current_host: "monitor"
   roles:
-    - common
-    - authelia
-    - traefik
-    - crowdsec
-    - public_ip_tracker
-    - kuma
-    - influxdb
-    - telegraf
-    - prometheus
-    - grafana
-    - homeassistant
-    - log_notification
-    - node_exporter
-    - watchtower
+    - { role: common, tags: ['common'] }
+    - { role: authelia, tags: ['authelia', 'proxy', 'security'] }
+    - { role: traefik, tags: ['traefik', 'proxy', 'security'] }
+    - { role: crowdsec, tags: ['crowdsec', 'proxy', 'security'] }
+    - { role: public_ip_tracker, tags: ['public_ip_tracker', 'network'] }
+    - { role: grafana, tags: ['grafana', 'monitoring'] }
+    - { role: influxdb, tags: ['influxdb', 'monitoring'] }
+    - { role: loki, tags: ['loki', 'logs', 'monitoring'] }
+    - { role: telegraf, tags: ['telegraf', 'metrics', 'monitoring'] }
+    - { role: promtail, tags: ['promtail', 'logs', 'monitoring'] }
+    - { role: homeassistant, tags: ['homeassistant'] }
+    - { role: log_notification, tags: ['log_notification', 'notifications', 'monitoring'] }

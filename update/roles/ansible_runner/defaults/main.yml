@@ -1,0 +1,15 @@
+---
+user:
+  name: "deploy"
+  group: "docker"
+
+# Runner image tag; containers are ephemeral, spawned by Kestra via the
+# socket proxy on the claude_runner sandbox network.
+ansible_runner:
+  image: "ansible-runner:latest"
+
+# Sandbox network shared with the claude-runner role; uid owns the shared
+# workspace volume.
+claude_runner:
+  network: "sandbox"
+  uid: "1000"

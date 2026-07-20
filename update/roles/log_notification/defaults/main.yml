@@ -1,0 +1,4 @@
+---
+log_notification:
+  telegram_bot: "changeme"
+  chat_id: "0"

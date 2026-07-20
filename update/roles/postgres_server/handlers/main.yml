@@ -1,0 +1,17 @@
+---
+# Use the docker CLI, NOT community.docker.docker_container, for the restart:
+#  * `docker restart` races the stale graphdriver state on fuse-overlayfs hosts
+#    and leaves a broken rootfs mount → separate `stop` + `start` instead.
+#  * a bare `docker_container: {name, state}` task RECREATES the container to
+#    match its sparse spec (image-default PGDATA, no binds) → "Database is
+#    uninitialized". CLI stop/start never recreates, so it preserves the
+#    container's full config and its data bind.
+- name: Stop PostgreSQL
+  ansible.builtin.command: docker stop postgres-db
+  changed_when: true
+  listen: Restart PostgreSQL
+
+- name: Start PostgreSQL
+  ansible.builtin.command: docker start postgres-db
+  changed_when: true
+  listen: Restart PostgreSQL
