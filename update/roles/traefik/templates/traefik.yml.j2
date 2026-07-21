@@ -43,6 +43,10 @@ entryPoints:
     http:
       middlewares:
         - chain-auth@file
+  # Prometheus metrics endpoint. Not published to the host — the local Alloy
+  # agent scrapes it in-cluster at traefik:8082 and remote-writes to Prometheus.
+  metrics:
+    address: ":8082"
 
 log:
   level: "INFO"
@@ -58,15 +62,11 @@ accessLog:
         User-Agent: keep
 
 metrics:
-  influxDB2:
-    address: {{ influxdb.url }}
-    token: {{ influxdb.api_token }}
-    org: {{ influxdb.organization }}
-    bucket: traefik-{{ current_host }}
+  prometheus:
+    entryPoint: metrics
     addEntryPointsLabels: true
     addRoutersLabels: true
     addServicesLabels: true
-    pushInterval: 10s
 
 
 ping: {}

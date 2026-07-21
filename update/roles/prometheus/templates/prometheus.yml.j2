@@ -1,0 +1,37 @@
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+        labels:
+          host: monitor
+
+  # Proxmox VE via prometheus-pve-exporter (multi-target pattern: the exporter
+  # is asked to poll ?target=<pve_api_host>, but the series carry the PVE host
+  # as their instance).
+  - job_name: pve
+    metrics_path: /pve
+    params:
+      module: [default]
+      cluster: ['1']
+      node: ['1']
+    static_configs:
+      - targets: ["{{ pve.api_host }}"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: pve-exporter:9221
+
+  # pfSense node_exporter (FreeBSD). Scraped directly at its LAN IP.
+  - job_name: pfsense
+    scheme: https
+    static_configs:
+      - targets: ["{{ pfsense_exporter.target }}"]
+        labels:
+          host: pfsense

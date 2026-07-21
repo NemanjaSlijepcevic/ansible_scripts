@@ -14,5 +14,6 @@
     mail_pass: "{{ site.mail_pass }}"
     url: "{{ site.url }}"
     host_domain: "{{ site.host }}"
+    domain: "{{ site.domain }}"
+    domain_www: "{{ site.domain_www }}"
     volume_name: "{{ site.volume_name }}"
-    static: "{{ site.static }}"

@@ -14,8 +14,8 @@
 # inode. This unit restarts them whenever docker.service restarts.
 # MUST be deployed + enabled BEFORE the flush_handlers restart below, or
 # the very restart that breaks the sockets happens before the unit exists
-# to catch it (telegraf/promtail then stay on a dead socket until the next
-# daemon restart).
+# to catch it (alloy then stays on a dead socket until the next daemon
+# restart).
 - name: Deploy docker-sock-rebind systemd unit
   ansible.builtin.copy:
     src: docker-sock-rebind.service

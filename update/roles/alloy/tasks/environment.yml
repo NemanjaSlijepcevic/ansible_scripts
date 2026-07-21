@@ -1,0 +1,55 @@
+---
+- name: Create alloy directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "0755"
+  loop:
+    - { path: ./data/alloy, owner: "{{ user.name }}", group: "{{ user.group }}" }
+    - { path: ./data/alloy/data, owner: "{{ user.name }}", group: "{{ user.group }}" }
+    - { path: /var/lib/alloy/textfiles, owner: root, group: root }
+    - { path: /usr/local/lib/alloy, owner: root, group: root }
+
+- name: Deploy docker-state helper script
+  ansible.builtin.copy:
+    src: docker-state.sh
+    dest: /usr/local/lib/alloy/docker-state.sh
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Deploy docker-state systemd service
+  ansible.builtin.template:
+    src: docker-state.service.j2
+    dest: /etc/systemd/system/docker-state.service
+    owner: root
+    group: root
+    mode: "0644"
+  register: docker_state_service
+
+- name: Deploy docker-state systemd timer
+  ansible.builtin.copy:
+    src: docker-state.timer
+    dest: /etc/systemd/system/docker-state.timer
+    owner: root
+    group: root
+    mode: "0644"
+  register: docker_state_timer
+
+- name: Enable and start docker-state timer
+  ansible.builtin.systemd:
+    name: docker-state.timer
+    enabled: true
+    state: started
+    daemon_reload: "{{ docker_state_service.changed or docker_state_timer.changed }}"
+
+- name: Generate alloy config
+  ansible.builtin.template:
+    src: config.alloy.j2
+    dest: ./data/alloy/config.alloy
+    owner: "{{ user.name }}"
+    group: "{{ user.group }}"
+    mode: "0644"
+  notify: Restart alloy

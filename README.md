@@ -35,12 +35,12 @@ ansible-playbook client/new.yml --vault-password-file pass.file
 ## Update Playbooks
 
 Every host first runs the baseline stack (`common`, `traefik`, `authelia`,
-`crowdsec`, `telegraf`, `promtail`); host-specific services follow.
+`crowdsec`, `alloy`); host-specific services follow.
 
 | Playbook | Host | Highlights |
 | --- | --- | --- |
 | `nas.yml` | NAS | `prepare_smb`, `prepare_postgres`, media stack (`jellyfin`, `transmission`, `*arr`, `seerr`, `recyclarr`), `filebrowser` |
-| `monitor.yml` | Monitor | `influxdb`, `loki`, `grafana`, `homeassistant`, `public_ip_tracker`, `log_notification` |
+| `monitor.yml` | Monitor | `prometheus`, `pve_exporter`, `loki`, `grafana`, `homeassistant`, `public_ip_tracker`, `log_notification` |
 | `postgres.yml` | PostgreSQL | `postgres`, `pgadmin` (+ `prepare_postgres` on client hosts) |
 | `server.yml` | Server | `postgres_server`, `sql`, web apps (`ghost`, `bibliography`, `family_trees`, `kaleidoscope`), `filebrowser`, `public_ip_whitelist_updater` |
 | `immich.yml` | Immich | `immich` photo stack + `prepare_postgres` |

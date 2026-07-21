@@ -19,7 +19,7 @@
     command: server standalone --config /etc/config/application.yaml
     networks:
       - name: proxy
-        ipv4_address: "{{ kestra.static }}"
+        ipv4_address: "{{ ip['kestra'] }}"
       - name: docker-api
     dns_servers:
       - "{{ default.dns }}"
@@ -49,6 +49,14 @@
       traefik.http.routers.kestra.tls: "true"
       traefik.http.routers.kestra.middlewares: "chain-auth@file"
       traefik.http.services.kestra.loadbalancer.server.port: "{{ kestra.port }}"
+    # Micronaut management health endpoint on 8081 (returns 503 when a
+    # dependency is DOWN). Long start_period covers JVM boot + migrations.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8081/health"]
+      interval: 30s
+      timeout: 6s
+      retries: 4
+      start_period: 120s
 
 # Push the repo-managed flows (rendered by environment.yml into
 # ./data/kestra/flows, mounted at /flows) into the `automation` namespace.

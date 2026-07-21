@@ -3,17 +3,41 @@ apiVersion: 1
 # Rules removed from the template must be listed here too — file
 # provisioning never deletes an already-provisioned rule on its own.
 deleteRules:
-  # immich host not deployed yet (bucket commented out in defaults)
+  # immich host not deployed yet (commented out in defaults)
   - orgId: 1
-    uid: hl-node-gap-telegraf-immich
+    uid: hl-node-gap-immich
   - orgId: 1
     uid: hl-log-gap-immich
-  # traefik-automation hidden (see traefik_alert_buckets in grafana defaults) —
-  # remove these two when the bucket is re-enabled.
+  # traefik-automation hidden (see traefik_alert_hosts in grafana defaults) —
+  # remove these two when the host is re-enabled.
+  - orgId: 1
+    uid: hl-traefik-5xx-automation
+  - orgId: 1
+    uid: hl-traefik-p95-automation
+  # --- Retired InfluxDB/Flux rule UIDs (telegraf → Alloy/Prometheus rename) ---
+  # Old per-bucket node-gap rules were uid'd after the bucket (telegraf-<host>);
+  # they are now hl-node-gap-<host>. Delete the old names.
+{% for h in monitored_hosts %}
+  - orgId: 1
+    uid: hl-node-gap-telegraf-{{ h }}
+{% endfor %}
+  - orgId: 1
+    uid: hl-node-gap-telegraf-immich
+  # Old per-bucket traefik rules were uid'd after the bucket (traefik-<host>);
+  # they are now hl-traefik-{5xx,p95}-<host>. Delete the old names.
+{% for h in traefik_alert_hosts %}
+  - orgId: 1
+    uid: hl-traefik-5xx-traefik-{{ h }}
+  - orgId: 1
+    uid: hl-traefik-p95-traefik-{{ h }}
+{% endfor %}
   - orgId: 1
     uid: hl-traefik-5xx-traefik-automation
   - orgId: 1
     uid: hl-traefik-p95-traefik-automation
+  # pfSense node_exporter has no pf state-table metric — rule dropped.
+  - orgId: 1
+    uid: hl-pfsense-pf-states
 
 groups:
   - orgId: 1
@@ -30,30 +54,23 @@ groups:
         for: "{{ alerts.http_for }}"
         isPaused: false
         annotations:
-          summary: "{% raw %}{{ $labels.service }} on {{ $labels.node }} is DOWN ({{ $labels.via }}){% endraw %}"
-          description: "{% raw %}HTTP probe returned result_code={{ $values.B }} for service {{ $labels.service }} (node={{ $labels.node }}, via={{ $labels.via }}). 0=UP, 1=CONNECT, 2=TIMEOUT, 3=BODY, 4=RESP, 5=DNS.{% endraw %}"
+          summary: "{% raw %}{{ $labels.service }} on {{ $labels.host }} is DOWN ({{ $labels.via }}){% endraw %}"
+          description: "{% raw %}Blackbox probe_success=0 for service {{ $labels.service }} (host={{ $labels.host }}, via={{ $labels.via }}).{% endraw %}"
         labels:
           severity: critical
           category: http-uptime
         data:
           - refId: A
-            datasourceUid: influxdb
+            datasourceUid: prometheus
             relativeTimeRange: { from: 300, to: 0 }
             model:
               refId: A
-              datasource: { type: influxdb, uid: influxdb }
-              query: |
-                {% if telegraf_buckets|length > 1 %}union(tables: [{% endif %}
-                {% for b in telegraf_buckets %}{% if loop.index > 1 %},{% endif %}
-                from(bucket: "{{ b }}")
-                  |> range(start: -2m)
-                  |> filter(fn: (r) => r._measurement == "http_response" and r._field == "result_code")
-                  |> last()
-                  |> map(fn: (r) => ({r with node: "{{ b }}"}))
-                  |> keep(columns: ["_time", "service", "via", "node", "_value"])
-                {% endfor %}
-                {% if telegraf_buckets|length > 1 %}]){% endif %}
-                  |> group(columns: ["service", "node", "via"])
+              datasource: { type: prometheus, uid: prometheus }
+              expr: min by (service, host, via) (probe_success)
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
           - refId: B
             datasourceUid: __expr__
             relativeTimeRange: { from: 0, to: 0 }
@@ -72,7 +89,7 @@ groups:
               type: threshold
               expression: B
               conditions:
-                - evaluator: { type: gt, params: [0.5] }
+                - evaluator: { type: lt, params: [1] }
                   operator: { type: and }
                   query: { params: [] }
                   reducer: { type: last, params: [] }
@@ -86,30 +103,23 @@ groups:
         for: "{{ alerts.rt_for }}"
         isPaused: false
         annotations:
-          summary: "{% raw %}{{ $labels.service }} on {{ $labels.node }} slow ({{ humanizeDuration $values.B.Value }}){% endraw %}"
-          description: "{% raw %}Mean response_time over 5m exceeds {% endraw %}{{ alerts.rt_warn }}s"
+          summary: "{% raw %}{{ $labels.service }} on {{ $labels.host }} slow ({{ humanizeDuration $values.B.Value }}){% endraw %}"
+          description: "{% raw %}Mean probe_duration_seconds over 5m exceeds {% endraw %}{{ alerts.rt_warn }}s"
         labels:
           severity: warning
           category: http-uptime
         data:
           - refId: A
-            datasourceUid: influxdb
+            datasourceUid: prometheus
             relativeTimeRange: { from: 600, to: 0 }
             model:
               refId: A
-              datasource: { type: influxdb, uid: influxdb }
-              query: |
-                {% if telegraf_buckets|length > 1 %}union(tables: [{% endif %}
-                {% for b in telegraf_buckets %}{% if loop.index > 1 %},{% endif %}
-                from(bucket: "{{ b }}")
-                  |> range(start: -5m)
-                  |> filter(fn: (r) => r._measurement == "http_response" and r._field == "response_time" and r.via == "internal")
-                  |> map(fn: (r) => ({r with node: "{{ b }}"}))
-                {% endfor %}
-                {% if telegraf_buckets|length > 1 %}]){% endif %}
-                  |> group(columns: ["service", "node"])
-                  |> mean()
-                  |> keep(columns: ["service", "node", "_value"])
+              datasource: { type: prometheus, uid: prometheus }
+              expr: max by (service, host) (avg_over_time(probe_duration_seconds{via="internal"}[5m]))
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
           - refId: B
             datasourceUid: __expr__
             relativeTimeRange: { from: 0, to: 0 }
@@ -142,30 +152,23 @@ groups:
         for: "{{ alerts.rt_for }}"
         isPaused: false
         annotations:
-          summary: "{% raw %}{{ $labels.service }} on {{ $labels.node }} CRITICAL slow ({{ humanizeDuration $values.B.Value }}){% endraw %}"
-          description: "{% raw %}Mean response_time over 5m exceeds {% endraw %}{{ alerts.rt_crit }}s"
+          summary: "{% raw %}{{ $labels.service }} on {{ $labels.host }} CRITICAL slow ({{ humanizeDuration $values.B.Value }}){% endraw %}"
+          description: "{% raw %}Mean probe_duration_seconds over 5m exceeds {% endraw %}{{ alerts.rt_crit }}s"
         labels:
           severity: critical
           category: http-uptime
         data:
           - refId: A
-            datasourceUid: influxdb
+            datasourceUid: prometheus
             relativeTimeRange: { from: 600, to: 0 }
             model:
               refId: A
-              datasource: { type: influxdb, uid: influxdb }
-              query: |
-                {% if telegraf_buckets|length > 1 %}union(tables: [{% endif %}
-                {% for b in telegraf_buckets %}{% if loop.index > 1 %},{% endif %}
-                from(bucket: "{{ b }}")
-                  |> range(start: -5m)
-                  |> filter(fn: (r) => r._measurement == "http_response" and r._field == "response_time" and r.via == "internal")
-                  |> map(fn: (r) => ({r with node: "{{ b }}"}))
-                {% endfor %}
-                {% if telegraf_buckets|length > 1 %}]){% endif %}
-                  |> group(columns: ["service", "node"])
-                  |> mean()
-                  |> keep(columns: ["service", "node", "_value"])
+              datasource: { type: prometheus, uid: prometheus }
+              expr: max by (service, host) (avg_over_time(probe_duration_seconds{via="internal"}[5m]))
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
           - refId: B
             datasourceUid: __expr__
             relativeTimeRange: { from: 0, to: 0 }
@@ -190,34 +193,33 @@ groups:
                   reducer: { type: last, params: [] }
                   type: query
 
-{% for b in telegraf_buckets %}
-      - uid: hl-node-gap-{{ b }}
-        title: "Node Telegraf Gap ({{ b }})"
+{% for h in monitored_hosts %}
+      - uid: hl-node-gap-{{ h }}
+        title: "Node metrics gap ({{ h }})"
         condition: C
         noDataState: Alerting
         execErrState: Error
         for: "{{ alerts.node_gap_for }}"
         isPaused: false
         annotations:
-          summary: "Node {{ b }} has no telegraf data"
-          description: "No system.uptime samples in last 5m from bucket {{ b }}. Host or telegraf agent likely down."
+          summary: "Node {{ h }} has no metrics"
+          description: "No node_exporter samples in last 5m from host {{ h }}. Host or Alloy agent likely down."
         labels:
           severity: critical
           category: node-health
-          node: "{{ b }}"
+          node: "{{ h }}"
         data:
           - refId: A
-            datasourceUid: influxdb
+            datasourceUid: prometheus
             relativeTimeRange: { from: 600, to: 0 }
             model:
               refId: A
-              datasource: { type: influxdb, uid: influxdb }
-              query: |
-                from(bucket: "{{ b }}")
-                  |> range(start: -5m)
-                  |> filter(fn: (r) => r._measurement == "system" and r._field == "uptime")
-                  |> count()
-                  |> keep(columns: ["_value"])
+              datasource: { type: prometheus, uid: prometheus }
+              expr: count_over_time(node_time_seconds{host="{{ h }}"}[5m])
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
           - refId: B
             datasourceUid: __expr__
             relativeTimeRange: { from: 0, to: 0 }
@@ -257,30 +259,23 @@ groups:
         for: "{{ alerts.cpu_for }}"
         isPaused: false
         annotations:
-          summary: "{% raw %}High CPU on {{ $labels.node }} ({{ printf \"%.1f\" $values.B.Value }}%){% endraw %}"
+          summary: "{% raw %}High CPU on {{ $labels.host }} ({{ printf \"%.1f\" $values.B.Value }}%){% endraw %}"
           description: "{% raw %}CPU usage above {% endraw %}{{ alerts.cpu_warn }}% for {{ alerts.cpu_for }}"
         labels:
           severity: warning
           category: system
         data:
           - refId: A
-            datasourceUid: influxdb
+            datasourceUid: prometheus
             relativeTimeRange: { from: 900, to: 0 }
             model:
               refId: A
-              datasource: { type: influxdb, uid: influxdb }
-              query: |
-                {% if telegraf_buckets|length > 1 %}union(tables: [{% endif %}
-                {% for b in telegraf_buckets %}{% if loop.index > 1 %},{% endif %}
-                from(bucket: "{{ b }}")
-                  |> range(start: -10m)
-                  |> filter(fn: (r) => r._measurement == "cpu" and r.cpu == "cpu-total" and r._field == "usage_idle")
-                  |> map(fn: (r) => ({r with node: "{{ b }}", _value: 100.0 - r._value}))
-                {% endfor %}
-                {% if telegraf_buckets|length > 1 %}]){% endif %}
-                  |> group(columns: ["node"])
-                  |> mean()
-                  |> keep(columns: ["node", "_value"])
+              datasource: { type: prometheus, uid: prometheus }
+              expr: 100 - (avg by (host) (rate(node_cpu_seconds_total{mode="idle", host!="pfsense"}[10m])) * 100)
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
           - refId: B
             datasourceUid: __expr__
             relativeTimeRange: { from: 0, to: 0 }
@@ -313,30 +308,23 @@ groups:
         for: "{{ alerts.mem_for }}"
         isPaused: false
         annotations:
-          summary: "{% raw %}High memory on {{ $labels.node }} ({{ printf \"%.1f\" $values.B.Value }}%){% endraw %}"
-          description: "{% raw %}Memory used_percent above {% endraw %}{{ alerts.mem_warn }}% for {{ alerts.mem_for }}"
+          summary: "{% raw %}High memory on {{ $labels.host }} ({{ printf \"%.1f\" $values.B.Value }}%){% endraw %}"
+          description: "{% raw %}Memory used above {% endraw %}{{ alerts.mem_warn }}% for {{ alerts.mem_for }}"
         labels:
           severity: warning
           category: system
         data:
           - refId: A
-            datasourceUid: influxdb
+            datasourceUid: prometheus
             relativeTimeRange: { from: 900, to: 0 }
             model:
               refId: A
-              datasource: { type: influxdb, uid: influxdb }
-              query: |
-                {% if telegraf_buckets|length > 1 %}union(tables: [{% endif %}
-                {% for b in telegraf_buckets %}{% if loop.index > 1 %},{% endif %}
-                from(bucket: "{{ b }}")
-                  |> range(start: -10m)
-                  |> filter(fn: (r) => r._measurement == "mem" and r._field == "used_percent")
-                  |> map(fn: (r) => ({r with node: "{{ b }}"}))
-                {% endfor %}
-                {% if telegraf_buckets|length > 1 %}]){% endif %}
-                  |> group(columns: ["node"])
-                  |> mean()
-                  |> keep(columns: ["node", "_value"])
+              datasource: { type: prometheus, uid: prometheus }
+              expr: (1 - node_memory_MemAvailable_bytes{host!="pfsense"} / node_memory_MemTotal_bytes{host!="pfsense"}) * 100
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
           - refId: B
             datasourceUid: __expr__
             relativeTimeRange: { from: 0, to: 0 }
@@ -369,30 +357,23 @@ groups:
         for: "{{ alerts.disk_for }}"
         isPaused: false
         annotations:
-          summary: "{% raw %}Disk {{ $labels.path }} on {{ $labels.node }} {{ printf \"%.1f\" $values.B.Value }}% full{% endraw %}"
-          description: "{% raw %}disk used_percent above {% endraw %}{{ alerts.disk_crit }}%"
+          summary: "{% raw %}Disk {{ $labels.mountpoint }} on {{ $labels.host }} {{ printf \"%.1f\" $values.B.Value }}% full{% endraw %}"
+          description: "{% raw %}filesystem used above {% endraw %}{{ alerts.disk_crit }}%"
         labels:
           severity: critical
           category: system
         data:
           - refId: A
-            datasourceUid: influxdb
+            datasourceUid: prometheus
             relativeTimeRange: { from: 600, to: 0 }
             model:
               refId: A
-              datasource: { type: influxdb, uid: influxdb }
-              query: |
-                {% if telegraf_buckets|length > 1 %}union(tables: [{% endif %}
-                {% for b in telegraf_buckets %}{% if loop.index > 1 %},{% endif %}
-                from(bucket: "{{ b }}")
-                  |> range(start: -5m)
-                  |> filter(fn: (r) => r._measurement == "disk" and r._field == "used_percent")
-                  |> last()
-                  |> map(fn: (r) => ({r with node: "{{ b }}"}))
-                  |> keep(columns: ["_time", "node", "path", "_value"])
-                {% endfor %}
-                {% if telegraf_buckets|length > 1 %}]){% endif %}
-                  |> group(columns: ["node", "path"])
+              datasource: { type: prometheus, uid: prometheus }
+              expr: max by (host, mountpoint) ((1 - node_filesystem_avail_bytes{host!="pfsense", fstype!~"tmpfs|devtmpfs|overlay|squashfs|aufs"} / node_filesystem_size_bytes) * 100)
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
           - refId: B
             datasourceUid: __expr__
             relativeTimeRange: { from: 0, to: 0 }
@@ -431,25 +412,23 @@ groups:
         for: "{{ alerts.proxmox_for }}"
         isPaused: false
         annotations:
-          summary: "{% raw %}Proxmox host CPU high ({{ printf \"%.1f\" $values.B.Value }}%){% endraw %}"
+          summary: "{% raw %}Proxmox {{ $labels.id }} CPU high ({{ printf \"%.1f\" $values.B.Value }}%){% endraw %}"
           description: "{% raw %}Proxmox CPU usage above {% endraw %}{{ alerts.proxmox_cpu_warn }}% for {{ alerts.proxmox_for }}"
         labels:
           severity: warning
           category: proxmox
         data:
           - refId: A
-            datasourceUid: influxdb-proxmox
+            datasourceUid: prometheus
             relativeTimeRange: { from: 900, to: 0 }
             model:
               refId: A
-              datasource: { type: influxdb, uid: influxdb-proxmox }
-              query: |
-                from(bucket: "proxmox")
-                  |> range(start: -10m)
-                  |> filter(fn: (r) => r._measurement == "cpustat" and r._field == "cpu")
-                  |> mean()
-                  |> map(fn: (r) => ({r with _value: r._value * 100.0}))
-                  |> keep(columns: ["_value"])
+              datasource: { type: prometheus, uid: prometheus }
+              expr: avg_over_time(pve_cpu_usage_ratio{id=~"node/.+"}[10m]) * 100
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
           - refId: B
             datasourceUid: __expr__
             relativeTimeRange: { from: 0, to: 0 }
@@ -482,26 +461,23 @@ groups:
         for: "{{ alerts.proxmox_for }}"
         isPaused: false
         annotations:
-          summary: "{% raw %}Proxmox memory used {{ printf \"%.1f\" $values.B.Value }}%{% endraw %}"
+          summary: "{% raw %}Proxmox {{ $labels.id }} memory used {{ printf \"%.1f\" $values.B.Value }}%{% endraw %}"
           description: "{% raw %}Proxmox memory above {% endraw %}{{ alerts.proxmox_mem_warn }}% for {{ alerts.proxmox_for }}"
         labels:
           severity: warning
           category: proxmox
         data:
           - refId: A
-            datasourceUid: influxdb-proxmox
+            datasourceUid: prometheus
             relativeTimeRange: { from: 900, to: 0 }
             model:
               refId: A
-              datasource: { type: influxdb, uid: influxdb-proxmox }
-              query: |
-                from(bucket: "proxmox")
-                  |> range(start: -10m)
-                  |> filter(fn: (r) => r._measurement == "memory" and (r._field == "used" or r._field == "total"))
-                  |> last()
-                  |> pivot(rowKey: ["host"], columnKey: ["_field"], valueColumn: "_value")
-                  |> map(fn: (r) => ({_value: 100.0 * r.used / r.total}))
-                  |> keep(columns: ["_value"])
+              datasource: { type: prometheus, uid: prometheus }
+              expr: pve_memory_usage_bytes{id=~"node/.+"} / pve_memory_size_bytes{id=~"node/.+"} * 100
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
           - refId: B
             datasourceUid: __expr__
             relativeTimeRange: { from: 0, to: 0 }
@@ -532,36 +508,33 @@ groups:
     interval: 60s
     rules:
 
-{% for tb in traefik_alert_buckets %}
-      - uid: hl-traefik-5xx-{{ tb }}
-        title: "Traefik 5xx spike ({{ tb }})"
+{% for h in traefik_alert_hosts %}
+      - uid: hl-traefik-5xx-{{ h }}
+        title: "Traefik 5xx spike ({{ h }})"
         condition: C
         noDataState: OK
         execErrState: Error
         for: "{{ alerts.traefik_5xx_for }}"
         isPaused: false
         annotations:
-          summary: "{% raw %}{{ $labels.service }} on {% endraw %}{{ tb }} 5xx >{{ alerts.traefik_5xx_rate }}/s"
-          description: "{% raw %}Traefik 5xx response rate exceeds threshold on {% endraw %}{{ tb }}"
+          summary: "{% raw %}{{ $labels.service }} on {% endraw %}{{ h }} 5xx >{{ alerts.traefik_5xx_rate }}/s"
+          description: "{% raw %}Traefik 5xx response rate exceeds threshold on {% endraw %}{{ h }}"
         labels:
           severity: critical
           category: traefik
-          bucket: "{{ tb }}"
+          host: "{{ h }}"
         data:
           - refId: A
-            datasourceUid: influxdb
+            datasourceUid: prometheus
             relativeTimeRange: { from: 600, to: 0 }
             model:
               refId: A
-              datasource: { type: influxdb, uid: influxdb }
-              query: |
-                from(bucket: "{{ tb }}")
-                  |> range(start: -5m)
-                  |> filter(fn: (r) => r._measurement == "traefik.service.requests.total" and r._field == "count" and r.code =~ /^5/)
-                  |> derivative(unit: 1s, nonNegative: true)
-                  |> group(columns: ["service"])
-                  |> mean()
-                  |> keep(columns: ["service", "_value"])
+              datasource: { type: prometheus, uid: prometheus }
+              expr: sum by (service) (rate(traefik_service_requests_total{host="{{ h }}", code=~"5.."}[5m]))
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
           - refId: B
             datasourceUid: __expr__
             relativeTimeRange: { from: 0, to: 0 }
@@ -586,34 +559,32 @@ groups:
                   reducer: { type: last, params: [] }
                   type: query
 
-      - uid: hl-traefik-p95-{{ tb }}
-        title: "Traefik p95 latency high ({{ tb }})"
+      - uid: hl-traefik-p95-{{ h }}
+        title: "Traefik p95 latency high ({{ h }})"
         condition: C
         noDataState: OK
         execErrState: Error
         for: "{{ alerts.traefik_p95_for }}"
         isPaused: false
         annotations:
-          summary: "{% raw %}{{ $labels.service }} on {% endraw %}{{ tb }} p95 >{{ alerts.traefik_p95_warn }}s"
-          description: "{% raw %}Traefik service p95 request duration exceeds threshold on {% endraw %}{{ tb }}"
+          summary: "{% raw %}{{ $labels.service }} on {% endraw %}{{ h }} p95 >{{ alerts.traefik_p95_warn }}s"
+          description: "{% raw %}Traefik service p95 request duration exceeds threshold on {% endraw %}{{ h }}"
         labels:
           severity: warning
           category: traefik
-          bucket: "{{ tb }}"
+          host: "{{ h }}"
         data:
           - refId: A
-            datasourceUid: influxdb
+            datasourceUid: prometheus
             relativeTimeRange: { from: 600, to: 0 }
             model:
               refId: A
-              datasource: { type: influxdb, uid: influxdb }
-              query: |
-                from(bucket: "{{ tb }}")
-                  |> range(start: -5m)
-                  |> filter(fn: (r) => r._measurement == "traefik.service.request.duration" and r._field == "p95")
-                  |> group(columns: ["service"])
-                  |> mean()
-                  |> keep(columns: ["service", "_value"])
+              datasource: { type: prometheus, uid: prometheus }
+              expr: histogram_quantile(0.95, sum by (service, le) (rate(traefik_service_request_duration_seconds_bucket{host="{{ h }}"}[5m])))
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
           - refId: B
             datasourceUid: __expr__
             relativeTimeRange: { from: 0, to: 0 }
@@ -660,18 +631,16 @@ groups:
           category: pfsense
         data:
           - refId: A
-            datasourceUid: influxdb-pfsense
+            datasourceUid: prometheus
             relativeTimeRange: { from: 900, to: 0 }
             model:
               refId: A
-              datasource: { type: influxdb, uid: influxdb-pfsense }
-              query: |
-                from(bucket: "pfsense")
-                  |> range(start: -10m)
-                  |> filter(fn: (r) => r._measurement == "cpu" and r.cpu == "cpu-total" and r._field == "usage_idle")
-                  |> mean()
-                  |> map(fn: (r) => ({r with _value: 100.0 - r._value}))
-                  |> keep(columns: ["_value"])
+              datasource: { type: prometheus, uid: prometheus }
+              expr: 100 - (avg (rate(node_cpu_seconds_total{host="pfsense", mode="idle"}[10m])) * 100)
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
           - refId: B
             datasourceUid: __expr__
             relativeTimeRange: { from: 0, to: 0 }
@@ -696,6 +665,9 @@ groups:
                   reducer: { type: last, params: [] }
                   type: query
 
+      # FreeBSD node_exporter has no MemAvailable — used = active + wired
+      # (free/inactive/cache are reclaimable). Verify the metric names on
+      # rollout; if absent the query yields noData (OK), it will not false-fire.
       - uid: hl-pfsense-mem-high
         title: pfSense High Memory
         condition: C
@@ -711,17 +683,16 @@ groups:
           category: pfsense
         data:
           - refId: A
-            datasourceUid: influxdb-pfsense
+            datasourceUid: prometheus
             relativeTimeRange: { from: 900, to: 0 }
             model:
               refId: A
-              datasource: { type: influxdb, uid: influxdb-pfsense }
-              query: |
-                from(bucket: "pfsense")
-                  |> range(start: -10m)
-                  |> filter(fn: (r) => r._measurement == "mem" and r._field == "used_percent")
-                  |> mean()
-                  |> keep(columns: ["_value"])
+              datasource: { type: prometheus, uid: prometheus }
+              expr: (node_memory_active_bytes{host="pfsense"} + node_memory_wired_bytes{host="pfsense"}) / node_memory_size_bytes{host="pfsense"} * 100
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
           - refId: B
             datasourceUid: __expr__
             relativeTimeRange: { from: 0, to: 0 }
@@ -761,18 +732,16 @@ groups:
           category: pfsense
         data:
           - refId: A
-            datasourceUid: influxdb-pfsense
+            datasourceUid: prometheus
             relativeTimeRange: { from: 600, to: 0 }
             model:
               refId: A
-              datasource: { type: influxdb, uid: influxdb-pfsense }
-              query: |
-                from(bucket: "pfsense")
-                  |> range(start: -5m)
-                  |> filter(fn: (r) => r._measurement == "net" and r._field == "bytes_recv" and r.interface == "{{ alerts.wan_interface }}")
-                  |> derivative(unit: 1s, nonNegative: true)
-                  |> mean()
-                  |> keep(columns: ["_value"])
+              datasource: { type: prometheus, uid: prometheus }
+              expr: sum(rate(node_network_receive_bytes_total{host="pfsense", device="{{ alerts.wan_interface }}"}[5m]))
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
           - refId: B
             datasourceUid: __expr__
             relativeTimeRange: { from: 0, to: 0 }
@@ -797,59 +766,6 @@ groups:
                   reducer: { type: last, params: [] }
                   type: query
 
-      - uid: hl-pfsense-pf-states
-        title: pfSense PF state table near limit
-        condition: C
-        noDataState: OK
-        execErrState: Error
-        for: "5m"
-        isPaused: false
-        annotations:
-          summary: "{% raw %}PF states at {{ printf \"%.1f\" $values.B.Value }}% of limit{% endraw %}"
-          description: "PF state table usage above {{ alerts.pf_states_pct }}% of configured limit"
-        labels:
-          severity: warning
-          category: pfsense
-        data:
-          - refId: A
-            datasourceUid: influxdb-pfsense
-            relativeTimeRange: { from: 600, to: 0 }
-            model:
-              refId: A
-              datasource: { type: influxdb, uid: influxdb-pfsense }
-              query: |
-                from(bucket: "pfsense")
-                  |> range(start: -5m)
-                  |> filter(fn: (r) => r._measurement == "pf" and (r._field == "entries" or r._field == "state-limit"))
-                  |> last()
-                  |> pivot(rowKey: ["host"], columnKey: ["_field"], valueColumn: "_value")
-                  |> filter(fn: (r) => exists r["state-limit"] and r["state-limit"] > 0)
-                  |> map(fn: (r) => ({_value: 100.0 * float(v: r.entries) / float(v: r["state-limit"])}))
-                  |> keep(columns: ["_value"])
-          - refId: B
-            datasourceUid: __expr__
-            relativeTimeRange: { from: 0, to: 0 }
-            model:
-              refId: B
-              datasource: { type: __expr__, uid: __expr__ }
-              type: reduce
-              reducer: last
-              expression: A
-          - refId: C
-            datasourceUid: __expr__
-            relativeTimeRange: { from: 0, to: 0 }
-            model:
-              refId: C
-              datasource: { type: __expr__, uid: __expr__ }
-              type: threshold
-              expression: B
-              conditions:
-                - evaluator: { type: gt, params: [{{ alerts.pf_states_pct }}] }
-                  operator: { type: and }
-                  query: { params: [] }
-                  reducer: { type: last, params: [] }
-                  type: query
-
   - orgId: 1
     name: homelab-postgres
     folder: Homelab
@@ -865,25 +781,22 @@ groups:
         isPaused: false
         annotations:
           summary: "Central PostgreSQL has no metrics"
-          description: "No postgresql samples in last 5m from bucket telegraf-postgres. Server down, mTLS broken, or telegraf agent unable to connect."
+          description: "pg_up is 0 or absent (host=postgres). Server down, mTLS broken, or the Alloy postgres exporter cannot connect."
         labels:
           severity: critical
           category: postgres
         data:
           - refId: A
-            datasourceUid: influxdb
+            datasourceUid: prometheus
             relativeTimeRange: { from: 600, to: 0 }
             model:
               refId: A
-              datasource: { type: influxdb, uid: influxdb }
-              query: |
-                from(bucket: "telegraf-postgres")
-                  |> range(start: -5m)
-                  |> filter(fn: (r) => r._measurement == "postgresql" and r._field == "numbackends")
-                  |> count()
-                  |> group()
-                  |> sum()
-                  |> keep(columns: ["_value"])
+              datasource: { type: prometheus, uid: prometheus }
+              expr: max(pg_up{host="postgres"})
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
           - refId: B
             datasourceUid: __expr__
             relativeTimeRange: { from: 0, to: 0 }
@@ -917,25 +830,22 @@ groups:
         isPaused: false
         annotations:
           summary: "{% raw %}PostgreSQL backends at {{ printf \"%.0f\" $values.B.Value }}{% endraw %}"
-          description: "Total numbackends above {{ alerts.pg_conn_warn }} — approaching max_connections; a client is likely leaking connections."
+          description: "Total backends above {{ alerts.pg_conn_warn }} — approaching max_connections; a client is likely leaking connections."
         labels:
           severity: warning
           category: postgres
         data:
           - refId: A
-            datasourceUid: influxdb
+            datasourceUid: prometheus
             relativeTimeRange: { from: 600, to: 0 }
             model:
               refId: A
-              datasource: { type: influxdb, uid: influxdb }
-              query: |
-                from(bucket: "telegraf-postgres")
-                  |> range(start: -5m)
-                  |> filter(fn: (r) => r._measurement == "postgresql" and r._field == "numbackends")
-                  |> last()
-                  |> group()
-                  |> sum()
-                  |> keep(columns: ["_value"])
+              datasource: { type: prometheus, uid: prometheus }
+              expr: sum(pg_stat_database_numbackends{host="postgres"})
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
           - refId: B
             datasourceUid: __expr__
             relativeTimeRange: { from: 0, to: 0 }
@@ -968,26 +878,23 @@ groups:
         for: "{{ alerts.pg_deadlock_for }}"
         isPaused: false
         annotations:
-          summary: "{% raw %}Deadlocks occurring in database {{ $labels.db }}{% endraw %}"
+          summary: "{% raw %}Deadlocks occurring in database {{ $labels.datname }}{% endraw %}"
           description: "pg_stat_database.deadlocks increased in the last 10m."
         labels:
           severity: warning
           category: postgres
         data:
           - refId: A
-            datasourceUid: influxdb
+            datasourceUid: prometheus
             relativeTimeRange: { from: 600, to: 0 }
             model:
               refId: A
-              datasource: { type: influxdb, uid: influxdb }
-              query: |
-                from(bucket: "telegraf-postgres")
-                  |> range(start: -10m)
-                  |> filter(fn: (r) => r._measurement == "postgresql" and r._field == "deadlocks")
-                  |> group(columns: ["db"])
-                  |> derivative(unit: 1s, nonNegative: true)
-                  |> sum()
-                  |> keep(columns: ["db", "_value"])
+              datasource: { type: prometheus, uid: prometheus }
+              expr: sum by (datname) (increase(pg_stat_database_deadlocks{host="postgres"}[10m]))
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
           - refId: B
             datasourceUid: __expr__
             relativeTimeRange: { from: 0, to: 0 }
@@ -1019,9 +926,9 @@ groups:
     rules:
 
       # Long-lived services run with restart_policy unless-stopped, so a
-      # container persisting in "exited" means stopped by hand or Docker
-      # gave up. Ephemeral task containers (kestra runners) are removed
-      # seconds after exit and stay below the sample-count threshold.
+      # container persisting in "exited" means stopped by hand or Docker gave
+      # up. Ephemeral task containers (kestra runners) are removed seconds
+      # after exit, so the docker-state textfile gauge goes stale and clears.
       - uid: hl-ct-exited
         title: Container stopped
         condition: C
@@ -1030,30 +937,23 @@ groups:
         for: "{{ alerts.container_for }}"
         isPaused: false
         annotations:
-          summary: "{% raw %}Container {{ $labels.container_name }} on {{ $labels.node }} is not running{% endraw %}"
+          summary: "{% raw %}Container {{ $labels.container_name }} on {{ $labels.host }} is not running{% endraw %}"
           description: "Container has been in state 'exited' for more than ~2 minutes."
         labels:
           severity: critical
           category: containers
         data:
           - refId: A
-            datasourceUid: influxdb
-            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: prometheus
+            relativeTimeRange: { from: 600, to: 0 }
             model:
               refId: A
-              datasource: { type: influxdb, uid: influxdb }
-              query: |
-                {% if telegraf_buckets|length > 1 %}union(tables: [{% endif %}
-                {% for b in telegraf_buckets %}{% if loop.index > 1 %},{% endif %}
-                from(bucket: "{{ b }}")
-                  |> range(start: -10m)
-                  |> filter(fn: (r) => r._measurement == "docker_container_status" and r._field == "exitcode" and r.container_status == "exited")
-                  |> map(fn: (r) => ({r with node: "{{ b | replace('telegraf-', '') }}"}))
-                  |> keep(columns: ["_time", "container_name", "node", "_value"])
-                {% endfor %}
-                {% if telegraf_buckets|length > 1 %}]){% endif %}
-                  |> group(columns: ["container_name", "node"])
-                  |> count()
+              datasource: { type: prometheus, uid: prometheus }
+              expr: max by (container_name, host) (docker_container_exited)
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
           - refId: B
             datasourceUid: __expr__
             relativeTimeRange: { from: 0, to: 0 }
@@ -1072,7 +972,7 @@ groups:
               type: threshold
               expression: B
               conditions:
-                - evaluator: { type: gt, params: [{{ alerts.container_exited_min }}] }
+                - evaluator: { type: gt, params: [0] }
                   operator: { type: and }
                   query: { params: [] }
                   reducer: { type: last, params: [] }
@@ -1086,30 +986,23 @@ groups:
         for: "0s"
         isPaused: false
         annotations:
-          summary: "{% raw %}Container {{ $labels.container_name }} on {{ $labels.node }} was OOM-killed{% endraw %}"
-          description: "Docker reported oomkilled=true — raise the container's memory limit or find the leak."
+          summary: "{% raw %}Container {{ $labels.container_name }} on {{ $labels.host }} was OOM-killed{% endraw %}"
+          description: "Docker reported OOMKilled=true — raise the container's memory limit or find the leak."
         labels:
           severity: critical
           category: containers
         data:
           - refId: A
-            datasourceUid: influxdb
+            datasourceUid: prometheus
             relativeTimeRange: { from: 900, to: 0 }
             model:
               refId: A
-              datasource: { type: influxdb, uid: influxdb }
-              query: |
-                {% if telegraf_buckets|length > 1 %}union(tables: [{% endif %}
-                {% for b in telegraf_buckets %}{% if loop.index > 1 %},{% endif %}
-                from(bucket: "{{ b }}")
-                  |> range(start: -10m)
-                  |> filter(fn: (r) => r._measurement == "docker_container_status" and r._field == "oomkilled" and r._value == true)
-                  |> map(fn: (r) => ({r with node: "{{ b | replace('telegraf-', '') }}", _value: 1}))
-                  |> keep(columns: ["_time", "container_name", "node", "_value"])
-                {% endfor %}
-                {% if telegraf_buckets|length > 1 %}]){% endif %}
-                  |> group(columns: ["container_name", "node"])
-                  |> count()
+              datasource: { type: prometheus, uid: prometheus }
+              expr: max by (container_name, host) (max_over_time(docker_container_oom_killed[10m]))
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
           - refId: B
             datasourceUid: __expr__
             relativeTimeRange: { from: 0, to: 0 }
@@ -1140,11 +1033,10 @@ groups:
     interval: 60s
     rules:
 
-{% for b in telegraf_buckets %}
-{% set node = b | replace('telegraf-', '') %}
-      # Container-state and node-gap rules can't see a promtail that is
-      # running but not shipping; absence of ANY log line for a node in
-      # 15m means the log pipeline (promtail → loki) is broken.
+{% for node in monitored_hosts %}
+      # Node-gap rules can't see an Alloy that is running but not shipping
+      # logs; absence of ANY log line for a node in 15m means the log pipeline
+      # (Alloy → Loki) is broken.
       - uid: hl-log-gap-{{ node }}
         title: "Log ingest gap ({{ node }})"
         condition: C
@@ -1154,7 +1046,7 @@ groups:
         isPaused: false
         annotations:
           summary: "No logs from {{ node }} reaching Loki"
-          description: "Zero log lines with node={{ node }} in the last 15m. Promtail on {{ node }} is down or cannot reach Loki."
+          description: "Zero log lines with node={{ node }} in the last 15m. Alloy on {{ node }} is down or cannot reach Loki."
         labels:
           severity: critical
           category: logs
@@ -1192,3 +1084,538 @@ groups:
                   reducer: { type: last, params: [] }
                   type: query
 {% endfor %}
+
+  - orgId: 1
+    name: homelab-homeassistant
+    folder: Homelab
+    interval: 60s
+    rules:
+
+      # HA down / scrape broken — no hass_* metrics reaching Prometheus. noData
+      # is Alerting (the "everything HA is dark" catch); the per-sensor rules
+      # below use noData=OK so they don't all fire at once when HA is down.
+      - uid: hl-ha-down
+        title: Home Assistant metrics gap
+        condition: C
+        noDataState: Alerting
+        execErrState: Error
+        for: "{{ alerts.ha_down_for }}"
+        isPaused: false
+        annotations:
+          summary: "Home Assistant is not exporting metrics"
+          description: "up{job=homeassistant} is 0 or absent — HA container down, or the Alloy scrape of /api/prometheus is failing (expired token?)."
+        labels:
+          severity: critical
+          category: homeassistant
+          node: monitor
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: { from: 600, to: 0 }
+            model:
+              refId: A
+              datasource: { type: prometheus, uid: prometheus }
+              expr: max(up{job="homeassistant"})
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: B
+              datasource: { type: __expr__, uid: __expr__ }
+              type: reduce
+              reducer: last
+              expression: A
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+                  operator: { type: and }
+                  query: { params: [] }
+                  reducer: { type: last, params: [] }
+                  type: query
+
+      # Safety alarm: any water/leak/smoke/gas binary_sensor in the triggered
+      # (=1) state. Multi-dimensional — one alert instance per matching entity.
+      - uid: hl-ha-leak
+        title: Leak / smoke sensor triggered
+        condition: C
+        noDataState: OK
+        execErrState: Error
+        for: "{{ alerts.ha_leak_for }}"
+        isPaused: false
+        annotations:
+          summary: "{% raw %}{{ $labels.friendly_name }} triggered!{% endraw %}"
+          description: "{% raw %}Home Assistant binary sensor {{ $labels.entity }} is in the ON/triggered state (water/leak/smoke/gas).{% endraw %}"
+        labels:
+          severity: critical
+          category: homeassistant
+          node: monitor
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: { from: 300, to: 0 }
+            model:
+              refId: A
+              datasource: { type: prometheus, uid: prometheus }
+              expr: max by (entity, friendly_name) (hass_binary_sensor_state{entity=~"{{ alerts.ha_leak_regex }}"})
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: B
+              datasource: { type: __expr__, uid: __expr__ }
+              type: reduce
+              reducer: last
+              expression: A
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+                  operator: { type: and }
+                  query: { params: [] }
+                  reducer: { type: last, params: [] }
+                  type: query
+
+      # Any battery-powered sensor below threshold (personal phones excluded).
+      - uid: hl-ha-battery-low
+        title: Sensor battery low
+        condition: C
+        noDataState: OK
+        execErrState: Error
+        for: "{{ alerts.ha_battery_for }}"
+        isPaused: false
+        annotations:
+          summary: "{% raw %}{{ $labels.friendly_name }} battery {{ printf \"%.0f\" $values.B.Value }}%{% endraw %}"
+          description: "{% raw %}Battery below {% endraw %}{{ alerts.ha_battery_warn }}% — replace soon."
+        labels:
+          severity: warning
+          category: homeassistant
+          node: monitor
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: { from: 600, to: 0 }
+            model:
+              refId: A
+              datasource: { type: prometheus, uid: prometheus }
+              expr: min by (entity, friendly_name) (hass_sensor_battery_percent{entity!~"{{ alerts.ha_battery_exclude }}"})
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: B
+              datasource: { type: __expr__, uid: __expr__ }
+              type: reduce
+              reducer: last
+              expression: A
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: lt, params: [{{ alerts.ha_battery_warn }}] }
+                  operator: { type: and }
+                  query: { params: [] }
+                  reducer: { type: last, params: [] }
+                  type: query
+
+      # Climate sensor stopped reporting (unavailable) — dead battery/radio
+      # dropout. One instance per offline temperature/humidity entity.
+      - uid: hl-ha-sensor-offline
+        title: Climate sensor offline
+        condition: C
+        noDataState: OK
+        execErrState: Error
+        for: "{{ alerts.ha_offline_for }}"
+        isPaused: false
+        annotations:
+          summary: "{% raw %}{{ $labels.friendly_name }} unavailable{% endraw %}"
+          description: "{% raw %}HA reports entity {{ $labels.entity }} unavailable for {% endraw %}{{ alerts.ha_offline_for }} — dead battery or radio dropout."
+        labels:
+          severity: warning
+          category: homeassistant
+          node: monitor
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: { from: 900, to: 0 }
+            model:
+              refId: A
+              datasource: { type: prometheus, uid: prometheus }
+              expr: max by (entity, friendly_name) (hass_entity_available{entity=~"{{ alerts.ha_offline_regex }}"})
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: B
+              datasource: { type: __expr__, uid: __expr__ }
+              type: reduce
+              reducer: last
+              expression: A
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+                  operator: { type: and }
+                  query: { params: [] }
+                  reducer: { type: last, params: [] }
+                  type: query
+
+  - orgId: 1
+    name: homelab-certs
+    folder: Homelab
+    interval: 300s
+    rules:
+
+      # TLS cert expiry from the blackbox HTTPS probes (probe_ssl_earliest_cert_expiry
+      # is a future unix ts; internal http probes don't emit it → the > 0 guard).
+      - uid: hl-cert-expiry-warn
+        title: TLS certificate expiring (warn)
+        condition: C
+        noDataState: OK
+        execErrState: Error
+        for: "{{ alerts.cert_for }}"
+        isPaused: false
+        annotations:
+          summary: "{% raw %}{{ $labels.service }} cert on {{ $labels.host }} expires in {{ printf \"%.0f\" $values.B.Value }}d{% endraw %}"
+          description: "{% raw %}TLS certificate expires in under {% endraw %}{{ alerts.cert_warn_days }} days — renewal (Traefik/Cloudflare DNS) may be stuck."
+        labels:
+          severity: warning
+          category: certs
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: { from: 600, to: 0 }
+            model:
+              refId: A
+              datasource: { type: prometheus, uid: prometheus }
+              expr: min by (service, host) (((probe_ssl_earliest_cert_expiry - time()) / 86400) and (probe_ssl_earliest_cert_expiry > 0))
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: B
+              datasource: { type: __expr__, uid: __expr__ }
+              type: reduce
+              reducer: last
+              expression: A
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: lt, params: [{{ alerts.cert_warn_days }}] }
+                  operator: { type: and }
+                  query: { params: [] }
+                  reducer: { type: last, params: [] }
+                  type: query
+
+      - uid: hl-cert-expiry-crit
+        title: TLS certificate expiring (critical)
+        condition: C
+        noDataState: OK
+        execErrState: Error
+        for: "{{ alerts.cert_for }}"
+        isPaused: false
+        annotations:
+          summary: "{% raw %}{{ $labels.service }} cert on {{ $labels.host }} expires in {{ printf \"%.0f\" $values.B.Value }}d{% endraw %}"
+          description: "{% raw %}TLS certificate expires in under {% endraw %}{{ alerts.cert_crit_days }} days — imminent outage if not renewed."
+        labels:
+          severity: critical
+          category: certs
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: { from: 600, to: 0 }
+            model:
+              refId: A
+              datasource: { type: prometheus, uid: prometheus }
+              expr: min by (service, host) (((probe_ssl_earliest_cert_expiry - time()) / 86400) and (probe_ssl_earliest_cert_expiry > 0))
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: B
+              datasource: { type: __expr__, uid: __expr__ }
+              type: reduce
+              reducer: last
+              expression: A
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: lt, params: [{{ alerts.cert_crit_days }}] }
+                  operator: { type: and }
+                  query: { params: [] }
+                  reducer: { type: last, params: [] }
+                  type: query
+
+  - orgId: 1
+    name: homelab-node-extra
+    folder: Homelab
+    interval: 60s
+    rules:
+
+      # Boot time jumped → host restarted (crash or planned). Fires once.
+      - uid: hl-node-rebooted
+        title: Host rebooted
+        condition: C
+        noDataState: OK
+        execErrState: Error
+        for: "{{ alerts.reboot_for }}"
+        isPaused: false
+        annotations:
+          summary: "{% raw %}{{ $labels.host }} rebooted{% endraw %}"
+          description: "{% raw %}node_boot_time_seconds changed in the last {% endraw %}{{ alerts.reboot_window }} — unexpected restart unless you planned it."
+        labels:
+          severity: warning
+          category: system
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: { from: 900, to: 0 }
+            model:
+              refId: A
+              datasource: { type: prometheus, uid: prometheus }
+              expr: max by (host) (changes(node_boot_time_seconds[{{ alerts.reboot_window }}]))
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: B
+              datasource: { type: __expr__, uid: __expr__ }
+              type: reduce
+              reducer: last
+              expression: A
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+                  operator: { type: and }
+                  query: { params: [] }
+                  reducer: { type: last, params: [] }
+                  type: query
+
+      # A real (disk-backed) filesystem flipped read-only — usually disk or
+      # controller errors. Restricted to ext*/xfs/btrfs/zfs to skip netns noise.
+      - uid: hl-fs-readonly
+        title: Filesystem read-only
+        condition: C
+        noDataState: OK
+        execErrState: Error
+        for: "{{ alerts.fs_readonly_for }}"
+        isPaused: false
+        annotations:
+          summary: "{% raw %}{{ $labels.mountpoint }} on {{ $labels.host }} is read-only{% endraw %}"
+          description: "A disk filesystem is mounted read-only — check dmesg/SMART for I/O errors."
+        labels:
+          severity: critical
+          category: system
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: { from: 300, to: 0 }
+            model:
+              refId: A
+              datasource: { type: prometheus, uid: prometheus }
+              expr: max by (host, mountpoint) (node_filesystem_readonly{fstype=~"ext.*|xfs|btrfs|zfs"})
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: B
+              datasource: { type: __expr__, uid: __expr__ }
+              type: reduce
+              reducer: last
+              expression: A
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+                  operator: { type: and }
+                  query: { params: [] }
+                  reducer: { type: last, params: [] }
+                  type: query
+
+      # Any hardware sensor (CPU/NVMe) over threshold — cooling/airflow issue.
+      - uid: hl-hwtemp-high
+        title: Hardware temperature high
+        condition: C
+        noDataState: OK
+        execErrState: Error
+        for: "{{ alerts.hwtemp_for }}"
+        isPaused: false
+        annotations:
+          summary: "{% raw %}{{ $labels.host }} hardware temp {{ printf \"%.0f\" $values.B.Value }}C{% endraw %}"
+          description: "{% raw %}A hardware sensor exceeds {% endraw %}{{ alerts.hwtemp_warn }}C — check cooling/airflow."
+        labels:
+          severity: warning
+          category: system
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: { from: 900, to: 0 }
+            model:
+              refId: A
+              datasource: { type: prometheus, uid: prometheus }
+              expr: max by (host) (node_hwmon_temp_celsius)
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: B
+              datasource: { type: __expr__, uid: __expr__ }
+              type: reduce
+              reducer: last
+              expression: A
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [{{ alerts.hwtemp_warn }}] }
+                  operator: { type: and }
+                  query: { params: [] }
+                  reducer: { type: last, params: [] }
+                  type: query
+
+  - orgId: 1
+    name: homelab-security
+    folder: Homelab
+    interval: 60s
+    rules:
+
+      # CrowdSec engine not being scraped (container down) — the Traefik bouncer
+      # on that host loses its decision source. Not covered by the blackbox
+      # service-down rules (crowdsec :6060 is a metrics scrape, not a probe).
+      - uid: hl-crowdsec-down
+        title: CrowdSec engine down
+        condition: C
+        noDataState: OK
+        execErrState: Error
+        for: "{{ alerts.crowdsec_down_for }}"
+        isPaused: false
+        annotations:
+          summary: "{% raw %}CrowdSec on {{ $labels.host }} is not reporting{% endraw %}"
+          description: "{% raw %}up{job=\"crowdsec\"} is 0 on {{ $labels.host }} — the CrowdSec container is down; its Traefik bouncer has no live decisions (IDS effectively failing open).{% endraw %}"
+        labels:
+          severity: critical
+          category: security
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: { from: 600, to: 0 }
+            model:
+              refId: A
+              datasource: { type: prometheus, uid: prometheus }
+              expr: max by (host) (up{job="crowdsec"})
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: B
+              datasource: { type: __expr__, uid: __expr__ }
+              type: reduce
+              reducer: last
+              expression: A
+          - refId: C
+            datasourceUid: __expr__
+            relativeTimeRange: { from: 0, to: 0 }
+            model:
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+                  operator: { type: and }
+                  query: { params: [] }
+                  reducer: { type: last, params: [] }
+                  type: query

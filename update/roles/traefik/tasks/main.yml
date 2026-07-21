@@ -14,6 +14,7 @@
       - "no-new-privileges:true"
     networks:
       - name: proxy
+        ipv4_address: "{{ ip['traefik'] }}"
       - name: bridge
     etc_hosts:
       "host.docker.internal": "host-gateway"

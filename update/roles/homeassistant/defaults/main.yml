@@ -6,6 +6,8 @@ user:
 homeassistant:
   host: "Host(`ha.example.com`)"
   port: "8123"
+  # long-lived access token the Alloy agent uses to scrape /api/prometheus
+  prometheus_token: "changeme"
 
 # MQTT broker Home Assistant connects to. user/password feed the mosquitto
 # password_file (anonymous access is disabled) — every MQTT client (HA

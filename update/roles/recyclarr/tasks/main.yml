@@ -22,6 +22,7 @@
     restart_policy: unless-stopped
     networks:
       - name: proxy
+        ipv4_address: "{{ ip['recyclarr'] }}"
     env:
       TZ: "Europe/Belgrade"
       CRON_SCHEDULE: "0 3 * * *"

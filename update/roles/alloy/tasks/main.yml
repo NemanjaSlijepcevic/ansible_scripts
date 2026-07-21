@@ -1,0 +1,92 @@
+---
+- name: Create environment
+  ansible.builtin.include_tasks: environment.yml
+
+# Big-bang cutover: Alloy takes over from telegraf + promtail. Remove the old
+# agents so they stop writing to InfluxDB/Loki and free the docker.sock/log
+# mounts. Idempotent — a no-op once they are gone.
+- name: Remove legacy telegraf container
+  community.docker.docker_container:
+    name: telegraf
+    state: absent
+
+- name: Remove legacy promtail container
+  community.docker.docker_container:
+    name: promtail
+    state: absent
+
+- name: Set alloy volumes
+  ansible.builtin.set_fact:
+    alloy_volumes:
+      - ./data/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - ./data/alloy/data:/var/lib/alloy/data
+      - /:/rootfs:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /var/log:/var/log:ro
+      - ./data/traefik/logs:/srv/traefik-logs:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/alloy/textfiles:/textfiles:ro
+      # cadvisor resolves each container through containerd, not just the docker
+      # API. Without this socket every per-container handler fails with "cannot
+      # unix dial containerd api service" and only the root cgroup ("/") is
+      # exported — no container_* series at all. /dev/disk backs its diskstats.
+      - /run/containerd/containerd.sock:/run/containerd/containerd.sock:ro
+      - /dev/disk:/dev/disk:ro
+
+- name: Add postgres cert volume
+  ansible.builtin.set_fact:
+    alloy_volumes: "{{ alloy_volumes + ['./data/certs:/postgres-certs:ro'] }}"
+  when: current_host == 'postgres'
+
+# Only hosts with alloy.syslog defined (the monitor) publish syslog ports -
+# one entry per device x protocol (default udp); other hosts leave ports unset.
+# On hosts whose public domains are Cloudflare-proxied (the server), Cloudflare
+# 403-challenges probes from the VPS's own IP. Pin each domain check to the
+# local Traefik so blackbox hits the origin directly, past Cloudflare.
+- name: Build origin overrides for domain probes
+  ansible.builtin.set_fact:
+    alloy_extra_hosts: >-
+      {{ dict(alloy.http_checks
+              | map(attribute='url') | map('urlsplit', 'hostname')
+              | reject('equalto', '') | unique
+              | zip_longest([], fillvalue=alloy.origin_ip)) }}
+  when:
+    - alloy.origin_ip is defined
+    - alloy.http_checks is defined
+
+- name: Publish syslog ports
+  ansible.builtin.set_fact:
+    alloy_ports: "{{ alloy_ports | default([]) + [item.0.port ~ ':' ~ item.0.port ~ '/' ~ item.1] }}"
+  loop: "{{ alloy.syslog.devices | subelements('protocols', skip_missing=True) }}"
+  loop_control:
+    label: "{{ item.0.name }}/{{ item.1 }}"
+  when: alloy.syslog is defined
+
+- name: Deploy alloy container
+  community.docker.docker_container:
+    name: alloy
+    image: grafana/alloy:latest
+    pull: true
+    restart_policy: unless-stopped
+    security_opts:
+      - "no-new-privileges:true"
+    networks:
+      - name: proxy
+        ipv4_address: "{{ ip['alloy'] }}"
+    ports: "{{ alloy_ports | default(omit) }}"
+    etc_hosts: "{{ alloy_extra_hosts | default(omit) }}"
+    command: >-
+      run
+      --server.http.listen-addr=0.0.0.0:12345
+      --storage.path=/var/lib/alloy/data
+      /etc/alloy/config.alloy
+    env:
+      TZ: "Europe/Belgrade"
+    volumes: "{{ alloy_volumes }}"
+    healthcheck:
+      test: ["CMD", "alloy", "--version"]
+      interval: 1m30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s

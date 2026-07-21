@@ -54,6 +54,7 @@
     restart_policy: unless-stopped
     networks:
       - name: proxy
+        ipv4_address: "{{ ip['mosquitto'] }}"
     ports:
       - "1883:1883"
     env:
@@ -67,3 +68,24 @@
       traefik.http.routers.mosquitto.rule: "{{ mqtt.host }}"
       traefik.http.routers.mosquitto.tls: "true"
       traefik.http.services.mosquitto.loadbalancer.server.port: "{{ mqtt.port }}"
+    # No HTTP endpoint - a functional check: publish to a throwaway topic with
+    # the broker credentials, proving it accepts authenticated connections on
+    # 1883 (image ships mosquitto_pub).
+    healthcheck:
+      test:
+        - "CMD"
+        - "mosquitto_pub"
+        - "-h"
+        - "127.0.0.1"
+        - "-u"
+        - "{{ mqtt.user }}"
+        - "-P"
+        - "{{ mqtt.password }}"
+        - "-t"
+        - "healthcheck/ping"
+        - "-m"
+        - "ok"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

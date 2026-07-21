@@ -41,6 +41,7 @@
     pull: true
     networks:
       - name: proxy
+        ipv4_address: "{{ ip['public_ip_whitelist_updater'] }}"
     dns_servers:
       - "{{ default.dns }}"
     env:
@@ -51,6 +52,14 @@
       - ./data/traefik/rules/default-whitelist.yml:/app/configuration.yml:rw
       - ./data/public_ip_whitelist_updater/app.log:/app/app.log:rw
     restart_policy: unless-stopped
+    # Background worker with no HTTP endpoint - liveness = its main.py process
+    # is still running (a crashed worker that didn't exit the container).
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "main.py"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
 - name: Create logrotate config for whitlist_updater
   ansible.builtin.template:

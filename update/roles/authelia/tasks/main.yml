@@ -49,6 +49,7 @@
     restart_policy: unless-stopped
     networks:
       - name: proxy
+        ipv4_address: "{{ ip['authelia'] }}"
     volumes:
       - ./data/authelia/config:/config
       - ./data/authelia/logs:/var/log/

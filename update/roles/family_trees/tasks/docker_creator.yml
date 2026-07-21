@@ -21,8 +21,23 @@
     restart_policy: unless-stopped
     networks:
       - name: proxy
+        ipv4_address: "{{ ip[container_name] }}"
     volumes:
       - "{{ volume }}:/usr/share/nginx/html:ro"
     env:
       TZ: Europe/Belgrade
     labels: "{{ traefik_labels }}"
+    # Serve-check a known static page (returns a plain 200, no redirect).
+    # nginx:latest ships curl.
+    healthcheck:
+      test:
+        - "CMD"
+        - "curl"
+        - "-fsS"
+        - "-o"
+        - "/dev/null"
+        - "http://localhost/{{ family.name }}.html.files/p833.html"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

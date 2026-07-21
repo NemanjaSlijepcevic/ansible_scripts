@@ -2,13 +2,13 @@
 
 ## Purpose
 
-Deploys Grafana OSS as a Docker container on the monitor host. Grafana is the dashboarding layer that visualises metrics stored in InfluxDB and Prometheus. The container runs as a specific user/group (`puid:pgid`) and stores its configuration and dashboards in `./data/grafana/`.
+Deploys Grafana OSS as a Docker container on the monitor host. Grafana is the dashboarding layer that visualises metrics stored in Prometheus and logs in Loki. The container runs as a specific user/group (`puid:pgid`) and stores its configuration and dashboards in `./data/grafana/`.
 
 ## Prerequisites
 
 - `common` role must have run.
 - `traefik` role must have run.
-- `influxdb` and `prometheus` roles should have run (data sources).
+- `prometheus` and `loki` roles should have run (data sources).
 - Variables: `grafana.*`, `puid`, `pgid`, `default.dns`.
 
 ## Manual Execution Guide
@@ -67,22 +67,46 @@ On first access, log in with the default credentials `admin`/`admin` and immedia
 
 ---
 
+## Provisioned Dashboards
+
+Dashboard JSON in `files/*.json` is synced to `./data/grafana/provisioning/dashboards/json/` with `__PROMETHEUS_UID__` / `__LOKI_UID__` replaced by the real datasource uids. The glob is **not** recursive — `files/flux-reference/` holds the pre-migration InfluxDB/Flux originals and is deliberately kept out of it.
+
+Every dashboard is the Flux original ported panel-for-panel to PromQL (same layout, titles, units, thresholds); legacy Angular `graph` panels became `timeseries`.
+
+| File | uid | Source |
+|------|-----|--------|
+| `node-overview.json` | `homelab-node-overview` | Prometheus — `node_*` (Alloy unix exporter), cadvisor `container_*`, textfile `docker_*`; vars `$host`, `$container` |
+| `http-uptime.json` | `homelab-http-uptime` | Prometheus — blackbox `probe_*`; row repeats per `$host`, `$via` = internal/domain |
+| `traefik.json` | `homelab-traefik` | Prometheus — `traefik_*` (`:8082/metrics`) + Loki for the log panels |
+| `postgres.json` | `homelab-postgres` | Prometheus — `pg_stat_database_*` (Alloy postgres exporter, postgres host only) |
+| `pfsense.json` | `homelab-pfsense` | Prometheus — FreeBSD `node_*`, scraped at `pfsense_exporter.target` |
+| `proxmox.json` | `homelab-proxmox` | Prometheus — `pve_*` (pve-exporter); guest name/node joined from `pve_guest_info` |
+| `loki-overview.json` | `homelab-loki-overview` | Loki |
+
+Panels whose telegraf source has no exporter equivalent were dropped or repurposed rather than left blank:
+
+- **pfSense** — `PF Information` removed and `Process Information` / `Active Users` replaced by `System Information` / `CPU Cores`: FreeBSD node_exporter exports no pf counters, process states, or logged-in users.
+- **Proxmox** — `Swap Total`, `Load Avg (1m)`, `I/O Wait` removed; pve-exporter reports none of them (they would need a node_exporter on the PVE host).
+- **Node overview** — `Unhealthy` became `OOM-killed` (`docker_container_oom_killed`); cadvisor has no healthcheck state. `Stopped Containers` lists exited/OOM-killed names only — exit code and restart count are not exported.
+
+---
+
 ## Provisioned Alerting
 
-Alert rules, the Telegram contact point, and the notification policy are file-provisioned from `templates/provisioning/alerting/` (`rules.yaml.j2`, `contact-points.yaml.j2`, `policies.yaml.j2`). Thresholds and evaluation windows live in the role's `alerts` dict (see `defaults/main.yml`); the monitored host list is derived from `telegraf_buckets` / `traefik_alert_buckets`. Hosts not yet deployed stay commented out in `telegraf_buckets` — their node-gap/log-gap dead-man rules would otherwise fire forever. When a per-host rule is removed from the template, its uid must also be added to `deleteRules` at the top of `rules.yaml.j2`; file provisioning never deletes an already-provisioned rule on its own.
+Alert rules, the Telegram contact point, and the notification policy are file-provisioned from `templates/provisioning/alerting/` (`rules.yaml.j2`, `contact-points.yaml.j2`, `policies.yaml.j2`). Thresholds and evaluation windows live in the role's `alerts` dict (see `defaults/main.yml`); the monitored host list is derived from `monitored_hosts` / `traefik_alert_hosts`. Hosts not yet deployed stay commented out in `monitored_hosts` — their node-gap/log-gap dead-man rules would otherwise fire forever. When a per-host rule is removed from the template, its uid must also be added to `deleteRules` at the top of `rules.yaml.j2`; file provisioning never deletes an already-provisioned rule on its own.
 
-**Log noise (`grafana_log_filters`):** Grafana's `expr` engine logs a `warn` ("Ignoring InfluxDB data frame due to missing numeric fields") on every alert evaluation where a query returns an empty frame — e.g. a service with no 5xx or no recent requests. It's benign (the rule still evaluates its numeric frames) but very high-volume. The role sets `GF_LOG_FILTERS` from `grafana_log_filters` (default `expr:error,tsdb.loki:error`) to raise those loggers to error — `expr` kills the numeric-fields warns, `tsdb.loki` kills the per-query "Response received from loki" info lines. Genuine errors still log. Set it to `""` to restore full verbosity.
+**Log noise (`grafana_log_filters`):** Grafana's `expr` engine logs a `warn` ("Ignoring data frame due to missing numeric fields") on every alert evaluation where a query returns an empty frame — e.g. a service with no 5xx or no recent requests. It's benign (the rule still evaluates its numeric frames) but very high-volume. The role sets `GF_LOG_FILTERS` from `grafana_log_filters` (default `expr:error,tsdb.loki:error`) to raise those loggers to error — `expr` kills the numeric-fields warns, `tsdb.loki` kills the per-query "Response received from loki" info lines. Genuine errors still log. Set it to `""` to restore full verbosity.
 
 | Group | Rules | Source |
 |-------|-------|--------|
-| `homelab-http-uptime` | service down, slow response (warn/crit), per-host telegraf gap (`noDataState: Alerting`) | InfluxDB, `http_response` + `system` |
-| `homelab-system` | CPU, memory, disk-space per host | InfluxDB, `cpu`/`mem`/`disk` |
-| `homelab-proxmox` | host CPU, memory | InfluxDB `proxmox` bucket |
-| `homelab-traefik` | 5xx rate, p95 latency per host | InfluxDB `traefik-*` buckets |
-| `homelab-pfsense` | CPU, memory, WAN no-traffic, PF state table | InfluxDB `pfsense` bucket |
-| `homelab-postgres` | metrics gap (`noDataState: Alerting`), connection count (`pg_conn_warn`), deadlock increase | InfluxDB `telegraf-postgres`, `inputs.postgresql` |
-| `homelab-containers` | container persisting in `exited` (> `container_exited_min` samples/10m — ephemeral task containers stay below it), OOM-killed container | InfluxDB, `docker_container_status` across all buckets |
-| `homelab-logs` | per-host log ingest gap: zero Loki lines with `node=<host>` in 15m (`noDataState: Alerting`) — catches a dead/stuck promtail | Loki datasource |
+| `homelab-http-uptime` | service down, slow response (warn/crit), per-host metrics gap (`noDataState: Alerting`) | Prometheus — `probe_*`, `node_time_seconds` |
+| `homelab-system` | CPU, memory, disk-space per host | Prometheus — `node_cpu_*`/`node_memory_*`/`node_filesystem_*` |
+| `homelab-proxmox` | host CPU, memory | Prometheus — `pve_*` |
+| `homelab-traefik` | 5xx rate, p95 latency per host | Prometheus — `traefik_service_*` |
+| `homelab-pfsense` | CPU, memory, WAN no-traffic | Prometheus — FreeBSD `node_*` |
+| `homelab-postgres` | metrics gap (`noDataState: Alerting`), connection count (`pg_conn_warn`), deadlock increase | Prometheus — `pg_stat_database_*` |
+| `homelab-containers` | container persisting in `exited` (> `container_exited_min` samples/10m — ephemeral task containers stay below it), OOM-killed container | Prometheus — textfile `docker_container_exited` / `docker_container_oom_killed` |
+| `homelab-logs` | per-host log ingest gap: zero Loki lines with `node=<host>` in 15m (`noDataState: Alerting`) — catches a dead/stuck Alloy | Loki datasource |
 
 Alerts fan out to two contact points (all provisioned rules carry a `severity` label, which both routes match):
 

@@ -18,6 +18,7 @@
     restart_policy: unless-stopped
     networks:
       - name: proxy
+        ipv4_address: "{{ ip['jellyfin'] }}"
     env:
       PUID: "{{ puid }}"
       PGID: "{{ pgid }}"

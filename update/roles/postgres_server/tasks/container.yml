@@ -29,7 +29,7 @@
     stop_timeout: 90
     networks:
       - name: proxy
-        ipv4_address: "{{ postgres.static }}"
+        ipv4_address: "{{ ip['postgres-db'] }}"
     env:
       POSTGRES_USER: "{{ postgres.adm_user }}"
       POSTGRES_PASSWORD: "{{ postgres.adm_pass }}"

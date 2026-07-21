@@ -1,0 +1,71 @@
+---
+# Documentation-only defaults for the alloy role.
+# Copy the shape into host_vars/group_vars and replace with real values,
+# then keep the real inventory encrypted. Values below are placeholders.
+#
+# Alloy replaces the old telegraf + promtail agents on every host: it ships
+# container/file logs to Loki AND scrapes host/container/http/postgres metrics,
+# remote-writing them to Prometheus on the monitor host.
+
+user:
+  name: "deploy"
+  group: "docker"
+
+# Loki push endpoint (logs). Monitor host writes to the local container name;
+# every other host pushes over its public https domain through Traefik.
+loki_ingest_url: "http://loki:3100/loki/api/v1/push"
+
+# Prometheus remote-write endpoint (metrics). Same split as loki_ingest_url:
+# monitor -> http://prometheus:9090/api/v1/write ; others -> https domain.
+alloy_metrics_url: "https://prometheus.example.com/api/v1/write"
+
+# Scrape/gather interval. Raise to "30s" on hosts where docker runs on
+# fuse-overlayfs (cadvisor's per-scrape file access is amplified through FUSE).
+alloy_scrape_interval: "15s"
+
+# Node/host label applied to all logs and metrics. Normally set per-playbook.
+current_host: "example"
+
+alloy:
+  static: "172.20.0.70"
+  # Optional. Present only on the host that collects syslog from network gear
+  # (pfSense, APs) that can't run an agent. When set, the alloy container
+  # publishes each device's port (udp+tcp) and runs a loki.source.syslog
+  # listener per device that relays straight to Loki.
+  # One port PER device: docker SNATs published traffic to the bridge gateway
+  # so the source IP can't separate senders - the port carries the identity,
+  # stamped as the "device" label. format: rfc3164 (BSD default) or rfc5424,
+  # overridable per device. protocols: per-device list, default ["udp"] (how
+  # pfSense/Omada actually send; add "tcp" only for a device that needs it).
+  # Omit the whole block on hosts with no syslog input.
+  syslog:
+    format: rfc3164
+    devices:
+      - { name: firewall, port: 1514, protocols: ["udp"] }
+      - { name: accesspoint, port: 1515, protocols: ["udp"] }
+  # HTTP uptime checks probed via the blackbox exporter. Each entry is probed
+  # twice: once at its internal URL (via=internal) and once at its public
+  # domain (via=domain). List every service on the host that answers HTTP -
+  # this drives both the http-uptime dashboard and its alert rules.
+  # internal_module (optional, default "http_2xx"): strict 2xx, since the
+  # internal probe hits the container directly with no auth in front.
+  # domain_module (optional, default "http_2xx_or_redirect"): the public
+  # domain goes through Traefik+Authelia, so a login redirect (302) or auth
+  # challenge (401) means "up and routing" - only a timeout/5xx is DOWN.
+  # Override either with "http_2xx" (force strict), "http_2xx_or_redirect",
+  # or "http_2xx_authed" (service needs the api_ip_token bearer on every route).
+  http_checks:
+    - name: "example-service"
+      internal_url: "http://example:8080/health"
+      url: "https://service.example.com"
+
+# Postgres instance the postgres-exporter collects from (postgres host only).
+# Connects over mTLS using the client cert mounted at /postgres-certs.
+postgres:
+  port: 5432
+  adm_user: "postgres"
+  adm_pass: "changeme"
+
+# Set on fuse-overlayfs hosts so the docker-state textfile script skips the
+# runaway /system/df layer walk. Normally derived from docker_storage_driver.
+docker_storage_driver: ""

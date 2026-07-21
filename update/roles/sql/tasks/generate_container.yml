@@ -9,9 +9,17 @@
     command: "--character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci"
     networks:
       - name: proxy
-        ipv4_address: "{{ db.static }}"
+        ipv4_address: "{{ ip[db.name] }}"
     volumes:
       - "{{ db.volume }}:/var/lib/mysql"
     env:
       TZ: "Europe/Belgrade"
       MARIADB_ROOT_PASSWORD: "{{ db.pass }}"
+    # Official mariadb image ships healthcheck.sh; --connect verifies it accepts
+    # connections and --innodb_initialized that startup/recovery has finished.
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s

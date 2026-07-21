@@ -1,0 +1,15 @@
+---
+# Use the docker CLI, NOT community.docker.docker_container, for the restart:
+# `docker restart` races the stale graphdriver state on fuse-overlayfs hosts and
+# would not re-bind the replaced (new-inode) prometheus.yml single-file mount;
+# a sparse docker_container task would recreate the container to image defaults.
+# Separate CLI stop + start reloads the config without either failure mode.
+- name: Stop prometheus
+  ansible.builtin.command: docker stop prometheus
+  changed_when: true
+  listen: Restart prometheus
+
+- name: Start prometheus
+  ansible.builtin.command: docker start prometheus
+  changed_when: true
+  listen: Restart prometheus

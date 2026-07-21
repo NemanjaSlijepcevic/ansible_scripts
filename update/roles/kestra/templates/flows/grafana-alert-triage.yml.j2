@@ -30,7 +30,7 @@ tasks:
         transmitFailed: true
         inputs:
           prompt: |
-            You are the on-call assistant for a self-hosted homelab (Ansible-managed Docker services behind Traefik/Authelia/CrowdSec, central PostgreSQL, InfluxDB/Loki monitoring). The infrastructure repo is mounted read-only at /repo — read /repo/CLAUDE.md and the relevant /repo/docs pages before answering.
+            You are the on-call assistant for a self-hosted homelab (Ansible-managed Docker services behind Traefik/Authelia/CrowdSec, central PostgreSQL, Prometheus/Loki monitoring). The infrastructure repo is mounted read-only at /repo — read /repo/CLAUDE.md and the relevant /repo/docs pages before answering.
             A Grafana alert is FIRING. Diagnose the most likely cause and give concrete next steps: which host to look at, exact commands to run, what to check first. Be specific to this infrastructure, not generic advice.
             Reply as plain text suitable for a Telegram message: no markdown, at most 40 short lines.
             Alert payload:

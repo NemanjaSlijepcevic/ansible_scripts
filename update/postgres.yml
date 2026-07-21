@@ -13,8 +13,7 @@
     - { role: authelia, tags: ['authelia', 'proxy', 'security'] }
     - { role: traefik, tags: ['traefik', 'proxy', 'security'] }
     - { role: crowdsec, tags: ['crowdsec', 'proxy', 'security'] }
-    - { role: telegraf, tags: ['telegraf', 'metrics', 'monitoring'] }
-    - { role: promtail, tags: ['promtail', 'logs', 'monitoring'] }
+    - { role: alloy, tags: ['alloy', 'metrics', 'logs', 'monitoring'] }
 
 - name: "Prepare PostgreSQL for NAS"
   hosts: nass

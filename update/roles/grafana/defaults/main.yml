@@ -12,10 +12,9 @@ grafana:
   port: "3000"
 
 # Per-logger log level overrides (GF_LOG_FILTERS, "logger:level" CSV).
-# `expr:error` silences the benign "missing numeric fields" warn spam from
-# empty InfluxDB alert frames; `tsdb.loki:error` drops the per-query
-# "Response received from loki" info lines. Errors still log. Set to "" to
-# restore full verbosity.
+# `expr:error` silences benign "missing numeric fields" warn spam from empty
+# alert frames; `tsdb.loki:error` drops the per-query "Response received from
+# loki" info lines. Errors still log. Set to "" to restore full verbosity.
 grafana_log_filters: "expr:error,tsdb.loki:error"
 
 # Authelia OIDC endpoint used for SSO login.
@@ -27,32 +26,33 @@ authelia_links:
 # key is the kestra role's grafana_webhook_key — treat the URL as secret.
 grafana_alert_webhook: "https://kestra.example.com/api/v1/main/executions/webhook/automation/grafana-alert-triage/changeme"
 
-# Telegraf bucket names monitored by alert rules.
-# Each entry corresponds to a current_host value used in update/<host>.yml.
-telegraf_buckets:
-  - "telegraf-nas"
-  - "telegraf-server"
-  - "telegraf-monitor"
-  - "telegraf-postgres"
-  - "telegraf-netboot"
+# Hosts monitored by alert rules. Each entry is a current_host value used in
+# update/<host>.yml — it matches the `host` (metrics) and `node` (logs) label
+# Alloy stamps on every series. Replaces the old telegraf-<host> bucket list.
+monitored_hosts:
+  - "nas"
+  - "server"
+  - "monitor"
+  - "postgres"
+  - "netboot"
   # immich host not deployed yet — uncomment when it starts pushing
   # metrics, or its node-gap/log-gap dead-man rules fire forever
-  # - "telegraf-immich"
-  - "telegraf-automation"
+  # - "immich"
+  - "automation"
 
-# Per-host Traefik buckets monitored by traefik alert rules.
-traefik_alert_buckets:
-  - "traefik-nas"
-  - "traefik-server"
-  - "traefik-monitor"
-  - "traefik-netboot"
-  - "traefik-postgres"
+# Hosts whose Traefik metrics are watched by the 5xx/p95 alert rules.
+traefik_alert_hosts:
+  - "nas"
+  - "server"
+  - "monitor"
+  - "netboot"
+  - "postgres"
   # HIDDEN: automation serves almost no HTTP, so the 5xx/p95 queries return
   # empty frames → Grafana errors the rule and floods "missing numeric
   # fields". Re-enable (and drop the two matching deleteRules in
   # rules.yaml.j2) once the host has real traffic or the rule tolerates
   # empty data.
-  # - "traefik-automation"
+  # - "automation"
 
 # Alert thresholds for HTTP uptime and system rules.
 alerts:
@@ -60,38 +60,56 @@ alerts:
   rt_warn: 1.0                      # response_time seconds
   rt_crit: 3.0
   rt_for: "5m"
-  node_gap_for: "5m"                # no telegraf data → node down
-  cpu_warn: 90                      # cpu usage_active %
+  node_gap_for: "5m"                # no node_exporter data → node down
+  cpu_warn: 90                      # cpu busy %
   cpu_for: "10m"
-  mem_warn: 90                      # mem used_percent
+  mem_warn: 90                      # mem used %
   mem_for: "10m"
-  disk_crit: 90                     # disk used_percent
+  disk_crit: 90                     # filesystem used %
   disk_for: "5m"
-  # Proxmox (bucket: proxmox, native v2 push)
+  # Proxmox (prometheus-pve-exporter)
   proxmox_cpu_warn: 85              # %
   proxmox_mem_warn: 85              # %
   proxmox_for: "10m"
-  # Traefik (per-host buckets)
+  # Traefik (per-host metrics, host label)
   traefik_5xx_rate: 5               # req/s sustained
   traefik_5xx_for: "5m"
   traefik_p95_warn: 2.0             # seconds
   traefik_p95_for: "5m"
-  # pfSense (bucket: pfsense)
+  # pfSense (node_exporter on FreeBSD, host="pfsense")
   pfsense_cpu_warn: 80              # %
   pfsense_mem_warn: 85              # %
   pfsense_for: "10m"
-  pf_states_pct: 80                 # % of state-limit; only fires when state-limit > 0
   wan_down_for: "5m"
-  # WAN interface tag to monitor (pfSense uses interface name)
+  # WAN interface (pfSense node_exporter device label)
   wan_interface: "vtnet0.5"
-  # Central PostgreSQL (bucket: telegraf-postgres, inputs.postgresql)
-  pg_gap_for: "3m"                  # no postgresql samples → server or agent down
-  pg_conn_warn: 80                  # total numbackends; PG default max_connections=100
+  # Central PostgreSQL (postgres-exporter, host="postgres")
+  pg_gap_for: "3m"                  # pg_up == 0 → server or agent down
+  pg_conn_warn: 80                  # total backends; PG default max_connections=100
   pg_conn_for: "5m"
   pg_deadlock_for: "5m"
-  # Docker containers (docker_container_status, all telegraf buckets)
-  container_exited_min: 12          # exited samples in 10m (~2 min at 10s interval);
-                                    # ephemeral task containers stay below this
+  # Docker containers (docker_container_exited / _oom_killed textfile gauges)
   container_for: "2m"
-  # Log pipeline (Loki datasource; promtail labels every line with node=<host>)
+  # Log pipeline (Loki datasource; Alloy labels every line with node=<host>)
   log_gap_for: "5m"
+  # Home Assistant sensors (Prometheus /api/prometheus, hass_* metrics)
+  ha_down_for: "5m"                 # up{job=homeassistant}==0 → HA or scrape down
+  ha_leak_regex: ".*water.*|.*leak.*|.*smoke.*|.*gas.*"  # binary_sensors = safety alarms
+  ha_leak_for: "0s"                 # leak/smoke → alert immediately
+  ha_battery_warn: 25               # sensor battery %
+  ha_battery_exclude: ".*oneplus.*|.*iphone.*|.*phone.*"  # skip personal phones
+  ha_battery_for: "1h"
+  ha_offline_regex: ".*_temperature|.*_humidity"          # climate sensors that must keep reporting
+  ha_offline_for: "20m"
+  # TLS certs (blackbox probe_ssl_earliest_cert_expiry)
+  cert_warn_days: 21
+  cert_crit_days: 7
+  cert_for: "15m"
+  # Node extras (node_exporter)
+  reboot_window: "15m"              # unexpected-reboot detection window
+  reboot_for: "0s"
+  fs_readonly_for: "2m"
+  hwtemp_warn: 85                   # °C — hardware sensor overheating
+  hwtemp_for: "10m"
+  # CrowdSec engine metrics scrape (job=crowdsec, :6060)
+  crowdsec_down_for: "5m"

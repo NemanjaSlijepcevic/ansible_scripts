@@ -41,6 +41,7 @@
     pull: true
     networks:
       - name: proxy
+        ipv4_address: "{{ ip['public_ip_tracker'] }}"
     env:
       API_IP_TOKEN: "{{ api_ip_token }}"
       TZ: "Europe/Belgrade"

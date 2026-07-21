@@ -13,6 +13,7 @@
     user: "{{ puid }}:{{ pgid }}"
     networks:
       - name: proxy
+        ipv4_address: "{{ ip['grafana'] }}"
     dns_servers:
       - "{{ default.dns }}"
     env:

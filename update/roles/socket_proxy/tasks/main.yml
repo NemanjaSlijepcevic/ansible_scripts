@@ -46,3 +46,11 @@
       AUTH: "0"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    # PING is enabled above, so /_ping proxies through to the docker daemon and
+    # returns 200 - verifies both haproxy and the socket behind it are alive.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2375/_ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
