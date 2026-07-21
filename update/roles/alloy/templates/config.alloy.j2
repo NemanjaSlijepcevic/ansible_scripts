@@ -1,0 +1,271 @@
+// Managed by Ansible (alloy role). Do not edit on the host.
+//
+// Unified agent:
+//   logs    -> Loki   via loki.write        ({{ loki_ingest_url }})
+//   metrics -> Prometheus via remote_write  ({{ alloy_metrics_url }})
+
+// ============================== LOGS ==============================
+
+discovery.docker "containers" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "5s"
+}
+
+// Docker log discovery relabel_configs.
+discovery.relabel "docker_logs" {
+  targets = discovery.docker.containers.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/alloy"
+    action        = "drop"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_log_stream"]
+    target_label  = "logstream"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_label_loki_drop"]
+    regex         = "true"
+    action        = "drop"
+  }
+}
+
+loki.source.docker "containers" {
+  host          = "unix:///var/run/docker.sock"
+  targets       = discovery.relabel.docker_logs.output
+  relabel_rules = discovery.relabel.docker_logs.rules
+  forward_to    = [loki.process.drop_noise.receiver]
+}
+
+// Traefik access-log files job.
+local.file_match "traefik" {
+  path_targets = [{
+    __path__ = "/srv/traefik-logs/*.log",
+    job      = "traefik",
+  }]
+}
+loki.source.file "traefik" {
+  targets    = local.file_match.traefik.targets
+  forward_to = [loki.process.drop_noise.receiver]
+}
+
+// Host /var/log files job.
+local.file_match "varlog" {
+  path_targets = [{
+    __path__ = "/var/log/{syslog,auth.log,kern.log,dpkg.log,unattended-upgrades/unattended-upgrades*.log}",
+    job      = "varlog",
+  }]
+}
+loki.source.file "varlog" {
+  targets    = local.file_match.varlog.targets
+  forward_to = [loki.process.drop_noise.receiver]
+}
+
+{% if alloy.syslog is defined %}
+// Syslog receiver for network gear that can't run an agent (pfSense, the
+// EAP115 AP, ...). Each device points its remote-logging at monitor on its
+// OWN port; Alloy relays straight to Loki - no on-disk log files in between.
+//
+// Why one port per device instead of a shared port + source-IP relabel:
+// docker SNATs every published-port packet to the bridge gateway
+// (172.24.10.1), so __syslog_connection_ip_address is the SAME for all
+// senders and can't tell them apart; message-level hostname is inconsistent
+// too (pfSense filterlog stamps none). Binding each device to its own port
+// makes the "device" label deterministic (set per-listener below).
+//
+// format: rfc3164 (BSD, pfSense/Omada default) or rfc5424 (structured);
+// overridable per device.
+loki.relabel "syslog" {
+  forward_to = []
+  // Extra context where the sender provides it (the "device" label from the
+  // listener is the reliable separator; these are best-effort enrichment).
+  rule {
+    source_labels = ["__syslog_message_hostname"]
+    target_label  = "hostname"
+  }
+  rule {
+    source_labels = ["__syslog_message_severity"]
+    target_label  = "severity"
+  }
+  rule {
+    source_labels = ["__syslog_message_app_name"]
+    target_label  = "app"
+  }
+}
+
+// One component per device so each listens on its own port and any parse
+// warning names the offending device in its component_id
+// (loki.source.syslog.dev_<name>).
+{% for dev in alloy.syslog.devices %}
+loki.source.syslog "dev_{{ dev.name }}" {
+{% for proto in dev.protocols | default(['udp']) %}
+  listener {
+    address       = "0.0.0.0:{{ dev.port }}"
+    protocol      = "{{ proto }}"
+    syslog_format = "{{ dev.format | default(alloy.syslog.format) | default('rfc3164') }}"
+    labels        = { job = "syslog", device = "{{ dev.name }}" }
+  }
+{% endfor %}
+  relabel_rules = loki.relabel.syslog.rules
+  forward_to    = [loki.process.drop_noise.receiver]
+}
+{% endfor %}
+
+{% endif %}
+// Pipeline stages: drop blank lines and anything over 8KB.
+loki.process "drop_noise" {
+  stage.drop {
+    longer_than = "8KB"
+  }
+  stage.drop {
+    expression = "^\\s*$"
+  }
+  forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+  endpoint {
+    url = "{{ loki_ingest_url }}"
+  }
+  external_labels = {
+    node = "{{ current_host }}",
+  }
+}
+
+// ============================= METRICS =============================
+
+// Host metrics (cpu/mem/disk/net/...) via the node exporter. The textfile
+// collector reads the docker-state.timer output.
+prometheus.exporter.unix "node" {
+  rootfs_path = "/rootfs"
+  procfs_path = "/rootfs/proc"
+  sysfs_path  = "/rootfs/sys"
+
+  filesystem {
+    fs_types_exclude = "^(tmpfs|devtmpfs|devfs|iso9660|overlay|aufs|squashfs)$"
+    mount_timeout    = "5s"
+  }
+
+  textfile {
+    directory = "/textfiles"
+  }
+}
+
+// Per-container CPU/mem/net via cadvisor.
+prometheus.exporter.cadvisor "docker" {
+  docker_host      = "unix:///var/run/docker.sock"
+  docker_only      = true
+  storage_duration = "5m"
+
+  // Without this, every docker label lands on every series as
+  // container_label_<label> — the traefik routers alone add 20+ labels per
+  // container, which explodes cardinality and turns any table panel into a
+  // forest of mostly-empty columns.
+  store_container_labels = false
+}
+
+// HTTP uptime checks via the blackbox exporter.
+//
+// Three modules:
+//  - http_2xx: the default, plain 2xx check.
+//  - http_2xx_or_redirect: for domains intentionally gated by Authelia
+//    two_factor (e.g. the traefik dashboard) — bypassing Authelia there would
+//    expose an admin UI just to make the probe pass, so instead a redirect-
+//    to-login (302) or an auth challenge (401, what Authelia's forward-auth
+//    returns to a non-browser client with no "Accept: text/html") counts as
+//    "reachable" (Traefik + Authelia both up and routing); only a timeout or
+//    5xx should fail this check.
+//  - http_2xx_authed: for services whose own app requires a bearer token on
+//    every route (no unauthenticated health path exists at all).
+prometheus.exporter.blackbox "http" {
+  config = "{ modules: { http_2xx: { prober: http, timeout: 5s }, http_2xx_or_redirect: { prober: http, timeout: 5s, http: { valid_status_codes: [200, 301, 302, 401], follow_redirects: false } }, http_2xx_authed: { prober: http, timeout: 5s, http: { headers: { Authorization: \"Bearer {{ api_ip_token }}\" } } } } }"
+{% if alloy.http_checks is defined %}
+{% for check in alloy.http_checks %}
+  target {
+    name    = "{{ check.name }}-internal"
+    address = "{{ check.internal_url }}"
+    module  = "{{ check.internal_module | default('http_2xx') }}"
+    labels  = {
+      service = "{{ check.name }}",
+      via     = "internal",
+    }
+  }
+  target {
+    name    = "{{ check.name }}-domain"
+    address = "{{ check.url }}"
+    module  = "{{ check.domain_module | default('http_2xx_or_redirect') }}"
+    labels  = {
+      service = "{{ check.name }}",
+      via     = "domain",
+    }
+  }
+{% endfor %}
+{% endif %}
+}
+
+{% if current_host == 'postgres' %}
+// Postgres metrics over mTLS via the postgres exporter.
+prometheus.exporter.postgres "pg" {
+  data_source_names = ["postgresql://{{ postgres.adm_user }}:{{ postgres.adm_pass | urlencode }}@postgres:{{ postgres.port }}/postgres?sslmode=verify-ca&sslrootcert=/postgres-certs/ca.crt&sslcert=/postgres-certs/postgres_admin.crt&sslkey=/postgres-certs/postgres_admin.key"]
+}
+{% endif %}
+
+// Scrape the embedded exporters and forward to remote_write.
+prometheus.scrape "exporters" {
+  targets = array.concat(
+    prometheus.exporter.unix.node.targets,
+    prometheus.exporter.cadvisor.docker.targets,
+    prometheus.exporter.blackbox.http.targets,
+{% if current_host == 'postgres' %}
+    prometheus.exporter.postgres.pg.targets,
+{% endif %}
+  )
+  scrape_interval = "{{ alloy_scrape_interval | default('15s') }}"
+  forward_to      = [prometheus.remote_write.default.receiver]
+}
+
+// Static Prometheus endpoints exposed by sibling containers on the proxy net:
+// crowdsec, the docker daemon, and Traefik's native /metrics endpoint (:8082).
+prometheus.scrape "statics" {
+  targets = [
+    { "__address__" = "crowdsec:6060", "job" = "crowdsec" },
+    { "__address__" = "{{ docker.gateway }}:9323", "job" = "docker_daemon" },
+    { "__address__" = "traefik:8082", "job" = "traefik" },
+  ]
+  scrape_interval = "{{ alloy_scrape_interval | default('15s') }}"
+  forward_to      = [prometheus.remote_write.default.receiver]
+}
+
+{% if current_host == 'monitor' and homeassistant.prometheus_token is defined %}
+// Home Assistant exposes /api/prometheus (auth required). HA serves plain HTTP
+// internally (TLS is at Traefik), so scrape the container directly with the
+// long-lived access token.
+prometheus.scrape "homeassistant" {
+  targets = [
+    { "__address__" = "homeassistant:{{ homeassistant.port }}", "job" = "homeassistant" },
+  ]
+  metrics_path    = "/api/prometheus"
+  bearer_token    = "{{ homeassistant.prometheus_token }}"
+  scrape_interval = "{{ alloy_scrape_interval | default('15s') }}"
+  forward_to      = [prometheus.remote_write.default.receiver]
+}
+{% endif %}
+
+prometheus.remote_write "default" {
+  endpoint {
+    url = "{{ alloy_metrics_url }}"
+  }
+  external_labels = {
+    host = "{{ current_host }}",
+  }
+}

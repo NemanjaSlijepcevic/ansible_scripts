@@ -1,0 +1,50 @@
+---
+- name: Create environment
+  ansible.builtin.include_tasks: environment.yml
+
+- name: Deploy prometheus container
+  community.docker.docker_container:
+    name: prometheus
+    image: prom/prometheus:latest
+    pull: true
+    restart_policy: unless-stopped
+    security_opts:
+      - "no-new-privileges:true"
+    user: "65534:65534"
+    networks:
+      - name: proxy
+        ipv4_address: "{{ ip['prometheus'] }}"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time={{ prometheus_retention | default('90d') }}"
+      - "--web.enable-remote-write-receiver"
+      - "--web.external-url={{ prometheus.url }}"
+    env:
+      TZ: "Europe/Belgrade"
+    volumes:
+      - ./data/prometheus/data:/prometheus
+      - ./data/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.prometheus.entrypoints: "https"
+      traefik.http.routers.prometheus.rule: "{{ prometheus.host }}"
+      traefik.http.routers.prometheus.tls: "true"
+      traefik.http.routers.prometheus.middlewares: "chain-no-auth@file"
+      traefik.http.services.prometheus.loadbalancer.server.port: "{{ prometheus.port }}"
+
+- name: Wait for Prometheus to be ready
+  ansible.builtin.uri:
+    url: "{{ prometheus.url }}/-/ready"
+    method: GET
+    status_code: 200
+  register: prometheus_ready
+  until: prometheus_ready.status == 200
+  retries: 15
+  delay: 10

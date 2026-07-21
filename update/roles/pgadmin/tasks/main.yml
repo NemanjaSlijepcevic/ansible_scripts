@@ -39,6 +39,7 @@
     restart_policy: unless-stopped
     networks:
       - name: proxy
+        ipv4_address: "{{ ip['pgadmin'] }}"
     env:
       PGADMIN_DEFAULT_EMAIL: "{{ pgadmin.email }}"
       PGADMIN_DEFAULT_PASSWORD: "{{ pgadmin.password }}"

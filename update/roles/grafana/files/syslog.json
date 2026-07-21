@@ -1,0 +1,441 @@
+{
+  "uid": "homelab-syslog",
+  "title": "Homelab — Syslog (pfSense & AP)",
+  "tags": ["homelab", "loki", "syslog", "pfsense", "ap"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-3h", "to": "now" },
+  "editable": true,
+  "graphTooltip": 1,
+  "fiscalYearStartMonth": 0,
+  "liveNow": false,
+  "weekStart": "",
+  "style": "dark",
+  "annotations": { "list": [] },
+  "templating": {
+    "list": [
+      {
+        "name": "device",
+        "label": "Device",
+        "type": "query",
+        "datasource": { "type": "loki", "uid": "__LOKI_UID__" },
+        "definition": "label_values({job=\"syslog\"}, device)",
+        "query": { "label": "device", "stream": "{job=\"syslog\"}", "type": 1, "refId": "LokiVariableQueryEditor-VariableQuery" },
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": ".+",
+        "multi": true,
+        "hide": 0,
+        "regex": "",
+        "sort": 1,
+        "options": [],
+        "current": { "text": ["All"], "value": ["$__all"], "selected": true }
+      },
+      {
+        "name": "severity",
+        "label": "Severity",
+        "type": "query",
+        "datasource": { "type": "loki", "uid": "__LOKI_UID__" },
+        "definition": "label_values({job=\"syslog\", device=~\"$device\"}, severity)",
+        "query": { "label": "severity", "stream": "{job=\"syslog\", device=~\"$device\"}", "type": 1, "refId": "LokiVariableQueryEditor-VariableQuery" },
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": ".+",
+        "multi": true,
+        "hide": 0,
+        "regex": "",
+        "sort": 1,
+        "options": [],
+        "current": { "text": ["All"], "value": ["$__all"], "selected": true }
+      },
+      {
+        "name": "app",
+        "label": "pfSense app",
+        "type": "query",
+        "datasource": { "type": "loki", "uid": "__LOKI_UID__" },
+        "definition": "label_values({job=\"syslog\", device=\"pfsense\"}, app)",
+        "query": { "label": "app", "stream": "{job=\"syslog\", device=\"pfsense\"}", "type": 1, "refId": "LokiVariableQueryEditor-VariableQuery" },
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": ".+",
+        "multi": true,
+        "hide": 0,
+        "regex": "",
+        "sort": 1,
+        "options": [],
+        "current": { "text": ["All"], "value": ["$__all"], "selected": true }
+      },
+      {
+        "name": "search",
+        "label": "Line filter (regex)",
+        "type": "textbox",
+        "query": "",
+        "current": { "text": "", "value": "" },
+        "options": [],
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Overview",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Total lines/sec (1m)",
+      "datasource": { "type": "loki", "uid": "__LOKI_UID__" },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 1 },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "__LOKI_UID__" },
+          "expr": "sum(rate({job=\"syslog\", device=~\"$device\"}[1m]))", "queryType": "instant" }
+      ],
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "orientation": "auto", "textMode": "auto", "colorMode": "value", "graphMode": "area", "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "yellow", "value": 50 },
+            { "color": "red", "value": 200 }
+          ]},
+          "unit": "logs/sec", "decimals": 2
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "pfSense lines/sec (1m)",
+      "datasource": { "type": "loki", "uid": "__LOKI_UID__" },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 1 },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "__LOKI_UID__" },
+          "expr": "sum(rate({job=\"syslog\", device=\"pfsense\"}[1m]))", "queryType": "instant" }
+      ],
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "orientation": "auto", "textMode": "auto", "colorMode": "value", "graphMode": "area", "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "text", "value": null },
+            { "color": "green", "value": 0.001 }
+          ]},
+          "unit": "logs/sec", "decimals": 2,
+          "noValue": "0 (silent)"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "AP lines/sec (1m)",
+      "datasource": { "type": "loki", "uid": "__LOKI_UID__" },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 1 },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "__LOKI_UID__" },
+          "expr": "sum(rate({job=\"syslog\", device=\"ap\"}[1m]))", "queryType": "instant" }
+      ],
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "orientation": "auto", "textMode": "auto", "colorMode": "value", "graphMode": "area", "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "text", "value": null },
+            { "color": "green", "value": 0.001 }
+          ]},
+          "unit": "logs/sec", "decimals": 2,
+          "noValue": "0 (silent)"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Warning+ lines/sec (1m)",
+      "datasource": { "type": "loki", "uid": "__LOKI_UID__" },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 1 },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "__LOKI_UID__" },
+          "expr": "sum(rate({job=\"syslog\", device=~\"$device\", severity=~\"warning|warn|error|err|critical|crit|alert|emergency|emerg\"}[1m]))", "queryType": "instant" }
+      ],
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "orientation": "auto", "textMode": "auto", "colorMode": "value", "graphMode": "area", "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "yellow", "value": 0.1 },
+            { "color": "red", "value": 2 }
+          ]},
+          "unit": "logs/sec", "decimals": 2
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 10,
+      "type": "row",
+      "title": "Trends",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "panels": []
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Log rate by device",
+      "datasource": { "type": "loki", "uid": "__LOKI_UID__" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "__LOKI_UID__" },
+          "expr": "sum by(device) (rate({job=\"syslog\", device=~\"$device\"}[$__interval]))", "legendFormat": "{{device}}" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 15, "showPoints": "never", "stacking": { "mode": "normal", "group": "A" } },
+          "color": { "mode": "palette-classic" },
+          "unit": "logs/sec"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "showLegend": true, "displayMode": "table", "placement": "right", "calcs": ["mean", "max", "sum"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Log rate by severity",
+      "datasource": { "type": "loki", "uid": "__LOKI_UID__" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "__LOKI_UID__" },
+          "expr": "sum by(severity) (rate({job=\"syslog\", device=~\"$device\"}[$__interval]))", "legendFormat": "{{severity}}" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "showPoints": "never" },
+          "color": { "mode": "palette-classic" },
+          "unit": "logs/sec"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "showLegend": true, "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "id": 20,
+      "type": "row",
+      "title": "Breakdown (selected range)",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 },
+      "panels": []
+    },
+    {
+      "id": 21,
+      "type": "bargauge",
+      "title": "Top pfSense apps",
+      "datasource": { "type": "loki", "uid": "__LOKI_UID__" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 15 },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "__LOKI_UID__" },
+          "expr": "topk(10, sum by(app) (count_over_time({job=\"syslog\", device=\"pfsense\"}[$__range])))", "legendFormat": "{{app}}", "queryType": "instant" }
+      ],
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "continuous-GrYlRd" }, "unit": "short", "decimals": 0, "noValue": "no pfSense data in range" },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal", "displayMode": "gradient", "showUnfilled": true, "valueMode": "color",
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" }
+      }
+    },
+    {
+      "id": 22,
+      "type": "piechart",
+      "title": "Lines by severity",
+      "datasource": { "type": "loki", "uid": "__LOKI_UID__" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 15 },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "__LOKI_UID__" },
+          "expr": "sum by(severity) (count_over_time({job=\"syslog\", device=~\"$device\"}[$__range]))", "legendFormat": "{{severity}}", "queryType": "instant" }
+      ],
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "unit": "short", "decimals": 0 },
+        "overrides": []
+      },
+      "options": {
+        "pieType": "donut",
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "legend": { "showLegend": true, "displayMode": "table", "placement": "right", "values": ["value", "percent"] },
+        "tooltip": { "mode": "single", "sort": "desc" }
+      }
+    },
+    {
+      "id": 23,
+      "type": "bargauge",
+      "title": "Lines by device",
+      "datasource": { "type": "loki", "uid": "__LOKI_UID__" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 15 },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "__LOKI_UID__" },
+          "expr": "sum by(device) (count_over_time({job=\"syslog\", device=~\"$device\"}[$__range]))", "legendFormat": "{{device}}", "queryType": "instant" }
+      ],
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "continuous-BlPu" }, "unit": "short", "decimals": 0 },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal", "displayMode": "gradient", "showUnfilled": true, "valueMode": "color",
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" }
+      }
+    },
+    {
+      "id": 30,
+      "type": "row",
+      "title": "pfSense — Firewall (filterlog)",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 23 },
+      "panels": []
+    },
+    {
+      "id": 31,
+      "type": "timeseries",
+      "title": "Firewall pass vs block /sec",
+      "datasource": { "type": "loki", "uid": "__LOKI_UID__" },
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 24 },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "__LOKI_UID__" },
+          "expr": "sum(rate({job=\"syslog\", device=\"pfsense\", app=\"filterlog\"} |~ \",block,\" [$__interval]))", "legendFormat": "block" },
+        { "refId": "B", "datasource": { "type": "loki", "uid": "__LOKI_UID__" },
+          "expr": "sum(rate({job=\"syslog\", device=\"pfsense\", app=\"filterlog\"} |~ \",pass,\" [$__interval]))", "legendFormat": "pass" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 20, "showPoints": "never", "stacking": { "mode": "none", "group": "A" } },
+          "color": { "mode": "palette-classic" },
+          "unit": "pps"
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "block" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] },
+          { "matcher": { "id": "byName", "options": "pass" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }] }
+        ]
+      },
+      "options": {
+        "legend": { "showLegend": true, "displayMode": "list", "placement": "bottom", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "id": 32,
+      "type": "logs",
+      "title": "pfSense firewall log (filterlog)",
+      "datasource": { "type": "loki", "uid": "__LOKI_UID__" },
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 31 },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "__LOKI_UID__" },
+          "expr": "{job=\"syslog\", device=\"pfsense\", app=\"filterlog\"} |~ \"$search\"" }
+      ],
+      "options": {
+        "showTime": true, "showLabels": false, "showCommonLabels": false, "wrapLogMessage": true,
+        "prettifyLogMessage": false, "enableLogDetails": true, "sortOrder": "Descending", "dedupStrategy": "none"
+      }
+    },
+    {
+      "id": 40,
+      "type": "row",
+      "title": "Access Point (EAP115)",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 43 },
+      "panels": []
+    },
+    {
+      "id": 41,
+      "type": "logs",
+      "title": "AP log",
+      "datasource": { "type": "loki", "uid": "__LOKI_UID__" },
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 44 },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "__LOKI_UID__" },
+          "expr": "{job=\"syslog\", device=\"ap\"} |~ \"$search\"" }
+      ],
+      "options": {
+        "showTime": true, "showLabels": false, "showCommonLabels": false, "wrapLogMessage": true,
+        "prettifyLogMessage": false, "enableLogDetails": true, "sortOrder": "Descending", "dedupStrategy": "none"
+      }
+    },
+    {
+      "id": 50,
+      "type": "row",
+      "title": "Live tail (all selected)",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 56 },
+      "panels": []
+    },
+    {
+      "id": 51,
+      "type": "logs",
+      "title": "Syslog (device + severity + line filter)",
+      "datasource": { "type": "loki", "uid": "__LOKI_UID__" },
+      "gridPos": { "h": 16, "w": 24, "x": 0, "y": 57 },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "__LOKI_UID__" },
+          "expr": "{job=\"syslog\", device=~\"$device\", severity=~\"$severity\"} |~ \"$search\"" }
+      ],
+      "options": {
+        "showTime": true, "showLabels": true, "showCommonLabels": false, "wrapLogMessage": true,
+        "prettifyLogMessage": false, "enableLogDetails": true, "sortOrder": "Descending", "dedupStrategy": "none"
+      }
+    },
+    {
+      "id": 60,
+      "type": "row",
+      "title": "pfSense by app (drill-down)",
+      "collapsed": true,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 73 },
+      "panels": [
+        {
+          "id": 61,
+          "type": "logs",
+          "title": "pfSense logs — filtered by app",
+          "datasource": { "type": "loki", "uid": "__LOKI_UID__" },
+          "gridPos": { "h": 14, "w": 24, "x": 0, "y": 74 },
+          "targets": [
+            { "refId": "A", "datasource": { "type": "loki", "uid": "__LOKI_UID__" },
+              "expr": "{job=\"syslog\", device=\"pfsense\", app=~\"$app\"} |~ \"$search\"" }
+          ],
+          "options": {
+            "showTime": true, "showLabels": true, "showCommonLabels": false, "wrapLogMessage": true,
+            "prettifyLogMessage": false, "enableLogDetails": true, "sortOrder": "Descending", "dedupStrategy": "none"
+          }
+        }
+      ]
+    }
+  ]
+}

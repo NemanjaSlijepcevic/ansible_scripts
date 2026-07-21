@@ -16,7 +16,8 @@
 
 # A missing host log file bind-mounted below would be auto-created by
 # Docker as a DIRECTORY (LXC guests often lack kern.log) — breaking both
-# crowdsec and promtail. Ensure they exist as files first. Does not fix an
+# crowdsec and alloy (which also bind-mounts /var/log). Ensure they exist as
+# files first. Does not fix an
 # already-created directory: rmdir it and touch the file by hand.
 - name: Ensure mounted host log files exist  # noqa: risky-file-permissions
   ansible.builtin.file:
@@ -57,6 +58,7 @@
       - "no-new-privileges:true"
     networks:
       - name: proxy
+        ipv4_address: "{{ ip['crowdsec'] }}"
     env:
       TZ: "Europe/Belgrade"
       GID: "{{ user.gid | default('1000') }}"
@@ -98,7 +100,7 @@
 
 - name: Create CloudFlare bouncer
   ansible.builtin.include_tasks: bouncer-cloudflare.yml
-  when: current_host == "server"
+  when: crowdsec_cloudflare_bouncer_enabled | default(false)
 
 - name: Check CrowdSec LAPI status
   ansible.builtin.command:

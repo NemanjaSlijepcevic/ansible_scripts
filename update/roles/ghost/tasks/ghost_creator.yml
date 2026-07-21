@@ -21,6 +21,17 @@
     restart_policy: unless-stopped
     networks:
       - name: proxy
+        ipv4_address: "{{ ip[container_name] }}"
+    # Ghost's image-size util fetches its own favicon/feature images over the
+    # public `url` while rendering. That URL is Cloudflare-proxied, and CF
+    # challenges (403) requests from the VPS's own datacenter IP - flooding the
+    # log with IMAGE_SIZE_URL 403s. Pin the site's own domains to local Traefik
+    # so the self-fetch bypasses Cloudflare (same trick as alloy.origin_ip).
+    # Public inbound traffic still flows through Cloudflare untouched.
+    # Build as one Jinja expression: Ansible does NOT template dict *keys* in
+    # module args, so `{{ domain }}:` would land in /etc/hosts literally. Inside
+    # a single {{ ... }} the keys evaluate to the real domains.
+    etc_hosts: "{{ { domain: ip['traefik'], domain_www: ip['traefik'] } }}"
     volumes:
       - "{{ volume_name }}:/var/lib/ghost/content"
     env:
@@ -39,3 +50,17 @@
       mail__options__auth__pass: "{{ mail_pass }}"
       url: "{{ url }}"
     labels: "{{ traefik_labels }}"
+    # Ghost canonicalises any localhost request to its https url, so this
+    # endpoint returns a 301 internally - treat any response < 500 as healthy
+    # (Ghost answered) and only a connection error/timeout as unhealthy. The
+    # image ships node but no curl/GNU-wget, so probe with node.
+    healthcheck:
+      test:
+        - "CMD"
+        - "node"
+        - "-e"
+        - "const h=require('http');const r=h.get('http://localhost:2368/ghost/api/admin/site',s=>process.exit(s.statusCode<500?0:1));r.on('error',()=>process.exit(1));r.setTimeout(4000,()=>{r.destroy();process.exit(1)});"
+      interval: 30s
+      timeout: 6s
+      retries: 3
+      start_period: 90s

@@ -35,15 +35,8 @@ notify:
     name: HomeAssistant
     chat_id: {{ homeassistant.telegram.chat_id }}
 
-#sensor:
-#  - platform: influxdb
-#    api_version: 2
-#    ssl: false
-#    host: influxdb
-#    port: 8086
-#    bucket: homeassistant
-#    organization: {{ influxdb.organization }}
-#    token: "{{ influxdb.api_token }}"
-#    queries_flux:
-#      - range_start: "-1d"
-#        name: sensor
+# Expose /api/prometheus so the Alloy agent on this host can scrape HA's entity
+# metrics and remote-write them to Prometheus. The endpoint requires auth:
+# Alloy sends homeassistant.prometheus_token.
+prometheus:
+  namespace: hass

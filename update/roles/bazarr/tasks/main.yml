@@ -26,6 +26,7 @@
     restart_policy: unless-stopped
     networks:
       - name: proxy
+        ipv4_address: "{{ ip['bazarr'] }}"
     env:
       PUID: "{{ puid }}"
       PGID: "{{ pgid }}"

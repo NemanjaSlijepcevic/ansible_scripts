@@ -29,6 +29,7 @@
     restart_policy: unless-stopped
     networks:
       - name: proxy
+        ipv4_address: "{{ ip['seerr'] }}"
     env:
       TZ: "Europe/Belgrade"
       LOG_LEVEL: "info"

@@ -1,0 +1,17 @@
+---
+# Use the docker CLI, NOT community.docker.docker_container, for the restart:
+#  * `docker restart` races the stale graphdriver state on fuse-overlayfs hosts
+#    and would not re-bind the replaced (new-inode) config.alloy single-file
+#    mount -> separate `stop` + `start` instead.
+#  * a bare `docker_container: {name, state}` task can RECREATE the container to
+#    match its sparse spec (image defaults, no binds), dropping the config and
+#    rootfs mounts. CLI stop/start never recreates, preserving the full config.
+- name: Stop alloy
+  ansible.builtin.command: docker stop alloy
+  changed_when: true
+  listen: Restart alloy
+
+- name: Start alloy
+  ansible.builtin.command: docker start alloy
+  changed_when: true
+  listen: Restart alloy

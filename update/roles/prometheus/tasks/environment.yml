@@ -1,0 +1,21 @@
+---
+- name: Create prometheus directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    # nobody:nogroup — prom/prometheus runs as uid 65534.
+    owner: "65534"
+    group: "65534"
+    mode: "0755"
+  loop:
+    - ./data/prometheus
+    - ./data/prometheus/data
+
+- name: Generate prometheus config
+  ansible.builtin.template:
+    src: prometheus.yml.j2
+    dest: ./data/prometheus/prometheus.yml
+    owner: "65534"
+    group: "65534"
+    mode: "0644"
+  notify: Restart prometheus

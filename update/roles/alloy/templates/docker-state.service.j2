@@ -1,0 +1,11 @@
+[Unit]
+Description=Emit docker image/container-state metrics for Alloy textfile collector
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# fuse-overlayfs hosts: /system/df triggers a runaway layer walk in dockerd
+# (see docker-state.sh) — emit reclaimable_bytes=0 instead.
+Environment=SKIP_SYSTEM_DF={{ 'true' if docker_storage_driver | default('') == 'fuse-overlayfs' else 'false' }}
+ExecStart=/usr/local/lib/alloy/docker-state.sh

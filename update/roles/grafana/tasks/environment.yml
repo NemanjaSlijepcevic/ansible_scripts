@@ -37,9 +37,7 @@
   ansible.builtin.copy:
     content: >-
       {{ lookup('ansible.builtin.file', item)
-         | replace('__INFLUXDB_UID__', 'influxdb')
-         | replace('__INFLUXDB_PROXMOX_UID__', 'influxdb-proxmox')
-         | replace('__INFLUXDB_PFSENSE_UID__', 'influxdb-pfsense')
+         | replace('__PROMETHEUS_UID__', 'prometheus')
          | replace('__LOKI_UID__', 'loki') }}
     dest: "./data/grafana/provisioning/dashboards/json/{{ item | basename }}"
     owner: "{{ puid }}"
@@ -47,6 +45,23 @@
     mode: "0644"
   loop: "{{ query('ansible.builtin.fileglob', role_path + '/files/*.json') }}"
   register: grafana_dashboards_json
+
+- name: Find provisioned dashboard JSON on the host
+  ansible.builtin.find:
+    paths: ./data/grafana/provisioning/dashboards/json
+    patterns: "*.json"
+  register: grafana_dashboards_present
+
+- name: Remove dashboard JSON no longer shipped by the role
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ grafana_dashboards_present.files }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
+  when: item.path | basename not in
+        (query('ansible.builtin.fileglob', role_path + '/files/*.json') | map('basename') | list)
+  register: grafana_dashboards_pruned
 
 - name: Render alerting contact points
   ansible.builtin.template:
@@ -81,6 +96,7 @@
       {{ grafana_datasources.changed
          or grafana_dashboards_provider.changed
          or (grafana_dashboards_json.results | selectattr('changed', 'equalto', true) | list | length > 0)
+         or grafana_dashboards_pruned.changed
          or grafana_contact_points.changed
          or grafana_policies.changed
          or grafana_rules.changed }}

@@ -8,8 +8,7 @@
     current_host: "nas"
   roles:
     - { role: common, tags: ['common'] }
-    - { role: telegraf, tags: ['telegraf', 'metrics', 'monitoring'] }
-    - { role: promtail, tags: ['promtail', 'logs', 'monitoring'] }
+    - { role: alloy, tags: ['alloy', 'metrics', 'logs', 'monitoring'] }
     - { role: prepare_smb, tags: ['prepare_smb'] }
     - { role: prepare_postgres, tags: ['prepare_postgres', 'postgres', 'database'] }
     - { role: authelia, tags: ['authelia', 'proxy', 'security'] }

@@ -28,6 +28,7 @@
     restart_policy: unless-stopped
     networks:
       - name: proxy
+        ipv4_address: "{{ ip['loki'] }}"
     published_ports:
       - "3100:3100"
     command: -config.file=/etc/loki/loki-config.yml

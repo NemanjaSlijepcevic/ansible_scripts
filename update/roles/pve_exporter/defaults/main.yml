@@ -1,0 +1,15 @@
+---
+# Documentation-only defaults for the pve_exporter role (monitor host only).
+# Copy the shape into host_vars and replace with real values, then keep the
+# real inventory encrypted. Values below are placeholders.
+#
+# prometheus-pve-exporter scrapes the Proxmox VE API and exposes it for
+# Prometheus (multi-target: Prometheus asks it to poll ?target=pve.api_host).
+# Auth uses a PVE API token (PVEAuditor on / is enough).
+
+pve:
+  api_host: "192.0.2.10:8006"
+  api_user: "prometheus@pve"
+  token_name: "changeme"
+  token_value: "changeme"
+  verify_ssl: false

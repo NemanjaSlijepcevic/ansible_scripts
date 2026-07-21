@@ -1,0 +1,1647 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": "-- Grafana --",
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "gnetId": 12023,
+  "graphTooltip": 0,
+  "id": null,
+  "iteration": 1616168753114,
+  "links": [],
+  "panels": [
+    {
+      "collapsed": false,
+      "datasource": "$dataSource",
+      "gridPos": {
+        "y": 0,
+        "w": 24,
+        "h": 1,
+        "x": 0
+      },
+      "id": 16,
+      "panels": [],
+      "title": "Hardware",
+      "type": "row"
+    },
+    {
+      "cacheTimeout": null,
+      "colorBackground": false,
+      "colorValue": false,
+      "colors": [
+        "#299c46",
+        "rgba(237, 129, 40, 0.89)",
+        "#d44a3a"
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "decimals": null,
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "format": "none",
+      "gauge": {
+        "maxValue": 100,
+        "minValue": 0,
+        "show": false,
+        "thresholdLabels": false,
+        "thresholdMarkers": true
+      },
+      "gridPos": {
+        "y": 1,
+        "w": 3,
+        "h": 3,
+        "x": 0
+      },
+      "hideTimeOverride": true,
+      "id": 49,
+      "interval": null,
+      "links": [],
+      "mappingType": 1,
+      "mappingTypes": [
+        {
+          "name": "value to text",
+          "value": 1
+        },
+        {
+          "name": "range to text",
+          "value": 2
+        }
+      ],
+      "maxDataPoints": 100,
+      "nullPointMode": "connected",
+      "nullText": null,
+      "postfix": "",
+      "postfixFontSize": "50%",
+      "prefix": "",
+      "prefixFontSize": "20%",
+      "rangeMaps": [
+        {
+          "from": "null",
+          "text": "N/A",
+          "to": "null"
+        }
+      ],
+      "sparkline": {
+        "fillColor": "rgba(31, 118, 189, 0.18)",
+        "full": false,
+        "lineColor": "rgb(31, 120, 193)",
+        "show": false
+      },
+      "tableColumn": "",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "count(count by (cpu) (node_cpu_seconds_total{host=~\"$Host\"}))",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "thresholds": ".7,1.5",
+      "timeFrom": "30s",
+      "title": "CPU Cores",
+      "type": "stat",
+      "valueFontSize": "80%",
+      "valueMaps": [
+        {
+          "op": "=",
+          "text": "N/A",
+          "value": "null"
+        }
+      ],
+      "valueName": "current"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "displayName": "CPU",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "#EAB839",
+                "value": 70
+              },
+              {
+                "color": "red",
+                "value": 85
+              }
+            ]
+          },
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "decimals": 1,
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "y": 1,
+        "w": 3,
+        "h": 6,
+        "x": 3
+      },
+      "id": 8,
+      "options": {
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "text": {}
+      },
+      "pluginVersion": "7.4.3",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "100 - (avg(rate(node_cpu_seconds_total{host=~\"$Host\", mode=\"idle\"}[$__rate_interval])) * 100)"
+        }
+      ],
+      "timeFrom": null,
+      "timeShift": null,
+      "title": "CPU Total",
+      "type": "gauge"
+    },
+    {
+      "aliasColors": {},
+      "cacheTimeout": null,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "decimals": 2,
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": []
+          },
+          "min": 0,
+          "max": 100,
+          "unit": "percent",
+          "decimals": 1,
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "fillGradient": 0,
+      "gridPos": {
+        "y": 1,
+        "w": 9,
+        "h": 6,
+        "x": 6
+      },
+      "hiddenSeries": false,
+      "id": 6,
+      "interval": null,
+      "links": [],
+      "options": {
+        "alertThreshold": true
+      },
+      "percentage": false,
+      "pluginVersion": "7.4.3",
+      "points": false,
+      "repeat": null,
+      "repeatDirection": "h",
+      "spaceLength": 10,
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "100 - (avg by (cpu) (rate(node_cpu_seconds_total{host=~\"$Host\", cpu=~\"$CPU\", mode=\"idle\"}[$__rate_interval])) * 100)",
+          "legendFormat": "cpu{{cpu}}"
+        }
+      ],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "CPU",
+      "type": "timeseries",
+      "yaxis": {
+        "align": false,
+        "alignLevel": null
+      }
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "gridPos": {
+        "y": 7,
+        "w": 24,
+        "h": 4,
+        "x": 0
+      },
+      "id": 219,
+      "pluginVersion": "7.4.3",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "node_uname_info{host=~\"$Host\"}",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "timeFrom": null,
+      "timeShift": null,
+      "title": "System Information",
+      "type": "table",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "displayMode": "auto"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "job": true,
+              "instance": true,
+              "__name__": true,
+              "Value": true
+            },
+            "indexByName": {},
+            "renameByName": {}
+          }
+        }
+      ]
+    },
+    {
+      "aliasColors": {},
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "links": [],
+          "unit": "short",
+          "min": 0,
+          "decimals": 2,
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "fillGradient": 0,
+      "gridPos": {
+        "y": 1,
+        "w": 9,
+        "h": 6,
+        "x": 15
+      },
+      "hiddenSeries": false,
+      "id": 18,
+      "options": {
+        "alertThreshold": true
+      },
+      "percentage": false,
+      "pluginVersion": "7.4.3",
+      "points": false,
+      "spaceLength": 10,
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "node_load1{host=~\"$Host\"}",
+          "legendFormat": "load1"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "node_load5{host=~\"$Host\"}",
+          "legendFormat": "load5"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "node_load15{host=~\"$Host\"}",
+          "legendFormat": "load15"
+        }
+      ],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "Load",
+      "type": "timeseries",
+      "yaxis": {
+        "align": false,
+        "alignLevel": null
+      }
+    },
+    {
+      "cacheTimeout": null,
+      "colorBackground": false,
+      "colorValue": false,
+      "colors": [
+        "#299c46",
+        "rgba(237, 129, 40, 0.89)",
+        "#d44a3a"
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "decimals": null,
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "unit": "s",
+          "min": 0,
+          "decimals": 0,
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "format": "none",
+      "gauge": {
+        "maxValue": 100,
+        "minValue": 0,
+        "show": false,
+        "thresholdLabels": false,
+        "thresholdMarkers": true
+      },
+      "gridPos": {
+        "y": 4,
+        "w": 3,
+        "h": 3,
+        "x": 0
+      },
+      "hideTimeOverride": true,
+      "id": 45,
+      "interval": null,
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "text": {},
+        "textMode": "auto"
+      },
+      "links": [],
+      "mappingType": 1,
+      "mappingTypes": [
+        {
+          "name": "value to text",
+          "value": 1
+        },
+        {
+          "name": "range to text",
+          "value": 2
+        }
+      ],
+      "maxDataPoints": 100,
+      "nullPointMode": "connected",
+      "nullText": null,
+      "postfix": "",
+      "postfixFontSize": "50%",
+      "prefix": "",
+      "prefixFontSize": "50%",
+      "rangeMaps": [
+        {
+          "from": "null",
+          "text": "N/A",
+          "to": "null"
+        }
+      ],
+      "sparkline": {
+        "fillColor": "rgba(31, 118, 189, 0.18)",
+        "full": false,
+        "lineColor": "rgb(31, 120, 193)",
+        "show": false
+      },
+      "tableColumn": "",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "time() - node_boot_time_seconds{host=~\"$Host\"}"
+        }
+      ],
+      "thresholds": ".7,1.5",
+      "timeFrom": "30s",
+      "title": "Uptime",
+      "type": "stat",
+      "valueFontSize": "50%",
+      "valueMaps": [
+        {
+          "op": "=",
+          "text": "N/A",
+          "value": "null"
+        }
+      ],
+      "valueName": "current"
+    },
+    {
+      "aliasColors": {},
+      "cacheTimeout": null,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "decimals": 2,
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": []
+          },
+          "min": 0,
+          "max": 100,
+          "unit": "percent",
+          "decimals": 1,
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "fillGradient": 0,
+      "gridPos": {
+        "y": 11,
+        "w": 12,
+        "h": 6,
+        "x": 0
+      },
+      "hiddenSeries": false,
+      "id": 223,
+      "links": [],
+      "options": {
+        "alertThreshold": true
+      },
+      "percentage": false,
+      "pluginVersion": "7.4.3",
+      "points": false,
+      "repeatDirection": "h",
+      "spaceLength": 10,
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "(1 - node_filesystem_avail_bytes{host=~\"$Host\", device=~\"$Disk\"} / node_filesystem_size_bytes{host=~\"$Host\", device=~\"$Disk\"}) * 100",
+          "legendFormat": "{{mountpoint}}"
+        }
+      ],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "Disk Utilization",
+      "type": "timeseries",
+      "yaxis": {
+        "align": false,
+        "alignLevel": null
+      }
+    },
+    {
+      "aliasColors": {},
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": []
+          },
+          "unit": "bytes",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "fillGradient": 0,
+      "gridPos": {
+        "y": 11,
+        "w": 12,
+        "h": 6,
+        "x": 12
+      },
+      "hiddenSeries": false,
+      "id": 17,
+      "options": {
+        "alertThreshold": true
+      },
+      "percentage": false,
+      "pluginVersion": "7.4.3",
+      "points": false,
+      "spaceLength": 10,
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "node_memory_size_bytes{host=~\"$Host\"} - node_memory_free_bytes{host=~\"$Host\"} - node_memory_inactive_bytes{host=~\"$Host\"} - node_memory_cache_bytes{host=~\"$Host\"}",
+          "legendFormat": "used"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "node_memory_free_bytes{host=~\"$Host\"} + node_memory_inactive_bytes{host=~\"$Host\"} + node_memory_cache_bytes{host=~\"$Host\"}",
+          "legendFormat": "available"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "node_memory_free_bytes{host=~\"$Host\"}",
+          "legendFormat": "free"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "node_memory_buffer_bytes{host=~\"$Host\"}",
+          "legendFormat": "buffered"
+        },
+        {
+          "refId": "E",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "node_memory_cache_bytes{host=~\"$Host\"}",
+          "legendFormat": "cached"
+        },
+        {
+          "refId": "F",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "node_memory_swap_used_bytes{host=~\"$Host\"}",
+          "legendFormat": "swap_used"
+        },
+        {
+          "refId": "G",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "node_memory_swap_size_bytes{host=~\"$Host\"} - node_memory_swap_used_bytes{host=~\"$Host\"}",
+          "legendFormat": "swap_free"
+        }
+      ],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "Ram",
+      "type": "timeseries",
+      "yaxis": {
+        "align": false,
+        "alignLevel": null
+      }
+    },
+    {
+      "collapsed": false,
+      "datasource": "$dataSource",
+      "gridPos": {
+        "y": 17,
+        "w": 24,
+        "h": 1,
+        "x": 0
+      },
+      "id": 143,
+      "panels": [],
+      "title": "Interfaces",
+      "type": "row"
+    },
+    {
+      "cacheTimeout": null,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "description": "",
+      "gridPos": {
+        "y": 18,
+        "w": 24,
+        "h": 10,
+        "x": 0
+      },
+      "id": 194,
+      "links": [],
+      "pluginVersion": "7.4.3",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(node_network_receive_bytes_total{host=~\"$Host\", device!~\"lo0|lo|enc0|pflog0|pfsync0\"}, \"device\", \"WAN\", \"device\", \"^vtnet0\\\\.5$\"), \"device\", \"LAN\", \"device\", \"^vtnet0$\"), \"device\", \"Guest\", \"device\", \"^vtnet0\\\\.30$\"), \"device\", \"IOT\", \"device\", \"^vtnet0\\\\.6$\"), \"device\", \"BWAN\", \"device\", \"^vtnet0\\\\.7$\"), \"device\", \"VPN\", \"device\", \"^tun_wg0$\"), \"device\", \"PROTON\", \"device\", \"^tun_wg1$\")",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(node_network_transmit_bytes_total{host=~\"$Host\", device!~\"lo0|lo|enc0|pflog0|pfsync0\"}, \"device\", \"WAN\", \"device\", \"^vtnet0\\\\.5$\"), \"device\", \"LAN\", \"device\", \"^vtnet0$\"), \"device\", \"Guest\", \"device\", \"^vtnet0\\\\.30$\"), \"device\", \"IOT\", \"device\", \"^vtnet0\\\\.6$\"), \"device\", \"BWAN\", \"device\", \"^vtnet0\\\\.7$\"), \"device\", \"VPN\", \"device\", \"^tun_wg0$\"), \"device\", \"PROTON\", \"device\", \"^tun_wg1$\")",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(node_network_receive_packets_total{host=~\"$Host\", device!~\"lo0|lo|enc0|pflog0|pfsync0\"}, \"device\", \"WAN\", \"device\", \"^vtnet0\\\\.5$\"), \"device\", \"LAN\", \"device\", \"^vtnet0$\"), \"device\", \"Guest\", \"device\", \"^vtnet0\\\\.30$\"), \"device\", \"IOT\", \"device\", \"^vtnet0\\\\.6$\"), \"device\", \"BWAN\", \"device\", \"^vtnet0\\\\.7$\"), \"device\", \"VPN\", \"device\", \"^tun_wg0$\"), \"device\", \"PROTON\", \"device\", \"^tun_wg1$\")",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(node_network_transmit_packets_total{host=~\"$Host\", device!~\"lo0|lo|enc0|pflog0|pfsync0\"}, \"device\", \"WAN\", \"device\", \"^vtnet0\\\\.5$\"), \"device\", \"LAN\", \"device\", \"^vtnet0$\"), \"device\", \"Guest\", \"device\", \"^vtnet0\\\\.30$\"), \"device\", \"IOT\", \"device\", \"^vtnet0\\\\.6$\"), \"device\", \"BWAN\", \"device\", \"^vtnet0\\\\.7$\"), \"device\", \"VPN\", \"device\", \"^tun_wg0$\"), \"device\", \"PROTON\", \"device\", \"^tun_wg1$\")",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "E",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(node_network_receive_drop_total{host=~\"$Host\", device!~\"lo0|lo|enc0|pflog0|pfsync0\"}, \"device\", \"WAN\", \"device\", \"^vtnet0\\\\.5$\"), \"device\", \"LAN\", \"device\", \"^vtnet0$\"), \"device\", \"Guest\", \"device\", \"^vtnet0\\\\.30$\"), \"device\", \"IOT\", \"device\", \"^vtnet0\\\\.6$\"), \"device\", \"BWAN\", \"device\", \"^vtnet0\\\\.7$\"), \"device\", \"VPN\", \"device\", \"^tun_wg0$\"), \"device\", \"PROTON\", \"device\", \"^tun_wg1$\")",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "F",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(node_network_transmit_drop_total{host=~\"$Host\", device!~\"lo0|lo|enc0|pflog0|pfsync0\"}, \"device\", \"WAN\", \"device\", \"^vtnet0\\\\.5$\"), \"device\", \"LAN\", \"device\", \"^vtnet0$\"), \"device\", \"Guest\", \"device\", \"^vtnet0\\\\.30$\"), \"device\", \"IOT\", \"device\", \"^vtnet0\\\\.6$\"), \"device\", \"BWAN\", \"device\", \"^vtnet0\\\\.7$\"), \"device\", \"VPN\", \"device\", \"^tun_wg0$\"), \"device\", \"PROTON\", \"device\", \"^tun_wg1$\")",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "G",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(node_network_receive_errs_total{host=~\"$Host\", device!~\"lo0|lo|enc0|pflog0|pfsync0\"}, \"device\", \"WAN\", \"device\", \"^vtnet0\\\\.5$\"), \"device\", \"LAN\", \"device\", \"^vtnet0$\"), \"device\", \"Guest\", \"device\", \"^vtnet0\\\\.30$\"), \"device\", \"IOT\", \"device\", \"^vtnet0\\\\.6$\"), \"device\", \"BWAN\", \"device\", \"^vtnet0\\\\.7$\"), \"device\", \"VPN\", \"device\", \"^tun_wg0$\"), \"device\", \"PROTON\", \"device\", \"^tun_wg1$\")",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "H",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(node_network_transmit_errs_total{host=~\"$Host\", device!~\"lo0|lo|enc0|pflog0|pfsync0\"}, \"device\", \"WAN\", \"device\", \"^vtnet0\\\\.5$\"), \"device\", \"LAN\", \"device\", \"^vtnet0$\"), \"device\", \"Guest\", \"device\", \"^vtnet0\\\\.30$\"), \"device\", \"IOT\", \"device\", \"^vtnet0\\\\.6$\"), \"device\", \"BWAN\", \"device\", \"^vtnet0\\\\.7$\"), \"device\", \"VPN\", \"device\", \"^tun_wg0$\"), \"device\", \"PROTON\", \"device\", \"^tun_wg1$\")",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "timeFrom": null,
+      "timeShift": null,
+      "title": "Interface summary",
+      "type": "table",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "displayMode": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bytes_recv"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bytes_sent"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "device",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Time 1": true,
+              "Time 2": true,
+              "Time 3": true,
+              "Time 4": true,
+              "Time 5": true,
+              "Time 6": true,
+              "Time 7": true,
+              "Time 8": true,
+              "job": true,
+              "instance": true,
+              "host": true,
+              "__name__": true,
+              "job 1": true,
+              "job 2": true,
+              "job 3": true,
+              "job 4": true,
+              "job 5": true,
+              "job 6": true,
+              "job 7": true,
+              "job 8": true,
+              "instance 1": true,
+              "instance 2": true,
+              "instance 3": true,
+              "instance 4": true,
+              "instance 5": true,
+              "instance 6": true,
+              "instance 7": true,
+              "instance 8": true,
+              "host 1": true,
+              "host 2": true,
+              "host 3": true,
+              "host 4": true,
+              "host 5": true,
+              "host 6": true,
+              "host 7": true,
+              "host 8": true,
+              "__name__ 1": true,
+              "__name__ 2": true,
+              "__name__ 3": true,
+              "__name__ 4": true,
+              "__name__ 5": true,
+              "__name__ 6": true,
+              "__name__ 7": true,
+              "__name__ 8": true
+            },
+            "indexByName": {
+              "device": 0,
+              "Value #A": 1,
+              "Value #B": 2,
+              "Value #C": 3,
+              "Value #D": 4,
+              "Value #E": 5,
+              "Value #F": 6,
+              "Value #G": 7,
+              "Value #H": 8
+            },
+            "renameByName": {
+              "device": "interface",
+              "Value #A": "bytes_recv",
+              "Value #B": "bytes_sent",
+              "Value #C": "packets_recv",
+              "Value #D": "packets_sent",
+              "Value #E": "drop_in",
+              "Value #F": "drop_out",
+              "Value #G": "err_in",
+              "Value #H": "err_out"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "datasource": "$dataSource",
+      "gridPos": {
+        "y": 28,
+        "w": 24,
+        "h": 1,
+        "x": 0
+      },
+      "id": 14,
+      "panels": [],
+      "repeat": "WAN",
+      "title": "Selected Interfaces - ${WAN:text}",
+      "type": "row"
+    },
+    {
+      "cacheTimeout": null,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "description": "",
+      "gridPos": {
+        "y": 29,
+        "w": 24,
+        "h": 6,
+        "x": 0
+      },
+      "id": 603,
+      "links": [],
+      "pluginVersion": "7.4.3",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(node_network_receive_bytes_total{host=~\"$Host\", device=~\"$WAN\"}, \"device\", \"WAN\", \"device\", \"^vtnet0\\\\.5$\"), \"device\", \"LAN\", \"device\", \"^vtnet0$\"), \"device\", \"Guest\", \"device\", \"^vtnet0\\\\.30$\"), \"device\", \"IOT\", \"device\", \"^vtnet0\\\\.6$\"), \"device\", \"BWAN\", \"device\", \"^vtnet0\\\\.7$\"), \"device\", \"VPN\", \"device\", \"^tun_wg0$\"), \"device\", \"PROTON\", \"device\", \"^tun_wg1$\")",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(node_network_transmit_bytes_total{host=~\"$Host\", device=~\"$WAN\"}, \"device\", \"WAN\", \"device\", \"^vtnet0\\\\.5$\"), \"device\", \"LAN\", \"device\", \"^vtnet0$\"), \"device\", \"Guest\", \"device\", \"^vtnet0\\\\.30$\"), \"device\", \"IOT\", \"device\", \"^vtnet0\\\\.6$\"), \"device\", \"BWAN\", \"device\", \"^vtnet0\\\\.7$\"), \"device\", \"VPN\", \"device\", \"^tun_wg0$\"), \"device\", \"PROTON\", \"device\", \"^tun_wg1$\")",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(node_network_receive_packets_total{host=~\"$Host\", device=~\"$WAN\"}, \"device\", \"WAN\", \"device\", \"^vtnet0\\\\.5$\"), \"device\", \"LAN\", \"device\", \"^vtnet0$\"), \"device\", \"Guest\", \"device\", \"^vtnet0\\\\.30$\"), \"device\", \"IOT\", \"device\", \"^vtnet0\\\\.6$\"), \"device\", \"BWAN\", \"device\", \"^vtnet0\\\\.7$\"), \"device\", \"VPN\", \"device\", \"^tun_wg0$\"), \"device\", \"PROTON\", \"device\", \"^tun_wg1$\")",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(node_network_transmit_packets_total{host=~\"$Host\", device=~\"$WAN\"}, \"device\", \"WAN\", \"device\", \"^vtnet0\\\\.5$\"), \"device\", \"LAN\", \"device\", \"^vtnet0$\"), \"device\", \"Guest\", \"device\", \"^vtnet0\\\\.30$\"), \"device\", \"IOT\", \"device\", \"^vtnet0\\\\.6$\"), \"device\", \"BWAN\", \"device\", \"^vtnet0\\\\.7$\"), \"device\", \"VPN\", \"device\", \"^tun_wg0$\"), \"device\", \"PROTON\", \"device\", \"^tun_wg1$\")",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "E",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(node_network_receive_drop_total{host=~\"$Host\", device=~\"$WAN\"}, \"device\", \"WAN\", \"device\", \"^vtnet0\\\\.5$\"), \"device\", \"LAN\", \"device\", \"^vtnet0$\"), \"device\", \"Guest\", \"device\", \"^vtnet0\\\\.30$\"), \"device\", \"IOT\", \"device\", \"^vtnet0\\\\.6$\"), \"device\", \"BWAN\", \"device\", \"^vtnet0\\\\.7$\"), \"device\", \"VPN\", \"device\", \"^tun_wg0$\"), \"device\", \"PROTON\", \"device\", \"^tun_wg1$\")",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "F",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(node_network_transmit_drop_total{host=~\"$Host\", device=~\"$WAN\"}, \"device\", \"WAN\", \"device\", \"^vtnet0\\\\.5$\"), \"device\", \"LAN\", \"device\", \"^vtnet0$\"), \"device\", \"Guest\", \"device\", \"^vtnet0\\\\.30$\"), \"device\", \"IOT\", \"device\", \"^vtnet0\\\\.6$\"), \"device\", \"BWAN\", \"device\", \"^vtnet0\\\\.7$\"), \"device\", \"VPN\", \"device\", \"^tun_wg0$\"), \"device\", \"PROTON\", \"device\", \"^tun_wg1$\")",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "G",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(node_network_receive_errs_total{host=~\"$Host\", device=~\"$WAN\"}, \"device\", \"WAN\", \"device\", \"^vtnet0\\\\.5$\"), \"device\", \"LAN\", \"device\", \"^vtnet0$\"), \"device\", \"Guest\", \"device\", \"^vtnet0\\\\.30$\"), \"device\", \"IOT\", \"device\", \"^vtnet0\\\\.6$\"), \"device\", \"BWAN\", \"device\", \"^vtnet0\\\\.7$\"), \"device\", \"VPN\", \"device\", \"^tun_wg0$\"), \"device\", \"PROTON\", \"device\", \"^tun_wg1$\")",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "H",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(node_network_transmit_errs_total{host=~\"$Host\", device=~\"$WAN\"}, \"device\", \"WAN\", \"device\", \"^vtnet0\\\\.5$\"), \"device\", \"LAN\", \"device\", \"^vtnet0$\"), \"device\", \"Guest\", \"device\", \"^vtnet0\\\\.30$\"), \"device\", \"IOT\", \"device\", \"^vtnet0\\\\.6$\"), \"device\", \"BWAN\", \"device\", \"^vtnet0\\\\.7$\"), \"device\", \"VPN\", \"device\", \"^tun_wg0$\"), \"device\", \"PROTON\", \"device\", \"^tun_wg1$\")",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "timeFrom": null,
+      "timeShift": null,
+      "title": "Interface summary",
+      "type": "table",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "displayMode": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bytes_recv"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bytes_sent"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "device",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Time 1": true,
+              "Time 2": true,
+              "Time 3": true,
+              "Time 4": true,
+              "Time 5": true,
+              "Time 6": true,
+              "Time 7": true,
+              "Time 8": true,
+              "job": true,
+              "instance": true,
+              "host": true,
+              "__name__": true,
+              "job 1": true,
+              "job 2": true,
+              "job 3": true,
+              "job 4": true,
+              "job 5": true,
+              "job 6": true,
+              "job 7": true,
+              "job 8": true,
+              "instance 1": true,
+              "instance 2": true,
+              "instance 3": true,
+              "instance 4": true,
+              "instance 5": true,
+              "instance 6": true,
+              "instance 7": true,
+              "instance 8": true,
+              "host 1": true,
+              "host 2": true,
+              "host 3": true,
+              "host 4": true,
+              "host 5": true,
+              "host 6": true,
+              "host 7": true,
+              "host 8": true,
+              "__name__ 1": true,
+              "__name__ 2": true,
+              "__name__ 3": true,
+              "__name__ 4": true,
+              "__name__ 5": true,
+              "__name__ 6": true,
+              "__name__ 7": true,
+              "__name__ 8": true
+            },
+            "indexByName": {
+              "device": 0,
+              "Value #A": 1,
+              "Value #B": 2,
+              "Value #C": 3,
+              "Value #D": 4,
+              "Value #E": 5,
+              "Value #F": 6,
+              "Value #G": 7,
+              "Value #H": 8
+            },
+            "renameByName": {
+              "device": "interface",
+              "Value #A": "bytes_recv",
+              "Value #B": "bytes_sent",
+              "Value #C": "packets_recv",
+              "Value #D": "packets_sent",
+              "Value #E": "drop_in",
+              "Value #F": "drop_out",
+              "Value #G": "err_in",
+              "Value #H": "err_out"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "aliasColors": {},
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "decimals": 2,
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "links": [],
+          "unit": "Bps",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "fillGradient": 0,
+      "gridPos": {
+        "y": 35,
+        "w": 12,
+        "h": 8,
+        "x": 0
+      },
+      "hiddenSeries": false,
+      "id": 2,
+      "options": {
+        "alertThreshold": true
+      },
+      "percentage": false,
+      "pluginVersion": "7.4.3",
+      "points": false,
+      "spaceLength": 10,
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(rate(node_network_receive_bytes_total{host=~\"$Host\", device=~\"$WAN\"}[$__rate_interval]), \"device\", \"WAN\", \"device\", \"^vtnet0\\\\.5$\"), \"device\", \"LAN\", \"device\", \"^vtnet0$\"), \"device\", \"Guest\", \"device\", \"^vtnet0\\\\.30$\"), \"device\", \"IOT\", \"device\", \"^vtnet0\\\\.6$\"), \"device\", \"BWAN\", \"device\", \"^vtnet0\\\\.7$\"), \"device\", \"VPN\", \"device\", \"^tun_wg0$\"), \"device\", \"PROTON\", \"device\", \"^tun_wg1$\")",
+          "legendFormat": "{{device}} rx_bps"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(rate(node_network_transmit_bytes_total{host=~\"$Host\", device=~\"$WAN\"}[$__rate_interval]), \"device\", \"WAN\", \"device\", \"^vtnet0\\\\.5$\"), \"device\", \"LAN\", \"device\", \"^vtnet0$\"), \"device\", \"Guest\", \"device\", \"^vtnet0\\\\.30$\"), \"device\", \"IOT\", \"device\", \"^vtnet0\\\\.6$\"), \"device\", \"BWAN\", \"device\", \"^vtnet0\\\\.7$\"), \"device\", \"VPN\", \"device\", \"^tun_wg0$\"), \"device\", \"PROTON\", \"device\", \"^tun_wg1$\")",
+          "legendFormat": "{{device}} tx_bps"
+        }
+      ],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "Traffic Bytes/sec - ${WAN:text}",
+      "type": "timeseries",
+      "yaxis": {
+        "align": false,
+        "alignLevel": null
+      }
+    },
+    {
+      "cacheTimeout": null,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "decimals": 2,
+          "mappings": [
+            {
+              "id": 0,
+              "op": "=",
+              "text": "N/A",
+              "type": 1,
+              "value": "null"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "bps",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "y": 35,
+        "w": 4,
+        "h": 4,
+        "x": 12
+      },
+      "id": 247,
+      "links": [],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "mean"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "text": {},
+        "textMode": "auto"
+      },
+      "pluginVersion": "7.4.3",
+      "repeat": null,
+      "repeatDirection": "v",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "sum(rate(node_network_receive_bytes_total{host=~\"$Host\", device=~\"$WAN\"}[$__rate_interval])) * 8",
+          "legendFormat": "bytes_recv"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "sum(rate(node_network_transmit_bytes_total{host=~\"$Host\", device=~\"$WAN\"}[$__rate_interval])) * 8",
+          "legendFormat": "bytes_sent"
+        }
+      ],
+      "timeFrom": null,
+      "timeShift": null,
+      "title": "Traffic Bits/sec - ${WAN:text}",
+      "type": "stat"
+    },
+    {
+      "cacheTimeout": null,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "decimals": 2,
+          "mappings": [
+            {
+              "id": 0,
+              "op": "=",
+              "text": "N/A",
+              "type": 1,
+              "value": "null"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "bytes",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "y": 39,
+        "w": 4,
+        "h": 4,
+        "x": 12
+      },
+      "hideTimeOverride": true,
+      "id": 296,
+      "links": [],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "text": {},
+        "textMode": "auto"
+      },
+      "pluginVersion": "7.4.3",
+      "repeat": null,
+      "repeatDirection": "v",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "sum(node_network_receive_bytes_total{host=~\"$Host\", device=~\"$WAN\"})",
+          "legendFormat": "bytes_recv"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "sum(node_network_transmit_bytes_total{host=~\"$Host\", device=~\"$WAN\"})",
+          "legendFormat": "bytes_sent"
+        }
+      ],
+      "timeFrom": "now/M",
+      "timeShift": null,
+      "title": "Totals - ${WAN:text}",
+      "type": "stat"
+    },
+    {
+      "aliasColors": {},
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "decimals": 2,
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "links": [],
+          "unit": "pps",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "fillGradient": 0,
+      "gridPos": {
+        "y": 35,
+        "w": 8,
+        "h": 8,
+        "x": 16
+      },
+      "hiddenSeries": false,
+      "id": 322,
+      "links": [],
+      "options": {
+        "alertThreshold": true
+      },
+      "percentage": false,
+      "pluginVersion": "7.4.3",
+      "points": false,
+      "repeat": null,
+      "repeatDirection": "v",
+      "spaceLength": 10,
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "sum(rate(node_network_receive_packets_total{host=~\"$Host\", device=~\"$WAN\"}[$__rate_interval]))",
+          "legendFormat": "rx_pps"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "sum(rate(node_network_transmit_packets_total{host=~\"$Host\", device=~\"$WAN\"}[$__rate_interval]))",
+          "legendFormat": "tx_pps"
+        }
+      ],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "Throughput - ${WAN:text}",
+      "type": "timeseries",
+      "yaxis": {
+        "align": false,
+        "alignLevel": null
+      }
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 27,
+  "style": "dark",
+  "tags": [
+    "homelab",
+    "pfsense"
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "Host",
+        "label": "Host",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "__PROMETHEUS_UID__"
+        },
+        "definition": "label_values(node_uname_info{job=\"pfsense\"}, host)",
+        "query": {
+          "query": "label_values(node_uname_info{job=\"pfsense\"}, host)",
+          "refId": "Host"
+        },
+        "refresh": 1,
+        "includeAll": false,
+        "multi": false,
+        "hide": 0,
+        "regex": "",
+        "sort": 1,
+        "options": [],
+        "current": {}
+      },
+      {
+        "name": "Disk",
+        "label": "Disk",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "__PROMETHEUS_UID__"
+        },
+        "definition": "label_values(node_filesystem_size_bytes{host=~\"$Host\"}, device)",
+        "query": {
+          "query": "label_values(node_filesystem_size_bytes{host=~\"$Host\"}, device)",
+          "refId": "Disk"
+        },
+        "refresh": 1,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "hide": 0,
+        "regex": "",
+        "sort": 1,
+        "options": [],
+        "current": {}
+      },
+      {
+        "name": "WAN",
+        "label": "Interface",
+        "type": "custom",
+        "query": "WAN : vtnet0.5,LAN : vtnet0,Guest : vtnet0.30,IOT : vtnet0.6,BWAN : vtnet0.7,VPN : tun_wg0,PROTON : tun_wg1",
+        "refresh": 0,
+        "includeAll": true,
+        "allValue": "vtnet0.5|vtnet0|vtnet0.30|vtnet0.6|vtnet0.7|tun_wg0|tun_wg1",
+        "multi": true,
+        "hide": 0,
+        "regex": "",
+        "sort": 1,
+        "options": [],
+        "current": {}
+      },
+      {
+        "name": "CPU",
+        "label": "CPU",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "__PROMETHEUS_UID__"
+        },
+        "definition": "label_values(node_cpu_seconds_total{host=~\"$Host\"}, cpu)",
+        "query": {
+          "query": "label_values(node_cpu_seconds_total{host=~\"$Host\"}, cpu)",
+          "refId": "CPU"
+        },
+        "refresh": 1,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "hide": 0,
+        "regex": "",
+        "sort": 1,
+        "options": [],
+        "current": {}
+      }
+    ]
+  },
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "5s",
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m",
+      "30m",
+      "1h",
+      "2h",
+      "1d"
+    ]
+  },
+  "timezone": "",
+  "title": "Homelab — pfSense",
+  "uid": "homelab-pfsense",
+  "version": 145,
+  "description": "A Grafana dashboard to monitor pfSense via the node_exporter (Prometheus). Adapted from https://github.com/VictorRobellini/pfSense-Dashboard"
+}

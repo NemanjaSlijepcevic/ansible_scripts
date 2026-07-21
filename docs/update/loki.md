@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Deploys [Loki](https://grafana.com/docs/loki/latest/) as a Docker container — the central log-aggregation backend that receives streams from every host's Promtail. Runs on the `monitor` host with filesystem (TSDB) storage. After the container is healthy, the role auto-registers Loki as a data source in Grafana.
+Deploys [Loki](https://grafana.com/docs/loki/latest/) as a Docker container — the central log-aggregation backend that receives streams from every host's Alloy agent. Runs on the `monitor` host with filesystem (TSDB) storage. After the container is healthy, the role auto-registers Loki as a data source in Grafana.
 
 ## Prerequisites
 

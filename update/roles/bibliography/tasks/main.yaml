@@ -34,7 +34,7 @@
       - "{{ default.dns }}"
     networks:
       - name: proxy
-        ipv4_address: "{{ bibliography.static }}"
+        ipv4_address: "{{ ip['bibliography'] }}"
     env:
       TZ: "Europe/Belgrade"
       DEFAULT_DOMAIN: "{{ bibliography.domain }}"
@@ -43,6 +43,19 @@
     volumes:
       - "./data/bibliography/db.sqlite3:/app/db.sqlite3"
       - "./data/bibliography/staticfiles:/app/staticfiles"
+    # Django rejects a non-domain Host with 400, so a plain curl/wget would fail
+    # even when healthy. Probe with the bundled python: any HTTP response < 500
+    # means gunicorn is serving; a connection error/timeout means it is not.
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import http.client,sys; c=http.client.HTTPConnection('127.0.0.1',8000,timeout=4); c.request('GET','/'); sys.exit(0 if c.getresponse().status<500 else 1)"
+      interval: 30s
+      timeout: 6s
+      retries: 3
+      start_period: 20s
     labels:
       traefik.enable: "true"
       traefik.http.routers.bibliography.entrypoints: "https"

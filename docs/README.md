@@ -25,7 +25,7 @@ The repository is split into two playbook families:
 
 ## Baseline stack (every `update/` host)
 
-`common` → `traefik` → `authelia` → `crowdsec` → `telegraf` → `promtail` run on every host before any host-specific services. See the individual manuals and `../CLAUDE.md` ("Per-Machine Baseline Stack") for the data-store topology (Postgres over mutual TLS, Telegraf→InfluxDB, Promtail→Loki).
+`common` → `traefik` → `authelia` → `crowdsec` → `alloy` run on every host before any host-specific services. `alloy` is the single agent that ships both metrics and logs. See the individual manuals and `../CLAUDE.md` ("Per-Machine Baseline Stack") for the data-store topology (Postgres over mutual TLS, Alloy→Prometheus for metrics, Alloy→Loki for logs, plus Prometheus's own scrapes of the Proxmox and pfSense exporters, which cannot push).
 
 ---
 
@@ -64,11 +64,11 @@ The repository is split into two playbook families:
 
 | Role | Documentation | One-line description |
 |------|--------------|----------------------|
-| `influxdb` | [update/influxdb.md](update/influxdb.md) | Deploys InfluxDB time-series database |
-| `telegraf` | [update/telegraf.md](update/telegraf.md) | Deploys Telegraf metrics collector forwarding to InfluxDB |
-| `grafana` | [update/grafana.md](update/grafana.md) | Deploys Grafana dashboarding + alerting |
+| `alloy` | [update/alloy.md](update/alloy.md) | Deploys Grafana Alloy: ships logs to Loki and metrics to Prometheus (runs on every host) |
+| `prometheus` | [update/prometheus.md](update/prometheus.md) | Deploys Prometheus: remote-write receiver for every host's Alloy, plus scrapes of Proxmox and pfSense exporters |
+| `pve_exporter` | [update/pve_exporter.md](update/pve_exporter.md) | Deploys `prometheus-pve-exporter`, bridging the Proxmox VE API to Prometheus's scrape model |
+| `grafana` | [update/grafana.md](update/grafana.md) | Deploys Grafana dashboarding + alerting (Prometheus + Loki datasources, OIDC via Authelia) |
 | `loki` | [update/loki.md](update/loki.md) | Deploys Loki log aggregation and registers it in Grafana |
-| `promtail` | [update/promtail.md](update/promtail.md) | Ships Docker/Traefik/syslog logs to Loki (runs on every host) |
 | `kuma` | [update/kuma.md](update/kuma.md) | Deploys Uptime Kuma availability monitor |
 | `public_ip_tracker` | [update/public_ip_tracker.md](update/public_ip_tracker.md) | Tracks and exposes the host's current public IP |
 | `public_ip_whitelist_updater` | [update/public_ip_whitelist_updater.md](update/public_ip_whitelist_updater.md) | Keeps Traefik's IP whitelist updated with the current public IP |

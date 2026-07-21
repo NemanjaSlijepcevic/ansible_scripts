@@ -18,6 +18,7 @@
     restart_policy: unless-stopped
     networks:
       - name: proxy
+        ipv4_address: "{{ ip['netbootxyz'] }}"
     env:
       TFTPD_OPTS: "--tftp-single-port"
     volumes:

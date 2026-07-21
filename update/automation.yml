@@ -15,5 +15,4 @@
     - { role: claude_runner, tags: ['claude_runner', 'kestra', 'automation'] }
     - { role: ansible_runner, tags: ['ansible_runner', 'kestra', 'automation'] }
     # - { role: kestra, tags: ['kestra', 'automation'] }
-    - { role: telegraf, tags: ['telegraf', 'metrics', 'monitoring'] }
-    - { role: promtail, tags: ['promtail', 'logs', 'monitoring'] }
+    - { role: alloy, tags: ['alloy', 'metrics', 'logs', 'monitoring'] }

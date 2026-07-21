@@ -1,0 +1,27 @@
+---
+# No config file: the exporter is fully env-configured, so this role needs no
+# environment.yml. Prometheus scrapes it internally over the proxy network
+# (no Traefik router).
+- name: Deploy pve-exporter container
+  community.docker.docker_container:
+    name: pve-exporter
+    image: prompve/prometheus-pve-exporter:latest
+    pull: true
+    restart_policy: unless-stopped
+    security_opts:
+      - "no-new-privileges:true"
+    networks:
+      - name: proxy
+        ipv4_address: "{{ ip['pve-exporter'] }}"
+    env:
+      TZ: "Europe/Belgrade"
+      PVE_USER: "{{ pve.api_user }}"
+      PVE_TOKEN_NAME: "{{ pve.token_name }}"
+      PVE_TOKEN_VALUE: "{{ pve.token_value }}"
+      PVE_VERIFY_SSL: "{{ pve.verify_ssl | string | lower }}"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9221/pve?target={{ pve.api_host }}"]
+      interval: 1m
+      timeout: 15s
+      retries: 3
+      start_period: 30s

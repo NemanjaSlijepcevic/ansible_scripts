@@ -92,7 +92,7 @@ CROWDSEC_COLLECTIONS="crowdsecurity/traefik crowdsecurity/http-cve LePresidente/
 
 # Ensure every bind-mounted log file exists BEFORE the first docker run —
 # Docker creates a missing source path as a DIRECTORY (LXC guests often
-# lack kern.log), which then breaks crowdsec and promtail.
+# lack kern.log), which then breaks crowdsec and alloy.
 sudo touch /var/log/auth.log /var/log/syslog /var/log/kern.log /var/log/ufw.log /var/log/mail.log
 
 sudo docker run -d \
