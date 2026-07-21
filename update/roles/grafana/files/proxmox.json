@@ -33,8 +33,8 @@
     {
       "collapsed": false,
       "datasource": {
-        "type": "influxdb",
-        "uid": "000000001"
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
       },
       "gridPos": {
         "h": 1,
@@ -902,8 +902,8 @@
     {
       "collapsed": false,
       "datasource": {
-        "type": "influxdb",
-        "uid": "000000001"
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
       },
       "gridPos": {
         "h": 1,

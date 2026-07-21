@@ -3,9 +3,9 @@
 # Copy the shape into host_vars/group_vars and replace with real values,
 # then keep the real inventory encrypted. Values below are placeholders.
 #
-# Prometheus replaces InfluxDB as the metrics store. Every host's Alloy agent
-# remote-writes to it; it also actively scrapes the Proxmox and pfSense
-# exporters (which cannot push).
+# Prometheus is the metrics store. Every host's Alloy agent remote-writes to
+# it; it also actively scrapes the Proxmox and pfSense exporters (which cannot
+# push).
 
 user:
   name: "deploy"

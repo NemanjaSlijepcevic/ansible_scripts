@@ -69,9 +69,9 @@ On first access, log in with the default credentials `admin`/`admin` and immedia
 
 ## Provisioned Dashboards
 
-Dashboard JSON in `files/*.json` is synced to `./data/grafana/provisioning/dashboards/json/` with `__PROMETHEUS_UID__` / `__LOKI_UID__` replaced by the real datasource uids. The glob is **not** recursive — `files/flux-reference/` holds the pre-migration InfluxDB/Flux originals and is deliberately kept out of it.
+Dashboard JSON in `files/*.json` is synced to `./data/grafana/provisioning/dashboards/json/` with `__PROMETHEUS_UID__` / `__LOKI_UID__` replaced by the real datasource uids. The glob is **not** recursive.
 
-Every dashboard is the Flux original ported panel-for-panel to PromQL (same layout, titles, units, thresholds); legacy Angular `graph` panels became `timeseries`.
+Every dashboard queries PromQL (or LogQL for the Loki panels), rendered with `timeseries`/`stat`/`table` panels.
 
 | File | uid | Source |
 |------|-----|--------|
@@ -83,7 +83,7 @@ Every dashboard is the Flux original ported panel-for-panel to PromQL (same layo
 | `proxmox.json` | `homelab-proxmox` | Prometheus — `pve_*` (pve-exporter); guest name/node joined from `pve_guest_info` |
 | `loki-overview.json` | `homelab-loki-overview` | Loki |
 
-Panels whose telegraf source has no exporter equivalent were dropped or repurposed rather than left blank:
+Panels with no exporter equivalent were dropped or repurposed rather than left blank:
 
 - **pfSense** — `PF Information` removed and `Process Information` / `Active Users` replaced by `System Information` / `CPU Cores`: FreeBSD node_exporter exports no pf counters, process states, or logged-in users.
 - **Proxmox** — `Swap Total`, `Load Avg (1m)`, `I/O Wait` removed; pve-exporter reports none of them (they would need a node_exporter on the PVE host).

@@ -1,16 +1,5 @@
 apiVersion: 1
 
-# Remove the retired InfluxDB datasources (file provisioning only removes
-# file-provisioned entries; the one the old influxdb role registered via the
-# HTTP API must be deleted by hand once — see the postgres/alloy migration doc).
-deleteDatasources:
-  - name: InfluxDB
-    orgId: 1
-  - name: InfluxDB-Proxmox
-    orgId: 1
-  - name: InfluxDB-pfSense
-    orgId: 1
-
 datasources:
   - name: Prometheus
     type: prometheus

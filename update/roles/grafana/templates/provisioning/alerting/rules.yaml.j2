@@ -14,27 +14,6 @@ deleteRules:
     uid: hl-traefik-5xx-automation
   - orgId: 1
     uid: hl-traefik-p95-automation
-  # --- Retired InfluxDB/Flux rule UIDs (telegraf → Alloy/Prometheus rename) ---
-  # Old per-bucket node-gap rules were uid'd after the bucket (telegraf-<host>);
-  # they are now hl-node-gap-<host>. Delete the old names.
-{% for h in monitored_hosts %}
-  - orgId: 1
-    uid: hl-node-gap-telegraf-{{ h }}
-{% endfor %}
-  - orgId: 1
-    uid: hl-node-gap-telegraf-immich
-  # Old per-bucket traefik rules were uid'd after the bucket (traefik-<host>);
-  # they are now hl-traefik-{5xx,p95}-<host>. Delete the old names.
-{% for h in traefik_alert_hosts %}
-  - orgId: 1
-    uid: hl-traefik-5xx-traefik-{{ h }}
-  - orgId: 1
-    uid: hl-traefik-p95-traefik-{{ h }}
-{% endfor %}
-  - orgId: 1
-    uid: hl-traefik-5xx-traefik-automation
-  - orgId: 1
-    uid: hl-traefik-p95-traefik-automation
   # pfSense node_exporter has no pf state-table metric — rule dropped.
   - orgId: 1
     uid: hl-pfsense-pf-states

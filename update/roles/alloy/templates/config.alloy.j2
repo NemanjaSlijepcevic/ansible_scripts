@@ -1,17 +1,17 @@
 // Managed by Ansible (alloy role). Do not edit on the host.
 //
-// Replaces the old promtail (logs) + telegraf (metrics) agents:
+// Unified agent:
 //   logs    -> Loki   via loki.write        ({{ loki_ingest_url }})
 //   metrics -> Prometheus via remote_write  ({{ alloy_metrics_url }})
 
-// ======================= LOGS (replaces promtail) =======================
+// ============================== LOGS ==============================
 
 discovery.docker "containers" {
   host             = "unix:///var/run/docker.sock"
   refresh_interval = "5s"
 }
 
-// Mirror of promtail's docker job relabel_configs.
+// Docker log discovery relabel_configs.
 discovery.relabel "docker_logs" {
   targets = discovery.docker.containers.targets
 
@@ -47,7 +47,7 @@ loki.source.docker "containers" {
   forward_to    = [loki.process.drop_noise.receiver]
 }
 
-// promtail traefik-files job.
+// Traefik access-log files job.
 local.file_match "traefik" {
   path_targets = [{
     __path__ = "/srv/traefik-logs/*.log",
@@ -59,7 +59,7 @@ loki.source.file "traefik" {
   forward_to = [loki.process.drop_noise.receiver]
 }
 
-// promtail syslog-files job.
+// Host /var/log files job.
 local.file_match "varlog" {
   path_targets = [{
     __path__ = "/var/log/{syslog,auth.log,kern.log,dpkg.log,unattended-upgrades/unattended-upgrades*.log}",
@@ -122,7 +122,7 @@ loki.source.syslog "dev_{{ dev.name }}" {
 {% endfor %}
 
 {% endif %}
-// promtail pipeline_stages: drop blank lines and anything over 8KB.
+// Pipeline stages: drop blank lines and anything over 8KB.
 loki.process "drop_noise" {
   stage.drop {
     longer_than = "8KB"
@@ -142,10 +142,10 @@ loki.write "default" {
   }
 }
 
-// ======================= METRICS (replaces telegraf) =======================
+// ============================= METRICS =============================
 
-// Host metrics (cpu/mem/disk/net/...) — replaces telegraf's system input
-// plugins. The textfile collector reads the docker-state.timer output.
+// Host metrics (cpu/mem/disk/net/...) via the node exporter. The textfile
+// collector reads the docker-state.timer output.
 prometheus.exporter.unix "node" {
   rootfs_path = "/rootfs"
   procfs_path = "/rootfs/proc"
@@ -161,7 +161,7 @@ prometheus.exporter.unix "node" {
   }
 }
 
-// Per-container CPU/mem/net — replaces telegraf's inputs.docker.
+// Per-container CPU/mem/net via cadvisor.
 prometheus.exporter.cadvisor "docker" {
   docker_host      = "unix:///var/run/docker.sock"
   docker_only      = true
@@ -174,7 +174,7 @@ prometheus.exporter.cadvisor "docker" {
   store_container_labels = false
 }
 
-// HTTP uptime checks — replaces telegraf's inputs.http_response.
+// HTTP uptime checks via the blackbox exporter.
 //
 // Three modules:
 //  - http_2xx: the default, plain 2xx check.
@@ -214,7 +214,7 @@ prometheus.exporter.blackbox "http" {
 }
 
 {% if current_host == 'postgres' %}
-// Postgres metrics over mTLS — replaces telegraf's inputs.postgresql.
+// Postgres metrics over mTLS via the postgres exporter.
 prometheus.exporter.postgres "pg" {
   data_source_names = ["postgresql://{{ postgres.adm_user }}:{{ postgres.adm_pass | urlencode }}@postgres:{{ postgres.port }}/postgres?sslmode=verify-ca&sslrootcert=/postgres-certs/ca.crt&sslcert=/postgres-certs/postgres_admin.crt&sslkey=/postgres-certs/postgres_admin.key"]
 }
@@ -234,9 +234,8 @@ prometheus.scrape "exporters" {
   forward_to      = [prometheus.remote_write.default.receiver]
 }
 
-// Static Prometheus endpoints exposed by sibling containers on the proxy net —
-// replaces telegraf's inputs.prometheus (crowdsec + docker daemon) and the
-// old Traefik influxDB2 push (now a native /metrics endpoint on :8082).
+// Static Prometheus endpoints exposed by sibling containers on the proxy net:
+// crowdsec, the docker daemon, and Traefik's native /metrics endpoint (:8082).
 prometheus.scrape "statics" {
   targets = [
     { "__address__" = "crowdsec:6060", "job" = "crowdsec" },
@@ -248,9 +247,9 @@ prometheus.scrape "statics" {
 }
 
 {% if current_host == 'monitor' and homeassistant.prometheus_token is defined %}
-// Home Assistant exposes /api/prometheus (auth required) — replaces the retired
-// HA InfluxDB push. HA serves plain HTTP internally (TLS is at Traefik), so
-// scrape the container directly with the long-lived access token.
+// Home Assistant exposes /api/prometheus (auth required). HA serves plain HTTP
+// internally (TLS is at Traefik), so scrape the container directly with the
+// long-lived access token.
 prometheus.scrape "homeassistant" {
   targets = [
     { "__address__" = "homeassistant:{{ homeassistant.port }}", "job" = "homeassistant" },

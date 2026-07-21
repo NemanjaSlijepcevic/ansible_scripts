@@ -19,10 +19,10 @@
     env:
       TZ: "Europe/Belgrade"
       # Quiet specific chatty loggers (logger:level, comma-separated). The
-      # `expr` logger warns "Ignoring InfluxDB data frame due to missing
-      # numeric fields" on every alert eval where a query returns an empty
-      # frame (e.g. a service with no 5xx or no recent requests) — benign,
-      # the rule still evaluates the numeric frames. Keeps expr errors.
+      # `expr` logger warns "missing numeric fields" on every alert eval where
+      # a query returns an empty frame (e.g. a service with no 5xx or no recent
+      # requests) — benign, the rule still evaluates the numeric frames. Keeps
+      # expr errors.
       GF_LOG_FILTERS: "{{ grafana_log_filters | default('expr:error') }}"
       GF_SERVER_ROOT_URL: "{{ grafana.url }}"
       GF_SECURITY_ADMIN_USER: "{{ grafana.admin_user }}"

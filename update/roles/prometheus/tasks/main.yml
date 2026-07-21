@@ -2,14 +2,6 @@
 - name: Create environment
   ansible.builtin.include_tasks: environment.yml
 
-# Big-bang cutover: Prometheus replaces InfluxDB. Remove the old store so it
-# stops accepting writes and frees its Traefik router. Idempotent.
-# NOTE: ./data/influxdb is intentionally left on disk (abandoned history).
-- name: Remove legacy influxdb container
-  community.docker.docker_container:
-    name: influxdb
-    state: absent
-
 - name: Deploy prometheus container
   community.docker.docker_container:
     name: prometheus

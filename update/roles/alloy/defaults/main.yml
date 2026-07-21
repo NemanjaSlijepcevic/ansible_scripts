@@ -3,9 +3,9 @@
 # Copy the shape into host_vars/group_vars and replace with real values,
 # then keep the real inventory encrypted. Values below are placeholders.
 #
-# Alloy replaces the old telegraf + promtail agents on every host: it ships
-# container/file logs to Loki AND scrapes host/container/http/postgres metrics,
-# remote-writing them to Prometheus on the monitor host.
+# Alloy is the unified agent on every host: it ships container/file logs to
+# Loki AND scrapes host/container/http/postgres metrics, remote-writing them
+# to Prometheus on the monitor host.
 
 user:
   name: "deploy"

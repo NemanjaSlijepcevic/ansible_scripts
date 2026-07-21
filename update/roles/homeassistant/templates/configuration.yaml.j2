@@ -36,8 +36,7 @@ notify:
     chat_id: {{ homeassistant.telegram.chat_id }}
 
 # Expose /api/prometheus so the Alloy agent on this host can scrape HA's entity
-# metrics and remote-write them to Prometheus — replaces the retired InfluxDB
-# push integration (delete that under Settings -> Devices & Services). The
-# endpoint requires auth: Alloy sends homeassistant.prometheus_token.
+# metrics and remote-write them to Prometheus. The endpoint requires auth:
+# Alloy sends homeassistant.prometheus_token.
 prometheus:
   namespace: hass

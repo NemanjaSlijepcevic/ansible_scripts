@@ -2,19 +2,6 @@
 - name: Create environment
   ansible.builtin.include_tasks: environment.yml
 
-# Big-bang cutover: Alloy takes over from telegraf + promtail. Remove the old
-# agents so they stop writing to InfluxDB/Loki and free the docker.sock/log
-# mounts. Idempotent — a no-op once they are gone.
-- name: Remove legacy telegraf container
-  community.docker.docker_container:
-    name: telegraf
-    state: absent
-
-- name: Remove legacy promtail container
-  community.docker.docker_container:
-    name: promtail
-    state: absent
-
 - name: Set alloy volumes
   ansible.builtin.set_fact:
     alloy_volumes:

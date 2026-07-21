@@ -3,8 +3,7 @@
 #
 # Runs on the HOST via docker-state.timer; the output file is bind-mounted into
 # Alloy and picked up by prometheus.exporter.unix's textfile collector.
-# Replaces the old telegraf inputs.exec docker-images.sh (InfluxDB line
-# protocol). Adds per-container exited/oom gauges — cadvisor cannot see stopped
+# Provides per-container exited/oom gauges — cadvisor cannot see stopped
 # containers, so the hl-ct-exited / hl-ct-oom alerts depend on this script.
 set -eu
 

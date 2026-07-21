@@ -25,7 +25,7 @@ The repository is split into two playbook families:
 
 ## Baseline stack (every `update/` host)
 
-`common` → `traefik` → `authelia` → `crowdsec` → `alloy` run on every host before any host-specific services. `alloy` is the single agent that replaced both `telegraf` (metrics) and `promtail` (logs). See the individual manuals and `../CLAUDE.md` ("Per-Machine Baseline Stack") for the data-store topology (Postgres over mutual TLS, Alloy→Prometheus for metrics, Alloy→Loki for logs, plus Prometheus's own scrapes of the Proxmox and pfSense exporters, which cannot push).
+`common` → `traefik` → `authelia` → `crowdsec` → `alloy` run on every host before any host-specific services. `alloy` is the single agent that ships both metrics and logs. See the individual manuals and `../CLAUDE.md` ("Per-Machine Baseline Stack") for the data-store topology (Postgres over mutual TLS, Alloy→Prometheus for metrics, Alloy→Loki for logs, plus Prometheus's own scrapes of the Proxmox and pfSense exporters, which cannot push).
 
 ---
 
@@ -64,8 +64,8 @@ The repository is split into two playbook families:
 
 | Role | Documentation | One-line description |
 |------|--------------|----------------------|
-| `alloy` | [update/alloy.md](update/alloy.md) | Deploys Grafana Alloy (replaces telegraf + promtail): ships logs to Loki and metrics to Prometheus (runs on every host) |
-| `prometheus` | [update/prometheus.md](update/prometheus.md) | Deploys Prometheus (replaces InfluxDB): remote-write receiver for every host's Alloy, plus scrapes of Proxmox and pfSense exporters |
+| `alloy` | [update/alloy.md](update/alloy.md) | Deploys Grafana Alloy: ships logs to Loki and metrics to Prometheus (runs on every host) |
+| `prometheus` | [update/prometheus.md](update/prometheus.md) | Deploys Prometheus: remote-write receiver for every host's Alloy, plus scrapes of Proxmox and pfSense exporters |
 | `pve_exporter` | [update/pve_exporter.md](update/pve_exporter.md) | Deploys `prometheus-pve-exporter`, bridging the Proxmox VE API to Prometheus's scrape model |
 | `grafana` | [update/grafana.md](update/grafana.md) | Deploys Grafana dashboarding + alerting (Prometheus + Loki datasources, OIDC via Authelia) |
 | `loki` | [update/loki.md](update/loki.md) | Deploys Loki log aggregation and registers it in Grafana |
@@ -119,7 +119,6 @@ Chronological change logs for larger working sessions live in `sessions/`:
 | Date | Log | Scope |
 |------|-----|-------|
 | 2026-07-11 | [sessions/2026-07-11-kestra-migration.md](sessions/2026-07-11-kestra-migration.md) | n8n → Kestra migration, repo-managed flows, Grafana alert audit + new rules, Claude/Telegram alert triage |
-| 2026-07-20 | [sessions/2026-07-20-alloy-prometheus-migration.md](sessions/2026-07-20-alloy-prometheus-migration.md) | Telegraf+Promtail+InfluxDB → Grafana Alloy + Prometheus, Proxmox/pfSense scraping, Grafana dashboards/alerts rewritten to PromQL |
 
 ---
 

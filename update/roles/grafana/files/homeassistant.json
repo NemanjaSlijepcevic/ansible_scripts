@@ -12,7 +12,7 @@
       }
     ]
   },
-  "description": "Home Assistant entity metrics via Prometheus (/api/prometheus): climate, battery, switches, binary sensors, availability \u2014 replaces the retired InfluxDB push.",
+  "description": "Home Assistant entity metrics via Prometheus (/api/prometheus): climate, battery, switches, binary sensors, availability.",
   "editable": true,
   "gnetId": null,
   "graphTooltip": 0,

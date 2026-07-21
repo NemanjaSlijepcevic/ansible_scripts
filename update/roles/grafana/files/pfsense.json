@@ -1643,5 +1643,5 @@
   "title": "Homelab — pfSense",
   "uid": "homelab-pfsense",
   "version": 145,
-  "description": "See the github link for the most up-to-date dashboard.\r\n\r\nA Grafana dashboard built to monitor pfSense that relies on influx and Telegraf.  All artifacts and instructions are maintained in github at https://github.com/VictorRobellini/pfSense-Dashboard"
+  "description": "A Grafana dashboard to monitor pfSense via the node_exporter (Prometheus). Adapted from https://github.com/VictorRobellini/pfSense-Dashboard"
 }

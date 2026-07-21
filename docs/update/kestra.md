@@ -157,7 +157,7 @@ sudo docker network connect docker-api kestra
 **Explanation**:
 - Two networks: `proxy` (static IP, Traefik-routable) and `docker-api` (reaches `socket-proxy` and nothing else). `docker run --network` accepts one network at creation, hence the follow-up `docker network connect`.
 - `SECRET_*` env vars are Kestra OSS's secrets backend: **base64-encoded** values readable in flows via `{{ secret('TELEGRAM_BOT_TOKEN') }}` — same Telegram bot as the `log_notification` role.
-- The UI/API listen on `8080`; the management/health endpoint listens on `8081` (unauthenticated, probed by Telegraf from inside the Docker network — it is *not* routed by Traefik).
+- The UI/API listen on `8080`; the management/health endpoint listens on `8081` (unauthenticated, probed by Alloy's blackbox exporter from inside the Docker network — it is *not* routed by Traefik).
 - No `--user` override and no docker socket mount: the container runs as the image's unprivileged `kestra` user, and all Docker access goes through the socket proxy configured in `application.yml`.
 
 ---

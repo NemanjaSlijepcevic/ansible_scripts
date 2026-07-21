@@ -28,7 +28,7 @@ grafana_alert_webhook: "https://kestra.example.com/api/v1/main/executions/webhoo
 
 # Hosts monitored by alert rules. Each entry is a current_host value used in
 # update/<host>.yml — it matches the `host` (metrics) and `node` (logs) label
-# Alloy stamps on every series. Replaces the old telegraf-<host> bucket list.
+# Alloy stamps on every series.
 monitored_hosts:
   - "nas"
   - "server"
