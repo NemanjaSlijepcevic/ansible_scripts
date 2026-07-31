@@ -32,7 +32,7 @@
     tag: "{{ ansible_runner.image.split(':')[1] | default('latest') }}"
     source: build
     build:
-      path: "{{ ansible_env.PWD }}/data/ansible-runner/build"
+      path: "{{ ansible_facts.env.PWD }}/data/ansible-runner/build"
       pull: true
       nocache: "{{ runner_update | default(false) | bool }}"
     force_source: "{{ (runner_update | default(false) | bool) or (ansible_runner_dockerfile.changed | default(false)) }}"

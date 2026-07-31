@@ -69,4 +69,4 @@
     group: "root"
     mode: "0644"
   vars:
-    log_path: "{{ ansible_env.PWD }}/data/public_ip_whitelist_updater/app.log"
+    log_path: "{{ ansible_facts.env.PWD }}/data/public_ip_whitelist_updater/app.log"

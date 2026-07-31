@@ -1,0 +1,34 @@
+# Managed by Ansible (update/roles/openbao). Do not edit by hand.
+
+ui = true
+
+# Raft integrated storage. Recommended default: self-contained, supports
+# `bao operator raft snapshot save` for consistent live backups. With Raft,
+# HashiCorp/OpenBao recommend disabling mlock (raft mmaps its DB).
+disable_mlock = true
+
+storage "raft" {
+  path    = "/openbao/data"
+  node_id = "{{ openbao.node_id }}"
+}
+
+# TLS is terminated at Traefik; OpenBao listens plain HTTP on the proxy network.
+listener "tcp" {
+  address                          = "0.0.0.0:{{ openbao.port }}"
+  cluster_address                  = "0.0.0.0:8201"
+  tls_disable                      = "true"
+  x_forwarded_for_authorized_addrs = "{{ ip['traefik'] }}/32"
+
+  telemetry {
+    unauthenticated_metrics_access = true
+  }
+}
+
+# External URL clients/UI use; cluster addr is the in-network Raft peer address.
+api_addr     = "{{ openbao.url }}"
+cluster_addr = "http://{{ ip['openbao'] }}:8201"
+
+telemetry {
+  prometheus_retention_time = "30s"
+  disable_hostname          = true
+}

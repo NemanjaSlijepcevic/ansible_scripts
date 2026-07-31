@@ -35,7 +35,6 @@
     volumes:
       - ./data/kestra/application.yml:/etc/config/application.yaml:ro
       - ./data/kestra/storage:/app/storage
-      - ./data/kestra/flows:/flows:ro
       - ./data/certs/ca.crt:/app/certs/ca.crt:ro
       - ./data/certs/kestra.crt:/app/certs/kestra.crt:ro
       - ./data/certs/kestra.key.pk8:/app/certs/kestra.key.pk8:ro

@@ -40,6 +40,7 @@
       DEFAULT_DOMAIN: "{{ bibliography.domain }}"
       EXTRA_DOMAIN: "{{ bibliography.extra_domain }}"
       SECRET_KEY: "{{ bibliography.secret_key }}"
+      INTERNAL_HOSTS: "{{ bibliography.internal_hosts }}"
     volumes:
       - "./data/bibliography/db.sqlite3:/app/db.sqlite3"
       - "./data/bibliography/staticfiles:/app/staticfiles"
@@ -47,11 +48,7 @@
     # even when healthy. Probe with the bundled python: any HTTP response < 500
     # means gunicorn is serving; a connection error/timeout means it is not.
     healthcheck:
-      test:
-        - "CMD"
-        - "python"
-        - "-c"
-        - "import http.client,sys; c=http.client.HTTPConnection('127.0.0.1',8000,timeout=4); c.request('GET','/'); sys.exit(0 if c.getresponse().status<500 else 1)"
+      test: ["CMD", "wget", "-q", "--spider", "http://kaleidoscope:8000/healthz"]
       interval: 30s
       timeout: 6s
       retries: 3

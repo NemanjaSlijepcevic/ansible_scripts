@@ -6,3 +6,4 @@
 - import_playbook: server.yml # noqa: name[play]
 - import_playbook: automation.yml # noqa: name[play]
 - import_playbook: netboot.yml # noqa: name[play]
+- import_playbook: openbao.yml # noqa: name[play]

@@ -69,7 +69,7 @@
     group: "root"
     mode: "0644"
   vars:
-    log_path: "{{ ansible_env.PWD }}/data/public_ip_tracker/app.log"
+    log_path: "{{ ansible_facts.env.PWD }}/data/public_ip_tracker/app.log"
     # copytruncate: appuser holds app.log open and can't write a fresh
     # root-created file, so rotate in place to preserve owner + mode.
     copytruncate: true

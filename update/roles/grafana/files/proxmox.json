@@ -263,6 +263,72 @@
           "color": {
             "mode": "thresholds"
           },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 3,
+        "x": 12,
+        "y": 1
+      },
+      "id": 55,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "text": {},
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.0.1",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "sum(pve_not_backed_up_total{id=\"cluster/pve\"}) or vector(0)",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "title": "Not backed up",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
           "decimals": 1,
           "mappings": [],
           "max": 100,
@@ -286,8 +352,8 @@
       },
       "gridPos": {
         "h": 6,
-        "w": 12,
-        "x": 12,
+        "w": 9,
+        "x": 15,
         "y": 1
       },
       "id": 14,
@@ -381,7 +447,7 @@
             "type": "prometheus",
             "uid": "__PROMETHEUS_UID__"
           },
-          "expr": "count(pve_guest_info{node=~\"$server\", type=\"qemu\"})",
+          "expr": "count(pve_guest_info{node=~\"$server\", type=\"qemu\"}) or vector(0)",
           "instant": true,
           "range": false
         }
@@ -443,7 +509,7 @@
             "type": "prometheus",
             "uid": "__PROMETHEUS_UID__"
           },
-          "expr": "count(pve_uptime_seconds{id=~\"qemu/.+\"} * on (id) group_left (node) pve_guest_info{node=~\"$server\", type=\"qemu\"} > 0)",
+          "expr": "count(pve_up == 1 and on (id) pve_guest_info{node=~\"$server\", type=\"qemu\"}) or vector(0)",
           "instant": true,
           "range": false
         }
@@ -505,7 +571,7 @@
             "type": "prometheus",
             "uid": "__PROMETHEUS_UID__"
           },
-          "expr": "count(pve_guest_info{node=~\"$server\", type=\"lxc\"})",
+          "expr": "count(pve_guest_info{node=~\"$server\", type=\"lxc\"}) or vector(0)",
           "instant": true,
           "range": false
         }
@@ -567,7 +633,7 @@
             "type": "prometheus",
             "uid": "__PROMETHEUS_UID__"
           },
-          "expr": "count(pve_uptime_seconds{id=~\"lxc/.+\"} * on (id) group_left (node) pve_guest_info{node=~\"$server\", type=\"lxc\"} > 0)",
+          "expr": "count(pve_up == 1 and on (id) pve_guest_info{node=~\"$server\", type=\"lxc\"}) or vector(0)",
           "instant": true,
           "range": false
         }
@@ -735,7 +801,7 @@
             "type": "prometheus",
             "uid": "__PROMETHEUS_UID__"
           },
-          "expr": "pve_uptime_seconds{id=~\"qemu/.+\"} * on (id) group_left (name, node) pve_guest_info{node=~\"$server\", type=\"qemu\"} > 0",
+          "expr": "pve_uptime_seconds{id=~\"qemu/.+\"} * on (id) group_left (name, node) (pve_guest_info{node=~\"$server\", type=\"qemu\"} and on (id) (pve_up == 1))",
           "instant": true,
           "range": false,
           "format": "table"
@@ -855,7 +921,7 @@
             "type": "prometheus",
             "uid": "__PROMETHEUS_UID__"
           },
-          "expr": "pve_uptime_seconds{id=~\"lxc/.+\"} * on (id) group_left (name, node) pve_guest_info{node=~\"$server\", type=\"lxc\"} > 0",
+          "expr": "pve_uptime_seconds{id=~\"lxc/.+\"} * on (id) group_left (name, node) (pve_guest_info{node=~\"$server\", type=\"lxc\"} and on (id) (pve_up == 1))",
           "instant": true,
           "range": false,
           "format": "table"
@@ -1179,7 +1245,6 @@
               "mode": "off"
             }
           },
-          "displayName": "${__field.labels.host} ${__field.labels.nodename}",
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -1226,7 +1291,7 @@
             "type": "prometheus",
             "uid": "__PROMETHEUS_UID__"
           },
-          "expr": "(pve_cpu_usage_ratio{id=~\"qemu/.+\"} * 100) * on (id) group_left (name, node) pve_guest_info{node=~\"$server\", type=\"qemu\"}",
+          "expr": "(pve_cpu_usage_ratio{id=~\"qemu/.+\"} * 100) * on (id) group_left (name, node) (pve_guest_info{node=~\"$server\", type=\"qemu\"} and on (id) (pve_up == 1))",
           "legendFormat": "{{name}}"
         }
       ],
@@ -1323,7 +1388,7 @@
             "type": "prometheus",
             "uid": "__PROMETHEUS_UID__"
           },
-          "expr": "(pve_memory_usage_bytes{id=~\"qemu/.+\"} / clamp_min(pve_memory_size_bytes{id=~\"qemu/.+\"}, 1) * 100) * on (id) group_left (name, node) pve_guest_info{node=~\"$server\", type=\"qemu\"}",
+          "expr": "(pve_memory_usage_bytes{id=~\"qemu/.+\"} / clamp_min(pve_memory_size_bytes{id=~\"qemu/.+\"}, 1) * 100) * on (id) group_left (name, node) (pve_guest_info{node=~\"$server\", type=\"qemu\"} and on (id) (pve_up == 1))",
           "legendFormat": "{{name}}"
         }
       ],
@@ -1371,7 +1436,6 @@
               "mode": "off"
             }
           },
-          "displayName": "${__field.labels.host}",
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -1418,7 +1482,7 @@
             "type": "prometheus",
             "uid": "__PROMETHEUS_UID__"
           },
-          "expr": "(pve_cpu_usage_ratio{id=~\"lxc/.+\"} * 100) * on (id) group_left (name, node) pve_guest_info{node=~\"$server\", type=\"lxc\"}",
+          "expr": "(pve_cpu_usage_ratio{id=~\"lxc/.+\"} * 100) * on (id) group_left (name, node) (pve_guest_info{node=~\"$server\", type=\"lxc\"} and on (id) (pve_up == 1))",
           "legendFormat": "{{name}}"
         }
       ],
@@ -1512,7 +1576,7 @@
             "type": "prometheus",
             "uid": "__PROMETHEUS_UID__"
           },
-          "expr": "(pve_memory_usage_bytes{id=~\"lxc/.+\"} / clamp_min(pve_memory_size_bytes{id=~\"lxc/.+\"}, 1) * 100) * on (id) group_left (name, node) pve_guest_info{node=~\"$server\", type=\"lxc\"}",
+          "expr": "(pve_memory_usage_bytes{id=~\"lxc/.+\"} / clamp_min(pve_memory_size_bytes{id=~\"lxc/.+\"}, 1) * 100) * on (id) group_left (name, node) (pve_guest_info{node=~\"$server\", type=\"lxc\"} and on (id) (pve_up == 1))",
           "legendFormat": "{{name}}"
         }
       ],
@@ -1560,7 +1624,6 @@
               "mode": "off"
             }
           },
-          "displayName": "${__field.labels.host} ${__field.labels.nodename}",
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -1610,7 +1673,7 @@
             "type": "prometheus",
             "uid": "__PROMETHEUS_UID__"
           },
-          "expr": "rate(pve_disk_read_bytes_total{id=~\"qemu/.+\"}[$__rate_interval]) * on (id) group_left (name, node) pve_guest_info{node=~\"$server\", type=\"qemu\"}",
+          "expr": "rate(pve_disk_read_bytes_total{id=~\"qemu/.+\"}[$__rate_interval]) * on (id) group_left (name, node) (pve_guest_info{node=~\"$server\", type=\"qemu\"} and on (id) (pve_up == 1))",
           "legendFormat": "{{name}}"
         }
       ],
@@ -1658,7 +1721,6 @@
               "mode": "off"
             }
           },
-          "displayName": "${__field.labels.host} ${__field.labels.nodename}",
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -1708,7 +1770,7 @@
             "type": "prometheus",
             "uid": "__PROMETHEUS_UID__"
           },
-          "expr": "rate(pve_disk_written_bytes_total{id=~\"qemu/.+\"}[$__rate_interval]) * on (id) group_left (name, node) pve_guest_info{node=~\"$server\", type=\"qemu\"}",
+          "expr": "rate(pve_disk_written_bytes_total{id=~\"qemu/.+\"}[$__rate_interval]) * on (id) group_left (name, node) (pve_guest_info{node=~\"$server\", type=\"qemu\"} and on (id) (pve_up == 1))",
           "legendFormat": "{{name}}"
         }
       ],
@@ -1740,7 +1802,7 @@
               "tooltip": false,
               "viz": false
             },
-            "lineInterpolation": "smooth",
+            "lineInterpolation": "linear",
             "lineWidth": 1,
             "pointSize": 5,
             "scaleDistribution": {
@@ -1756,7 +1818,6 @@
               "mode": "off"
             }
           },
-          "displayName": "${__field.labels.host}",
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -1771,21 +1832,21 @@
               }
             ]
           },
-          "unit": "Bps"
+          "unit": "percent"
         },
         "overrides": []
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
+        "w": 24,
         "x": 0,
         "y": 49
       },
-      "id": 32,
+      "id": 54,
       "options": {
         "legend": {
           "calcs": [
-            "lastNotNull"
+            "last"
           ],
           "displayMode": "table",
           "placement": "bottom",
@@ -1803,11 +1864,11 @@
             "type": "prometheus",
             "uid": "__PROMETHEUS_UID__"
           },
-          "expr": "rate(pve_disk_read_bytes_total{id=~\"lxc/.+\"}[$__rate_interval]) * on (id) group_left (name, node) pve_guest_info{node=~\"$server\", type=\"lxc\"}",
+          "expr": "pve_disk_usage_bytes{id=~\"lxc/.+\"} / clamp_min(pve_disk_size_bytes{id=~\"lxc/.+\"}, 1) * 100 * on (id) group_left (name, node) (pve_guest_info{node=~\"$server\", type=\"lxc\"} and on (id) (pve_up == 1))",
           "legendFormat": "{{name}}"
         }
       ],
-      "title": "LXC I/O Read",
+      "title": "LXC rootfs usage",
       "transformations": [],
       "type": "timeseries"
     },
@@ -1851,102 +1912,6 @@
               "mode": "off"
             }
           },
-          "displayName": "${__field.labels.host}",
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "Bps"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 49
-      },
-      "id": 33,
-      "options": {
-        "legend": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "__PROMETHEUS_UID__"
-          },
-          "expr": "rate(pve_disk_written_bytes_total{id=~\"lxc/.+\"}[$__rate_interval]) * on (id) group_left (name, node) pve_guest_info{node=~\"$server\", type=\"lxc\"}",
-          "legendFormat": "{{name}}"
-        }
-      ],
-      "title": "LXC I/O Write",
-      "transformations": [],
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "__PROMETHEUS_UID__"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "lineInterpolation": "smooth",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "displayName": "${__field.labels.host} ${__field.labels.nodename}",
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -1993,7 +1958,7 @@
             "type": "prometheus",
             "uid": "__PROMETHEUS_UID__"
           },
-          "expr": "rate(pve_network_receive_bytes_total{id=~\"qemu/.+\"}[$__rate_interval]) * on (id) group_left (name, node) pve_guest_info{node=~\"$server\", type=\"qemu\"}",
+          "expr": "rate(pve_network_receive_bytes_total{id=~\"qemu/.+\"}[$__rate_interval]) * on (id) group_left (name, node) (pve_guest_info{node=~\"$server\", type=\"qemu\"} and on (id) (pve_up == 1))",
           "legendFormat": "{{name}}"
         }
       ],
@@ -2041,7 +2006,6 @@
               "mode": "off"
             }
           },
-          "displayName": "${__field.labels.host} ${__field.labels.nodename}",
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -2088,7 +2052,7 @@
             "type": "prometheus",
             "uid": "__PROMETHEUS_UID__"
           },
-          "expr": "rate(pve_network_transmit_bytes_total{id=~\"qemu/.+\"}[$__rate_interval]) * on (id) group_left (name, node) pve_guest_info{node=~\"$server\", type=\"qemu\"}",
+          "expr": "rate(pve_network_transmit_bytes_total{id=~\"qemu/.+\"}[$__rate_interval]) * on (id) group_left (name, node) (pve_guest_info{node=~\"$server\", type=\"qemu\"} and on (id) (pve_up == 1))",
           "legendFormat": "{{name}}"
         }
       ],
@@ -2136,7 +2100,6 @@
               "mode": "off"
             }
           },
-          "displayName": "${__field.labels.host}",
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -2183,7 +2146,7 @@
             "type": "prometheus",
             "uid": "__PROMETHEUS_UID__"
           },
-          "expr": "rate(pve_network_receive_bytes_total{id=~\"lxc/.+\"}[$__rate_interval]) * on (id) group_left (name, node) pve_guest_info{node=~\"$server\", type=\"lxc\"}",
+          "expr": "rate(pve_network_receive_bytes_total{id=~\"lxc/.+\"}[$__rate_interval]) * on (id) group_left (name, node) (pve_guest_info{node=~\"$server\", type=\"lxc\"} and on (id) (pve_up == 1))",
           "legendFormat": "{{name}}"
         }
       ],
@@ -2231,7 +2194,6 @@
               "mode": "off"
             }
           },
-          "displayName": "${__field.labels.host}",
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -2278,13 +2240,121 @@
             "type": "prometheus",
             "uid": "__PROMETHEUS_UID__"
           },
-          "expr": "rate(pve_network_transmit_bytes_total{id=~\"lxc/.+\"}[$__rate_interval]) * on (id) group_left (name, node) pve_guest_info{node=~\"$server\", type=\"lxc\"}",
+          "expr": "rate(pve_network_transmit_bytes_total{id=~\"lxc/.+\"}[$__rate_interval]) * on (id) group_left (name, node) (pve_guest_info{node=~\"$server\", type=\"lxc\"} and on (id) (pve_up == 1))",
           "legendFormat": "{{name}}"
         }
       ],
       "title": "LXC traffic out",
       "transformations": [],
       "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true,
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 73
+      },
+      "id": 56,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "pluginVersion": "10.0.1",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "expr": "pve_not_backed_up_info * on (id) group_left (name, node, type) pve_guest_info{node=~\"$server\"}",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "title": "Guests without backup",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "job": true,
+              "instance": true,
+              "__name__": true,
+              "id": true,
+              "Value": true
+            },
+            "indexByName": {
+              "name": 0,
+              "node": 1,
+              "type": 2
+            },
+            "renameByName": {
+              "name": "Guest",
+              "node": "Node",
+              "type": "Type"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "Guest"
+              }
+            ]
+          }
+        }
+      ],
+      "type": "table"
     }
   ],
   "refresh": "30s",

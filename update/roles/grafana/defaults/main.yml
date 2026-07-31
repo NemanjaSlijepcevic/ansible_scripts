@@ -113,3 +113,11 @@ alerts:
   hwtemp_for: "10m"
   # CrowdSec engine metrics scrape (job=crowdsec, :6060)
   crowdsec_down_for: "5m"
+  # Kestra (micrometer metrics on the automation host, job=kestra, :8081)
+  kestra_down_for: "5m"             # up{job=kestra}==0 → server or scrape down
+  kestra_failed: 0                  # fire above N FAILED/KILLED executions in 15m
+  kestra_failed_for: "5m"
+  kestra_worker_pending: 20         # queued worker jobs backing up
+  kestra_worker_pending_for: "10m"
+  kestra_log_errors: 10             # ERROR lines from the kestra container in 15m
+  kestra_log_errors_for: "10m"

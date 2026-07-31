@@ -9,7 +9,11 @@ hostssl all       all   {{ docker.gateway }}/32   scram-sha-256
 # Everything else: SSL + client certificate required. pg_hba is first-match-
 # wins top to bottom, so these broad lines must stay BELOW the pgAdmin
 # exceptions and no broad password line may sit above them.
-{% for ip in private_ips %}
-hostssl all       all   {{ ip }}              cert clientcert=verify-full
+{# private_ips is shared with the Traefik/CrowdSec whitelists, which accept a
+   bare IP; pg_hba does not - without a prefix length it reads the next token
+   (cert) as a netmask and refuses to load. Normalise single hosts to /32.
+   Loop var is `cidr`, not `ip` - `ip` is the static-address dict used above. #}
+{% for cidr in private_ips %}
+hostssl all       all   {{ cidr if '/' in cidr else cidr ~ '/32' }}   cert clientcert=verify-full
 {% endfor %}
 hostssl all       all   {{ docker.subnet }}   cert clientcert=verify-full

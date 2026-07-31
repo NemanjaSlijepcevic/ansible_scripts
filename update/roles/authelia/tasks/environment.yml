@@ -31,7 +31,7 @@
 
 - name: Read OIDC JWK private key content
   ansible.builtin.slurp:
-    src: "{{ ansible_env.PWD }}/data/authelia/config/authelia_oidc_jwk"
+    src: "{{ ansible_facts.env.PWD }}/data/authelia/config/authelia_oidc_jwk"
   register: authelia_oidc_jwk_content
 
 # users_database.yml holds the password hash and configuration.yml embeds the
@@ -75,5 +75,5 @@
     group: "root"
     mode: "0644"
   vars:
-    log_path: "{{ ansible_env.PWD }}/data/authelia/logs/authelia.log"
+    log_path: "{{ ansible_facts.env.PWD }}/data/authelia/logs/authelia.log"
     copytruncate: true

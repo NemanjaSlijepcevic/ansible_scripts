@@ -1,0 +1,31 @@
+http:
+  routers:
+{% for h in hooks.connection %}
+    {{ h.name }}:
+      rule: "Host(`{{ hooks.public_host }}`) && PathPrefix(`{{ h.public_path }}`)"
+      entryPoints: [https]
+      tls: {}
+      service: upstream
+      middlewares:
+        # no forward-auth: callers are machines. The authelia bypass rule for
+        # {{ hooks.public_host }} covers the entrypoint-level chain-auth.
+        - chain-no-auth@file
+        - {{ h.name }}-rewrite
+{% endfor %}
+
+  middlewares:
+{% for h in hooks.connection %}
+    {{ h.name }}-rewrite:
+      replacePathRegex:
+        regex: "^{{ h.public_path }}"
+        replacement: "{{ h.target_path }}"
+{% endfor %}
+
+  services:
+    upstream:
+      loadBalancer:
+        # Host header comes from the server URL below, which is what the
+        # automation host's Traefik routes the kestra router on.
+        passHostHeader: false
+        servers:
+          - url: "{{ hooks.private_host }}"
