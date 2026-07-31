@@ -1,0 +1,2806 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "description": "Kestra workflow orchestration on the automation host: micrometer metrics scraped by Alloy from kestra:8081/prometheus, plus its container logs in Loki.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Health",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Kestra scrape",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red",
+                  "index": 0
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green",
+                  "index": 1
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "editorMode": "code",
+          "expr": "up{job=\"kestra\"}",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "description": "up{job=kestra} — Alloy scraping kestra:8081/prometheus on the automation host."
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Internal health probe",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red",
+                  "index": 0
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green",
+                  "index": 1
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "editorMode": "code",
+          "expr": "probe_success{service=\"kestra\", via=\"internal\"}",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "description": "Blackbox probe of http://kestra:8081/health (alloy.http_checks)."
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "JVM uptime",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "editorMode": "code",
+          "expr": "process_uptime_seconds{job=\"kestra\"}",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "description": "Time since the Kestra JVM started — a reset means the container restarted."
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Executions started",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(kestra_executor_execution_started_count_total{namespace_id=~\"$namespace\", flow_id=~\"$flow\"}[$__range]))",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "description": "Over the dashboard time range."
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Executions failed",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(kestra_executor_execution_end_count_total{state=~\"FAILED|KILLED\", namespace_id=~\"$namespace\", flow_id=~\"$flow\"}[$__range]))",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "description": "Executions ending in FAILED or KILLED over the range."
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Tasks running now",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "editorMode": "code",
+          "expr": "sum(kestra_worker_running_count)",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "row",
+      "title": "Executions",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
+      "panels": []
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Execution rate",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "reqps",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(kestra_executor_execution_started_count_total{namespace_id=~\"$namespace\", flow_id=~\"$flow\"}[$__rate_interval]))",
+          "range": true,
+          "instant": false,
+          "legendFormat": "started"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(kestra_executor_execution_end_count_total{namespace_id=~\"$namespace\", flow_id=~\"$flow\"}[$__rate_interval]))",
+          "range": true,
+          "instant": false,
+          "legendFormat": "ended"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Executions ended by state",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 40,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "reqps",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "editorMode": "code",
+          "expr": "sum by (state) (rate(kestra_executor_execution_end_count_total{namespace_id=~\"$namespace\", flow_id=~\"$flow\"}[$__rate_interval]))",
+          "range": true,
+          "instant": false,
+          "legendFormat": "{{state}}"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Average execution duration",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(kestra_executor_execution_duration_seconds_sum{namespace_id=~\"$namespace\", flow_id=~\"$flow\"}[$__rate_interval])) / sum(rate(kestra_executor_execution_duration_seconds_count{namespace_id=~\"$namespace\", flow_id=~\"$flow\"}[$__rate_interval]))",
+          "range": true,
+          "instant": false,
+          "legendFormat": "avg"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "editorMode": "code",
+          "expr": "max(kestra_executor_execution_duration_seconds_max{namespace_id=~\"$namespace\", flow_id=~\"$flow\"})",
+          "range": true,
+          "instant": false,
+          "legendFormat": "max"
+        }
+      ],
+      "description": "Kestra timers export _count/_sum/_max only — there are no histogram buckets, so this is a true average, not a quantile."
+    },
+    {
+      "id": 12,
+      "type": "table",
+      "title": "Executions by flow",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": false,
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "FAILED"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Value"
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "editorMode": "code",
+          "expr": "sum by (namespace_id, flow_id, state) (increase(kestra_executor_execution_end_count_total{namespace_id=~\"$namespace\", flow_id=~\"$flow\"}[$__range])) > 0",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "job": true,
+              "instance": true,
+              "host": true,
+              "tenant_id": true
+            },
+            "renameByName": {
+              "namespace_id": "Namespace",
+              "flow_id": "Flow",
+              "state": "State",
+              "Value": "Count"
+            }
+          }
+        }
+      ],
+      "description": "Executions that ended in the selected range, per flow and final state."
+    },
+    {
+      "id": 13,
+      "type": "row",
+      "title": "Task runs & workers",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 22
+      },
+      "panels": []
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Task run rate",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 23
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "reqps",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(kestra_executor_taskrun_created_count_total{namespace_id=~\"$namespace\", flow_id=~\"$flow\"}[$__rate_interval]))",
+          "range": true,
+          "instant": false,
+          "legendFormat": "created"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(kestra_executor_taskrun_ended_count_total{namespace_id=~\"$namespace\", flow_id=~\"$flow\"}[$__rate_interval]))",
+          "range": true,
+          "instant": false,
+          "legendFormat": "ended"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "Average task run duration",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 23
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(kestra_executor_taskrun_ended_duration_seconds_sum{namespace_id=~\"$namespace\", flow_id=~\"$flow\"}[$__rate_interval])) / sum(rate(kestra_executor_taskrun_ended_duration_seconds_count{namespace_id=~\"$namespace\", flow_id=~\"$flow\"}[$__rate_interval]))",
+          "range": true,
+          "instant": false,
+          "legendFormat": "avg"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Task runs by type",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 23
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 40,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "reqps",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "editorMode": "code",
+          "expr": "sum by (task_type) (rate(kestra_worker_ended_count_total[$__rate_interval]))",
+          "range": true,
+          "instant": false,
+          "legendFormat": "{{task_type}}"
+        }
+      ],
+      "description": "Worker-side task completions grouped by the task plugin type."
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "Worker jobs",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 31
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "editorMode": "code",
+          "expr": "sum(kestra_worker_job_pending)",
+          "range": true,
+          "instant": false,
+          "legendFormat": "pending"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "editorMode": "code",
+          "expr": "sum(kestra_worker_job_running)",
+          "range": true,
+          "instant": false,
+          "legendFormat": "running"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "editorMode": "code",
+          "expr": "sum(kestra_worker_job_thread)",
+          "range": true,
+          "instant": false,
+          "legendFormat": "threads"
+        }
+      ],
+      "description": "Pending climbing while threads stay flat = the worker pool is saturated."
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "Average worker queue wait",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 31
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(kestra_worker_queued_duration_seconds_sum[$__rate_interval])) / sum(rate(kestra_worker_queued_duration_seconds_count[$__rate_interval]))",
+          "range": true,
+          "instant": false,
+          "legendFormat": "avg"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "editorMode": "code",
+          "expr": "max(kestra_worker_queued_duration_seconds_max)",
+          "range": true,
+          "instant": false,
+          "legendFormat": "max"
+        }
+      ],
+      "description": "How long a task waits before a worker thread picks it up."
+    },
+    {
+      "id": 19,
+      "type": "row",
+      "title": "Scheduler & queue",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 39
+      },
+      "panels": []
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "Scheduler activity",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 40
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "reqps",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(kestra_scheduler_evaluation_loop_duration_seconds_count[$__rate_interval]))",
+          "range": true,
+          "instant": false,
+          "legendFormat": "evaluation loops/s"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(kestra_scheduler_trigger_count_total[$__rate_interval]))",
+          "range": true,
+          "instant": false,
+          "legendFormat": "triggers fired/s"
+        }
+      ],
+      "description": "Evaluation loops flatlining at zero means the scheduler has stopped ticking and no cron trigger will fire. Not kestra_scheduler_loop_count_total — that one counts scheduler *starts* over the process lifetime, so its rate is always 0."
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Scheduler evaluation loop duration",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 40
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(kestra_scheduler_evaluation_loop_duration_seconds_sum[$__rate_interval])) / sum(rate(kestra_scheduler_evaluation_loop_duration_seconds_count[$__rate_interval]))",
+          "range": true,
+          "instant": false,
+          "legendFormat": "avg"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "editorMode": "code",
+          "expr": "max(kestra_scheduler_evaluation_loop_duration_seconds_max)",
+          "range": true,
+          "instant": false,
+          "legendFormat": "max"
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "Queue poll size",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 48
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "editorMode": "code",
+          "expr": "sum by (queue_type) (kestra_queue_poll_size)",
+          "range": true,
+          "instant": false,
+          "legendFormat": "{{queue_type}}"
+        }
+      ],
+      "description": "Rows returned per poll of each JDBC (Postgres) queue — sustained growth means a consumer is falling behind."
+    },
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "Queue throughput",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 48
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(kestra_queue_produce_count_total[$__rate_interval]))",
+          "range": true,
+          "instant": false,
+          "legendFormat": "produced/s"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(kestra_queue_big_message_count_total[$__rate_interval]))",
+          "range": true,
+          "instant": false,
+          "legendFormat": "oversized/s"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(kestra_queue_receive_duration_seconds_sum[$__rate_interval])) / sum(rate(kestra_queue_receive_duration_seconds_count[$__rate_interval]))",
+          "range": true,
+          "instant": false,
+          "legendFormat": "avg receive (s)"
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "type": "row",
+      "title": "JVM & JDBC",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 56
+      },
+      "panels": []
+    },
+    {
+      "id": 25,
+      "type": "timeseries",
+      "title": "JVM memory used",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 57
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "bytes",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "editorMode": "code",
+          "expr": "sum by (area) (jvm_memory_used_bytes{job=\"kestra\"})",
+          "range": true,
+          "instant": false,
+          "legendFormat": "{{area}}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "editorMode": "code",
+          "expr": "sum(jvm_memory_max_bytes{job=\"kestra\", area=\"heap\"} > 0)",
+          "range": true,
+          "instant": false,
+          "legendFormat": "heap max"
+        }
+      ]
+    },
+    {
+      "id": 26,
+      "type": "timeseries",
+      "title": "GC pause time",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 57
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(jvm_gc_pause_seconds_sum{job=\"kestra\"}[$__rate_interval]))",
+          "range": true,
+          "instant": false,
+          "legendFormat": "pause/s"
+        }
+      ]
+    },
+    {
+      "id": 27,
+      "type": "timeseries",
+      "title": "Threads & CPU",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 57
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "editorMode": "code",
+          "expr": "jvm_threads_live_threads{job=\"kestra\"}",
+          "range": true,
+          "instant": false,
+          "legendFormat": "live threads"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "editorMode": "code",
+          "expr": "process_cpu_usage{job=\"kestra\"} * 100",
+          "range": true,
+          "instant": false,
+          "legendFormat": "process cpu %"
+        }
+      ]
+    },
+    {
+      "id": 28,
+      "type": "timeseries",
+      "title": "Postgres connection pool (HikariCP)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 65
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "editorMode": "code",
+          "expr": "hikaricp_connections_active{job=\"kestra\"}",
+          "range": true,
+          "instant": false,
+          "legendFormat": "active"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "editorMode": "code",
+          "expr": "hikaricp_connections_idle{job=\"kestra\"}",
+          "range": true,
+          "instant": false,
+          "legendFormat": "idle"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "editorMode": "code",
+          "expr": "hikaricp_connections_pending{job=\"kestra\"}",
+          "range": true,
+          "instant": false,
+          "legendFormat": "pending"
+        }
+      ],
+      "description": "Kestra's JDBC backend is the central Postgres server over mTLS. Pending > 0 means flows are blocked waiting for a connection."
+    },
+    {
+      "id": 29,
+      "type": "timeseries",
+      "title": "JDBC query duration",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROMETHEUS_UID__"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 65
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(kestra_jdbc_query_duration_seconds_sum{job=\"kestra\"}[$__rate_interval])) / sum(rate(kestra_jdbc_query_duration_seconds_count{job=\"kestra\"}[$__rate_interval]))",
+          "range": true,
+          "instant": false,
+          "legendFormat": "avg"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "__PROMETHEUS_UID__"
+          },
+          "editorMode": "code",
+          "expr": "max(kestra_jdbc_query_duration_seconds_max{job=\"kestra\"})",
+          "range": true,
+          "instant": false,
+          "legendFormat": "max"
+        }
+      ],
+      "description": "Every queue poll and repository read is a Postgres round trip over mTLS, so this is the sharpest signal that the shared database is the bottleneck. Deliberately not grouped by the sql label — it holds full statement text."
+    },
+    {
+      "id": 30,
+      "type": "row",
+      "title": "Logs",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 73
+      },
+      "panels": []
+    },
+    {
+      "id": 31,
+      "type": "timeseries",
+      "title": "Log volume by level",
+      "datasource": {
+        "type": "loki",
+        "uid": "__LOKI_UID__"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 74
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "bars",
+            "fillOpacity": 40,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "__LOKI_UID__"
+          },
+          "editorMode": "code",
+          "expr": "sum by (level) (count_over_time({container=\"kestra\", node=\"automation\"}[$__interval]))",
+          "queryType": "range",
+          "legendFormat": "{{level}}"
+        }
+      ],
+      "description": "The level label is set by Alloy's kestra stage.match pipeline."
+    },
+    {
+      "id": 32,
+      "type": "stat",
+      "title": "ERROR lines",
+      "datasource": {
+        "type": "loki",
+        "uid": "__LOKI_UID__"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 74
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "__LOKI_UID__"
+          },
+          "editorMode": "code",
+          "expr": "sum(count_over_time({container=\"kestra\", node=\"automation\", level=\"ERROR\"}[$__range]))",
+          "queryType": "instant"
+        }
+      ]
+    },
+    {
+      "id": 33,
+      "type": "stat",
+      "title": "WARN lines",
+      "datasource": {
+        "type": "loki",
+        "uid": "__LOKI_UID__"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 74
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "__LOKI_UID__"
+          },
+          "editorMode": "code",
+          "expr": "sum(count_over_time({container=\"kestra\", node=\"automation\", level=\"WARN\"}[$__range]))",
+          "queryType": "instant"
+        }
+      ]
+    },
+    {
+      "id": 34,
+      "type": "logs",
+      "title": "Kestra logs",
+      "datasource": {
+        "type": "loki",
+        "uid": "__LOKI_UID__"
+      },
+      "gridPos": {
+        "h": 14,
+        "w": 24,
+        "x": 0,
+        "y": 82
+      },
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "__LOKI_UID__"
+          },
+          "editorMode": "code",
+          "expr": "{container=\"kestra\", node=\"automation\", level=~\"$level\"} |= \"$search\"",
+          "queryType": "range"
+        }
+      ],
+      "description": "Stack traces arrive as a single entry — Alloy joins logback continuation lines before shipping."
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": [
+    "homelab",
+    "kestra",
+    "automation"
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "namespace",
+        "type": "query",
+        "label": "Namespace",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "__PROMETHEUS_UID__"
+        },
+        "definition": "label_values(kestra_executor_execution_end_count_total, namespace_id)",
+        "query": {
+          "qryType": 1,
+          "query": "label_values(kestra_executor_execution_end_count_total, namespace_id)",
+          "refId": "namespace"
+        },
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ],
+          "selected": false
+        },
+        "options": [],
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "refresh": 2,
+        "sort": 1,
+        "hide": 0,
+        "regex": "",
+        "skipUrlSync": false
+      },
+      {
+        "name": "flow",
+        "type": "query",
+        "label": "Flow",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "__PROMETHEUS_UID__"
+        },
+        "definition": "label_values(kestra_executor_execution_end_count_total{namespace_id=~\"$namespace\"}, flow_id)",
+        "query": {
+          "qryType": 1,
+          "query": "label_values(kestra_executor_execution_end_count_total{namespace_id=~\"$namespace\"}, flow_id)",
+          "refId": "flow"
+        },
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ],
+          "selected": false
+        },
+        "options": [],
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "refresh": 2,
+        "sort": 1,
+        "hide": 0,
+        "regex": "",
+        "skipUrlSync": false
+      },
+      {
+        "name": "level",
+        "type": "query",
+        "label": "Log level",
+        "datasource": {
+          "type": "loki",
+          "uid": "__LOKI_UID__"
+        },
+        "definition": "label_values({container=\"kestra\", node=\"automation\"}, level)",
+        "query": {
+          "label": "level",
+          "stream": "{container=\"kestra\", node=\"automation\"}",
+          "type": 1,
+          "refId": "level"
+        },
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ],
+          "selected": false
+        },
+        "options": [],
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "refresh": 2,
+        "sort": 1,
+        "hide": 0,
+        "regex": "",
+        "skipUrlSync": false
+      },
+      {
+        "name": "search",
+        "type": "textbox",
+        "label": "Log search",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": "",
+          "selected": false
+        },
+        "options": [],
+        "hide": 0,
+        "skipUrlSync": false
+      }
+    ]
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Homelab — Kestra",
+  "uid": "homelab-kestra",
+  "version": 1,
+  "weekStart": ""
+}

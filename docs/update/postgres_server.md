@@ -12,6 +12,16 @@ The role runs five task groups in order, via `main.yml`:
 4. **`create_service_users.yml`** *(only when `postgres_service_users` is non-empty)* — creates PostgreSQL roles and databases directly via `docker exec … psql`/`createdb`, and grants schema privileges. The `postgres` role has no equivalent step; it relies on the separate `prepare_postgres` role instead.
 5. **`verify.yml`** *(always runs)* — lists databases and per-database tables, and asserts that the expected client cert/key files exist under `postgres_tls_client_base_dir`.
 
+> **A host running `postgres_server` owns its own `./data/certs`.** Both this role and the
+> central `postgres` role distribute their CA cert to `postgres_tls_client_base_dir`
+> (`./data/certs`) on the hosts they list. A host that appears in *both* lists gets
+> `./data/certs/ca.crt` overwritten by whichever playbook ran last — and because both CAs
+> carry the same subject (`CN=postgres-ca`), the failure surfaces as a confusing
+> `x509: certificate signed by unknown authority … candidate authority certificate "postgres-ca"`
+> in the consuming client. So a host deploying `postgres_server` must **not** appear in
+> central `primary_postgres`'s `postgres_tls_client_hosts`, nor in any
+> `postgres_tls_clients[].hosts` there.
+
 `postgres_migrate_local_dbs` and `postgres_migrate_source_host` also exist in `defaults/main.yml`. No task file in this role currently reads either variable — they are reserved for a manual/future one-time migration, not part of the active execution path today.
 
 ### Key differences from the `postgres` role
@@ -194,6 +204,7 @@ host    all       all   127.0.0.1/32          scram-sha-256
 hostssl all       all   <private-subnet-1>    cert clientcert=verify-full
 hostssl all       all   <private-subnet-2>    cert clientcert=verify-full
 hostssl all       all   <private-subnet-3>    cert clientcert=verify-full
+hostssl all       all   <single-host-ip>/32   cert clientcert=verify-full
 hostssl all       all   <docker-subnet>       cert clientcert=verify-full
 EOF
 chown <username>:docker ./data/postgres/pg_hba.conf
@@ -203,6 +214,15 @@ chmod 0644 ./data/postgres/pg_hba.conf
 **Explanation**: Mutual TLS is **mandatory** here, identically to the `postgres` role — every line matching an application subnet (`private_ips`) or the Docker bridge (`docker.subnet`) is `hostssl … cert clientcert=verify-full`. Only `local` (Unix socket) and loopback (`127.0.0.1/32`) connections skip the client-cert requirement, and those never leave the container/host.
 
 `pg_hba.conf` is evaluated **first-match-wins, top to bottom** — the first line whose TYPE/DATABASE/USER/ADDRESS all match a connection attempt decides how it's authenticated, and no further lines are checked. That's why the broad `hostssl … cert clientcert=verify-full` lines are written last in the file: if a permissive password-based line were placed above them (or covered a broader address range), it would shadow the cert requirement and silently make it unreachable for any connection matching both.
+
+> **Every ADDRESS needs a prefix length.** PostgreSQL parses the ADDRESS field three ways: containing `/` → CIDR, and the next token is the METHOD; a **bare** numeric IP → the next token is required to be a separate netmask (the legacy `address netmask method` form); non-numeric (`all`, `samenet`, a hostname) → the next token is the METHOD. So a single host written without `/32` makes the parser read the following `cert` as a netmask and the server refuses to start:
+>
+> ```
+> LOG:  invalid IP mask "cert": Name or service not known
+> FATAL:  could not load /etc/postgresql/pg_hba.conf
+> ```
+>
+> This matters because `private_ips` is shared with the Traefik/CrowdSec whitelist templates, which accept bare IPs happily — a single host added there for whitelisting breaks only pg_hba. The template therefore appends `/32` to any entry lacking a prefix; when writing the file by hand, do the same.
 
 The `postgres` role's template carries the same structure but adds two `hostssl … scram-sha-256` lines *above* the cert block, scoped narrowly to `pgadmin.static/32` and `docker.gateway/32` — pgAdmin is that instance's one client without an issued certificate, so it authenticates with TLS + password instead. `postgres_server` has no equivalent lines because its only configured client, `authelia`, always connects with a client certificate — there's no cert-less consumer to carve an exception for.
 
@@ -340,13 +360,15 @@ host    all       all   127.0.0.1/32          scram-sha-256
 # All docker/LAN clients: SSL + client certificate required. pg_hba is
 # first-match-wins top to bottom, so no broad password line may sit above
 # these (that would make the client-cert requirement unreachable).
-{% for ip in private_ips %}
-hostssl all       all   {{ ip }}              cert clientcert=verify-full
+{% for cidr in private_ips %}
+hostssl all       all   {{ cidr if '/' in cidr else cidr ~ '/32' }}   cert clientcert=verify-full
 {% endfor %}
 hostssl all       all   {{ docker.subnet }}   cert clientcert=verify-full
 ```
 
 Same loop-over-`private_ips` pattern as the `postgres` role's template, plus one extra fixed line for `docker.subnet`. The only structural difference is the absence of a password-auth exception block — see Step 6 and the differences table above.
+
+The `'/' in cidr` guard is what keeps a prefix-less `private_ips` entry from producing `invalid IP mask "cert"` at server startup — see the ADDRESS-parsing note in Step 6. `private_ips` is shared with the Traefik/CrowdSec whitelists (which accept bare IPs) and is appended to at runtime with a bare public IP by `roles/traefik/tasks/environment.yml`, so the normalisation lives here rather than in the inventory.
 
 > **Single-file bind-mount gotcha**: `container.yml` bind-mounts this file directly (`./data/postgres/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro`), and Ansible's `template` module rewrites a file by writing a new temp file and renaming it over the old path — a new inode, not an in-place edit. A single-file bind mount is attached to the inode that existed at container-start time, so after `pg_hba.conf` is re-templated, the *running* container keeps serving the **old** rules from its now-detached mount until the container itself is restarted (or the file is overwritten in place, preserving the inode — the template module doesn't do this by default). This is exactly why `container.yml` sets `notify: Restart PostgreSQL` on the template task: without that restart, a `pg_hba.conf` change (e.g. tightening or loosening an enforcement rule) silently has no effect on the live container. Reproducing this by hand: after editing `pg_hba.conf`, always follow with the stop+start sequence in the Handlers section below — never assume the edit alone is enough.
 

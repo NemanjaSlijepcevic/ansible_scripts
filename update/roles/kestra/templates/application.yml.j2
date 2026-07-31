@@ -33,11 +33,14 @@ kestra:
     configurations:
       # Task containers exchange files through named volumes, so no shared
       # host tmp-dir is needed even though the daemon behind socket-proxy
-      # is the host's; volumeEnabled additionally allows flows to declare
-      # explicit host-path volumes (paths are HOST paths).
+      # is the host's; volume-enabled additionally allows flows to declare
+      # explicit host-path volumes (paths are HOST paths). The key is
+      # kebab-case — camelCase (volumeEnabled) parses fine but the runner
+      # never reads it, and every `volumes:` entry is then silently dropped
+      # from the container (no error, just a missing mount at runtime).
       - type: io.kestra.plugin.scripts.runner.docker.Docker
         values:
-          volumeEnabled: true
+          volume-enabled: true
     defaults:
       # Kestra never sees /var/run/docker.sock — every Docker task runner
       # call goes through the filtered socket-proxy (socket_proxy role).

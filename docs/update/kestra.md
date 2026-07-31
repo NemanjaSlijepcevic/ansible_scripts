@@ -85,7 +85,7 @@ kestra:
     configurations:
       - type: io.kestra.plugin.scripts.runner.docker.Docker
         values:
-          volumeEnabled: true
+          volume-enabled: true
     defaults:
       - type: io.kestra.plugin.scripts.runner.docker.Docker
         values:
@@ -99,7 +99,7 @@ sudo chmod 0600 ./data/kestra/application.yml
 **Explanation**:
 - `plugins.defaults` makes **every** Docker task runner go through the filtered socket proxy — flows don't need to repeat `host:`.
 - `fileHandlingStrategy: VOLUME` exchanges task files through named Docker volumes, so no shared host tmp-dir mount is needed even though the daemon behind the proxy is the host's.
-- `volumeEnabled: true` additionally lets flows declare explicit bind mounts; those paths are **host** paths (the proxy talks to the host daemon), e.g. `<deploy-dir>/data/claude-runner/workspace`.
+- `volume-enabled: true` additionally lets flows declare explicit bind mounts; those paths are **host** paths (the proxy talks to the host daemon), e.g. `<deploy-dir>/data/claude-runner/workspace`. The key is **kebab-case**; `volumeEnabled` is accepted by the YAML parser but never read, and flows then run with every declared bind silently missing.
 - `encryption.secret-key` encrypts `SECRET`-typed inputs/outputs at rest; changing it makes previously stored values unreadable.
 
 ---
@@ -157,7 +157,7 @@ sudo docker network connect docker-api kestra
 **Explanation**:
 - Two networks: `proxy` (static IP, Traefik-routable) and `docker-api` (reaches `socket-proxy` and nothing else). `docker run --network` accepts one network at creation, hence the follow-up `docker network connect`.
 - `SECRET_*` env vars are Kestra OSS's secrets backend: **base64-encoded** values readable in flows via `{{ secret('TELEGRAM_BOT_TOKEN') }}` — same Telegram bot as the `log_notification` role.
-- The UI/API listen on `8080`; the management/health endpoint listens on `8081` (unauthenticated, probed by Alloy's blackbox exporter from inside the Docker network — it is *not* routed by Traefik).
+- The UI/API listen on `8080`; the Micronaut management endpoints listen on `8081` (unauthenticated, reachable only from inside the Docker network — *not* routed by Traefik). Alloy uses both: `/health` for its blackbox probe and `/prometheus` for the metrics scrape.
 - No `--user` override and no docker socket mount: the container runs as the image's unprivileged `kestra` user, and all Docker access goes through the socket proxy configured in `application.yml`.
 
 ---
@@ -172,11 +172,12 @@ sudo docker network connect docker-api kestra
 | `kestra.host` | `` Host(`kestra.example.com`) `` | Traefik router rule |
 | `kestra.url` | `https://kestra.example.com` | Base URL (webhook/link generation) |
 | `kestra.port` | `8080` | Internal UI/API port |
-| `kestra.static` | `172.20.0.13` | Static IP on the `proxy` network |
+| `ip.kestra` | `172.20.0.13` | Static IP on the `proxy` network (read from the host's `ip` dict, not from a `kestra.*` key) |
 | `kestra.encryption_key` | `changeme` | Base64 of 32 random bytes; encrypts SECRET values at rest |
 | `kestra.admin_user` | `admin@example.com` | Kestra basic-auth login (must be an email) |
 | `kestra.admin_password` | `changeme` | Kestra basic-auth password |
 | `kestra.uid` | `1000` | In-container `kestra` user; owns storage + Postgres client key |
+| `kestra.disabled_flows` | all flow ids | Flow ids imported with `disabled: true` — visible in the UI, never executable, triggers never fire. Remove an id and re-run to enable it |
 | `kestra_db.user` | `kestra` | PostgreSQL user (provisioned by `prepare_postgres`) |
 | `kestra_db.password` | `changeme` | PostgreSQL user password |
 | `postgres.ip` | `192.0.2.10` | Central PostgreSQL server address |
@@ -207,6 +208,22 @@ sudo docker exec kestra /app/kestra flow namespace update automation /flows \
 ```
 
 `--no-delete` preserves flows created only in the UI; a flow whose `id` matches a repo file is **overwritten** (the server only bumps a revision when the source actually changed, so re-runs are idempotent). Treat repo flows as code: edit them in `templates/flows/`, not in the UI. Drop `--no-delete` if the repo should be the single source of truth for the namespace.
+
+### Importing flows disabled (`kestra.disabled_flows`)
+
+Every flow id listed in `kestra.disabled_flows` is rendered with a flow-level `disabled: true`. The flow is still imported and readable in the UI, but it **cannot be executed** — no manual runs, and its triggers (cron, webhook, flow) never fire. Useful on a first rollout: import everything, learn one flow at a time, enable as you go.
+
+```yaml
+# host_vars/primary_automation.yml
+kestra:
+  disabled_flows:
+    - "ansible-update-all"
+    - "ansible-on-merge"
+```
+
+Enable a flow by **removing its id from the list and re-running the playbook**. The UI's enable toggle works only until the next deploy: the role always runs `flow namespace update`, which overwrites the flow from the repo source and restores `disabled: true`. An empty list (or omitting the key) makes every flow live.
+
+Trigger-only suppression — flow runnable by hand, no automatic firing — is a per-trigger `disabled: true` inside the `triggers:` block instead; the role does not template that.
 
 Shipped starter flows:
 
@@ -278,6 +295,54 @@ tasks:
 
 Volume sources are **host** paths — the socket proxy forwards to the host daemon. `host: tcp://socket-proxy:2375` and `fileHandlingStrategy: VOLUME` come from the global plugin defaults, so tasks don't repeat them.
 
+## Monitoring (metrics & logs)
+
+Kestra needs **no configuration** to expose metrics. It is a Micronaut application, and the stock `endpoints.all.port: 8081` / `enabled: true` puts a micrometer Prometheus endpoint at `/prometheus` on the management port — the role's `application.yml.j2` contains nothing about metrics, deliberately.
+
+Two collectors pick it up, both from the `alloy` role on the same host:
+
+| Signal | How | Where it lands |
+|--------|-----|----------------|
+| Metrics | `prometheus.scrape "kestra"` → `kestra:8081/prometheus`, `job="kestra"`, gated on `current_host == 'automation'` | remote-written to Prometheus on the monitor host |
+| Liveness | blackbox probe of `http://kestra:8081/health` (`alloy.http_checks`) | `probe_success{service="kestra"}` |
+| Logs | generic Docker discovery, plus a kestra-specific `stage.match` block in `loki.process "drop_noise"` | Loki, as `{node="automation", container="kestra"}` |
+
+The log block exists because Kestra is a JVM/logback service: `stage.replace` strips the ANSI colour codes wrapping the level/thread/logger fields, `stage.multiline` joins stack-trace continuation lines into one entry, `stage.regex` + `stage.labels` promote the log level to a **`level`** label, and the 8KB `stage.drop` is scoped to `{container!="kestra"}` so joined traces are not discarded.
+
+The line format is **time-only** — `HH:mm:ss.SSS`, no date — so the multiline `firstline` anchors on that, not on an ISO timestamp. A stripped line looks like:
+
+```
+22:55:09.961 INFO  scheduled-executor-thread-1 i.k.jdbc.runner.JdbcQueueCleaner Purged 0 records from queues
+```
+
+Level (`%5p`) and thread are space-padded, hence the `\s+` separators in the regex.
+
+**Gotcha, learned the hard way:** Alloy's `stage.replace` substitutes **capture groups**, not the whole match. The ANSI regex must therefore be wrapped in a group — `"(\x1b\[[0-9;]*m)"`, not `"\x1b\[[0-9;]*m"`. A group-less regex is a silent no-op: the stage reports healthy, nothing is logged, the escapes stay in the line, and the level regex downstream then fails to match, so no `level` label ever appears.
+
+Verify the parsing after a deploy:
+
+```bash
+# One entry per stack trace, and a level label present
+sudo docker logs kestra --tail 20
+# In Grafana Explore (Loki): {container="kestra"} | level="ERROR"
+```
+
+Metric families exported (`kestra_` prefix): `kestra_executor_*` (executions, task runs, durations), `kestra_worker_*` (running/pending/thread counts, queue wait), `kestra_scheduler_*` (loop + trigger evaluation), `kestra_queue_*` (poll size, produce/receive throughput), `kestra_jdbc_query_duration_seconds_*`, `kestra_indexer_*`, plus the standard `jvm_*`, `process_*` and `hikaricp_*` series. Metric tags are snake_case: `namespace_id`, `flow_id`, `state`, `task_type`, `tenant_id` on the execution/worker metrics; `queue_type` / `class_name` on the queue metrics; `trigger_type` on the scheduler ones.
+
+Two traps when writing a query against these, both hit while building the dashboard:
+
+- There is **no** `kestra_queue_message_lag_count` on this build, despite what the upstream metric reference implies — per-queue backlog is `kestra_queue_poll_size{queue_type=...}`.
+- `kestra_scheduler_loop_count_total` counts scheduler *starts* over the process lifetime (it sits at `3`), so `rate()` of it is permanently 0. The per-tick counter is `kestra_scheduler_evaluation_loop_duration_seconds_count`.
+
+Dump the live endpoint to confirm names against the running image before editing dashboards or alerts:
+
+```bash
+sudo docker run --rm --network proxy curlimages/curl -sf \
+  http://kestra:8081/prometheus | grep -E '^kestra_' | sort -u
+```
+
+Visualised by the `Homelab — Kestra` dashboard (`grafana/files/kestra.json`, uid `homelab-kestra`) and alerted on by the `homelab-kestra` rule group (`hl-kestra-down`, `-failed`, `-worker-backlog`, `-log-errors`), whose thresholds live in the `alerts` dict of the grafana role's `defaults/main.yml`.
+
 ## Handlers & Service Management
 
 No handlers. `community.docker.docker_container` recreates the container when its comparable parameters (image id after `pull: true`, env, labels, volumes) change. Config-file changes alone do **not** restart the container (the file is bind-mounted); restart manually after editing:
@@ -323,5 +388,16 @@ The Authelia bypass rule on the automation host matches `^/api/v1/main/execution
 **Task containers can't reach each other / a task hangs pulling an image**
 Task containers run on the network named in the flow's `networkMode` (e.g. `sandbox`), spawned via `socket-proxy`. Check `docker ps --filter name=socket-proxy`, and that the image referenced by `containerImage` exists locally (`ansible-runner`/`claude-runner` are built by their roles, never pulled).
 
-**Flow declares `volumes:` and fails with a config error**
-Bind mounts on the Docker task runner require `volumeEnabled: true` (set in `application.yml` under `plugins.configurations`) — and remember the paths must exist on the **host**.
+**Flow declares `volumes:` but the files are missing inside the task container**
+There is no config error and no warning — an unrecognised or absent `volume-enabled` makes the runner drop every bind, so the task fails downstream instead (e.g. `ansible-playbook` reporting `the vault password file /secrets/pass.file was not found`). Check the key really is kebab-case `volume-enabled: true` in `application.yml` under `plugins.configurations`, and that the paths exist on the **host**. To confirm what was actually mounted, catch the short-lived container while it runs:
+
+```bash
+# on the automation host, in one shell, then trigger the flow in another
+while :; do id=$(docker ps -aq --filter ancestor=<runner-image> | head -1); \
+  [ -n "$id" ] && { docker inspect "$id" --format '{{json .HostConfig.Binds}}'; break; }; sleep 0.1; done
+```
+
+`null` means the mounts were dropped; a JSON array means Docker got them and the fault is elsewhere.
+
+**`ansible-playbook` reports `no such identity: <path>: No such file or directory`**
+The SSH key mount target must equal `user.private_key_path` **as it is committed in the branch the runner clones**, not the path a workstation uses — the flow runs against the checkout, so a local-only edit to that var silently desyncs the two. It must also stay absolute (`/root/<key>.ppk`); Docker rejects a `~/...` mount target outright, so the flow would fail to start the container at all.

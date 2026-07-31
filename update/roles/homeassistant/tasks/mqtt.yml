@@ -32,7 +32,7 @@
 - name: Generate mosquitto password file
   ansible.builtin.command:
     cmd: >
-      docker run --rm -v {{ ansible_env.PWD }}/data/mosquitto/config:/work
+      docker run --rm -v {{ ansible_facts.env.PWD }}/data/mosquitto/config:/work
       eclipse-mosquitto mosquitto_passwd -c -b /work/passwd
       {{ mqtt.user }} {{ mqtt.password }}
   when: not mosquitto_passwd_stat.stat.exists

@@ -37,3 +37,15 @@ nas:
 
 # ISO country codes blocked by the geoblock middleware. Empty = disabled.
 geoblock_blocked_countries: []
+
+# Public webhook relay (server host only). Each connection maps an obscured
+# public prefix onto a private target prefix; the rest of the path passes
+# through. public_host is a bare hostname (Host() matcher + authelia bypass),
+# private_host is a full URL (loadBalancer server).
+hooks:
+  public_host: "hooks.example.com"
+  private_host: "https://kestra.example.com"
+  connection:
+    - name: hook-example
+      public_path: "/changeme"
+      target_path: "/api/v1/main/executions/webhook"

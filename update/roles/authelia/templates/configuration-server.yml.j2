@@ -13,6 +13,7 @@ access_control:
       - "{{ ghost_sites[1].domain }}"
       - "{{ ghost_sites[1].domain_www }}"
       - "{{ kaleidoscope.domain }}"
+      - "{{ hooks.public_host }}"
       policy: bypass
     - domain:
       - "{{ filebrowser.domain }}"

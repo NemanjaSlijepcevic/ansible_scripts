@@ -159,6 +159,11 @@ chmod 0644 ./data/postgres/certs/clients/${CLIENT}.crt
 
 **Purpose**: Each application host needs the CA cert (to verify the server) and its own client cert + key (to authenticate itself), placed under `postgres_tls_client_base_dir` (default `./data/certs`) on that host.
 
+> **Never list a host that runs its own `postgres_server`.** That role writes the same
+> `./data/certs/ca.crt` with a *different* CA that happens to share the subject
+> `CN=postgres-ca`, so the two distributions clobber each other and the last playbook run
+> wins. See `postgres_server.md`.
+
 ```bash
 # On each host listed in postgres_tls_client_hosts for this client:
 ssh <username>@<target-host> "mkdir -p ./data/certs && chmod 0755 ./data/certs"
@@ -192,6 +197,7 @@ hostssl all       all   <docker-gateway-ip>/32     scram-sha-256
 # Everything else: SSL + client certificate required
 hostssl all       all   <private-subnet-1>    cert clientcert=verify-full
 hostssl all       all   <private-subnet-2>    cert clientcert=verify-full
+hostssl all       all   <single-host-ip>/32   cert clientcert=verify-full
 hostssl all       all   <docker-subnet>       cert clientcert=verify-full
 EOF
 chown <username>:docker ./data/postgres/pg_hba.conf
@@ -199,6 +205,15 @@ chmod 0644 ./data/postgres/pg_hba.conf
 ```
 
 **Explanation**: `pg_hba.conf` is **first-match-wins, top to bottom** — the narrow password exceptions for pgAdmin (`pgadmin.static` and the docker gateway, which pgAdmin's hairpin-NAT'd connections arrive from) must sit **above** the broad `cert clientcert=verify-full` lines, and no broad password line may sit above those. One `hostssl … cert` line is generated per CIDR in `private_ips` (`group_vars/all.yml`) plus one for `docker.subnet` — every client from those ranges must present a valid client certificate signed by the role's CA. `local`/`127.0.0.1` connections stay password-based (`trust`/`scram-sha-256`) since they never leave the container. (An earlier revision had a broad `172.0.0.0/8` password line above the cert lines, which made the client-cert requirement unreachable for docker-network clients — do not reintroduce it.)
+
+> **Every ADDRESS needs a prefix length.** PostgreSQL parses the ADDRESS field three ways: containing `/` → CIDR, and the next token is the METHOD; a **bare** numeric IP → the next token is required to be a separate netmask (the legacy `address netmask method` form); non-numeric (`all`, `samenet`, a hostname) → the next token is the METHOD. A single host written without `/32` therefore makes the parser read the following `cert` as a netmask and the server refuses to start:
+>
+> ```
+> LOG:  invalid IP mask "cert": Name or service not known
+> FATAL:  could not load /etc/postgresql/pg_hba.conf
+> ```
+>
+> `private_ips` is shared with the Traefik/CrowdSec whitelist templates, which accept bare IPs happily — a single host added there for whitelisting breaks only pg_hba. The template appends `/32` to any entry lacking a prefix; when writing the file by hand, do the same.
 
 > **Bind-mount gotcha**: the container mounts `pg_hba.conf` as a single-file bind. Replacing the file with `install`/`mv` (new inode) silently severs the mount — the container keeps the old content even after `pg_reload_conf()`. Overwrite in place (`cat new > pg_hba.conf`) and reload, or restart the container after an inode-changing replace.
 
@@ -283,13 +298,17 @@ Renders PostgreSQL's host-based authentication rules:
 # TYPE  DATABASE  USER  ADDRESS              METHOD
 local   all       all                         trust
 host    all       all   127.0.0.1/32          scram-sha-256
-host    all       all   172.0.0.0/8           scram-sha-256
-{% for ip in private_ips %}
-hostssl all       all   {{ ip }}              cert clientcert=verify-full
+hostssl all       all   {{ ip['pgadmin'] }}/32   scram-sha-256
+hostssl all       all   {{ docker.gateway }}/32   scram-sha-256
+{% for cidr in private_ips %}
+hostssl all       all   {{ cidr if '/' in cidr else cidr ~ '/32' }}   cert clientcert=verify-full
 {% endfor %}
+hostssl all       all   {{ docker.subnet }}   cert clientcert=verify-full
 ```
 
-The templated loop is the only dynamic part — it expands to one `hostssl` line per CIDR in `private_ips`, each requiring TLS plus a client certificate whose `CN` matches the connecting role.
+The templated loop is the only dynamic part — it expands to one `hostssl` line per CIDR in `private_ips`, each requiring TLS plus a client certificate whose `CN` matches the connecting role. The loop variable is `cidr`, not `ip`, because `ip` is the static-address dict used by the pgAdmin exception line above it.
+
+The `'/' in cidr` guard is what keeps a prefix-less `private_ips` entry from producing `invalid IP mask "cert"` at server startup — see the ADDRESS-parsing note in Step 6. `private_ips` is shared with the Traefik/CrowdSec whitelists (which accept bare IPs) and is appended to at runtime with a bare public IP by `roles/traefik/tasks/environment.yml`, so the normalisation lives here rather than in the inventory.
 
 ---
 

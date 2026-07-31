@@ -34,22 +34,22 @@
     group: "{{ user.group }}"
   when: not file_check.stat.exists
 
-# - name: Catch public IP
-#   ansible.builtin.uri:
-#     url: "{{ public_ip_url }}"
-#     return_content: true
-#     headers:
-#       Authorization: "Bearer {{ api_ip_token }}"
-#   register: public_ip
-#   run_once: true
-#   changed_when: false
-#   check_mode: false
-#   when: current_host == 'server'
+- name: Catch public IP
+  ansible.builtin.uri:
+    url: "{{ public_ip_url }}"
+    return_content: true
+    headers:
+      Authorization: "Bearer {{ api_ip_token }}"
+  register: public_ip
+  run_once: true
+  changed_when: false
+  check_mode: false
+  when: current_host == 'server'
 
-# - name: Add public IP to private_ips list
-#   ansible.builtin.set_fact:
-#     private_ips: "{{ (private_ips | default([])) + [public_ip.json.ip] }}"
-#   when: current_host == 'server'
+- name: Add public IP to private_ips list
+  ansible.builtin.set_fact:
+    private_ips: "{{ (private_ips | default([])) + [public_ip.json.ip] }}"
+  when: current_host == 'server'
 
 - name: "Generate configuration"
   ansible.builtin.template:
@@ -79,7 +79,7 @@
     - chain-basic-auth
     - chain-tunnel
 
-- name: "Generate server-only rules (Cloudflare RealIP + GeoBlock)"
+- name: "Generate server-only rules (Cloudflare RealIP + GeoBlock + webhook relay)"
   ansible.builtin.template:
     src: "{{ item }}.yml.j2"
     dest: ./data/traefik/rules/{{ item }}.yml
@@ -89,6 +89,7 @@
   loop:
     - cloudflarewarp
     - geoblock
+    - hooks
   when: current_host == 'server'
 
 - name: Create logrotate config for traefik
@@ -99,7 +100,7 @@
     group: "root"
     mode: "0644"
   vars:
-    log_path: "{{ ansible_env.PWD }}/data/traefik/logs/traefik.log"
+    log_path: "{{ ansible_facts.env.PWD }}/data/traefik/logs/traefik.log"
     copytruncate: true
 
 - name: Create logrotate config for access
@@ -110,5 +111,5 @@
     group: "root"
     mode: "0644"
   vars:
-    log_path: "{{ ansible_env.PWD }}/data/traefik/logs/access.log"
+    log_path: "{{ ansible_facts.env.PWD }}/data/traefik/logs/access.log"
     copytruncate: true

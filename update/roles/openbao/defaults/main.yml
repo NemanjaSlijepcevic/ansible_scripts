@@ -1,0 +1,30 @@
+---
+# Schema/legend for the encrypted host_vars this role consumes.
+# Placeholder values only — real data lives in host_vars/primary_openbao.yml.
+# See CLAUDE.md "Role defaults/main.yml is documentation for the encrypted inventory".
+
+user:
+  name: "deploy"
+  group: "docker"
+
+# OpenBao secrets-store service.
+openbao:
+  host: "Host(`openbao.example.com`)"       # Traefik router rule
+  domain: "openbao.example.com"             # bare FQDN (Authelia access_control)
+  url: "https://openbao.example.com"        # external api_addr / UI URL
+  port: "8200"                              # API + UI listener
+  node_id: "openbao-1"                      # Raft node id (stable, never reuse)
+
+# uid:gid the container runs as; owns ./data/openbao/{config,data}.
+openbao_uid: "1000"
+openbao_gid: "1000"
+
+# Container image (Docker Hub: openbao/openbao, also ghcr.io/openbao/openbao).
+openbao_image: "ghcr.io/openbao/openbao:latest"
+
+# Sibling-service reference: Traefik's static IP is trusted as the only
+# x_forwarded_for source (TLS is terminated at Traefik, listener is plain HTTP).
+# Consumed via ip['traefik'] / ip['openbao'] from the host_vars `ip` dict.
+ip:
+  traefik: "172.20.0.6"
+  openbao: "172.20.0.x"

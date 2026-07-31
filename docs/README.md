@@ -22,6 +22,7 @@ The repository is split into two playbook families:
 | `primary_immich` | `<ip-address>` | Immich photo-backup host |
 | `primary_netboot` | `<ip-address>` | netboot.xyz network-boot host |
 | `primary_automation` | `<ip-address>` | Kestra workflow orchestration + Claude Code sandbox host |
+| `primary_openbao` | `<ip-address>` | OpenBao secrets-management server (Raft storage) |
 
 ## Baseline stack (every `update/` host)
 
@@ -88,6 +89,7 @@ The repository is split into two playbook families:
 | `recyclarr` | [update/recyclarr.md](update/recyclarr.md) | Syncs TRaSH-Guide profiles/formats into Sonarr and Radarr |
 | `transmission` | [update/transmission.md](update/transmission.md) | Deploys Transmission BitTorrent client |
 | `netboot` | [update/netboot.md](update/netboot.md) | Deploys netboot.xyz network boot server |
+| `openbao` | [update/openbao.md](update/openbao.md) | Deploys OpenBao secrets-management server (Raft storage) |
 
 ### Web Applications
 

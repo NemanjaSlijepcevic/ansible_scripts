@@ -80,14 +80,16 @@ Every dashboard queries PromQL (or LogQL for the Loki panels), rendered with `ti
 | `traefik.json` | `homelab-traefik` | Prometheus — `traefik_*` (`:8082/metrics`) + Loki for the log panels |
 | `postgres.json` | `homelab-postgres` | Prometheus — `pg_stat_database_*` (Alloy postgres exporter, postgres host only) |
 | `pfsense.json` | `homelab-pfsense` | Prometheus — FreeBSD `node_*`, scraped at `pfsense_exporter.target` |
-| `proxmox.json` | `homelab-proxmox` | Prometheus — `pve_*` (pve-exporter); guest name/node joined from `pve_guest_info` |
+| `proxmox.json` | `homelab-proxmox` | Prometheus — `pve_*` (pve-exporter); guest name/node joined from `pve_guest_info`, filtered to running guests with `and on (id) (pve_up == 1)` |
 | `loki-overview.json` | `homelab-loki-overview` | Loki |
+| `kestra.json` | `homelab-kestra` | Prometheus — `kestra_*` micrometer metrics (Alloy scrapes `kestra:8081/prometheus` on the automation host) + Loki for the log/level panels; vars `$namespace`, `$flow`, `$level`, `$search` |
 
 Panels with no exporter equivalent were dropped or repurposed rather than left blank:
 
 - **pfSense** — `PF Information` removed and `Process Information` / `Active Users` replaced by `System Information` / `CPU Cores`: FreeBSD node_exporter exports no pf counters, process states, or logged-in users.
-- **Proxmox** — `Swap Total`, `Load Avg (1m)`, `I/O Wait` removed; pve-exporter reports none of them (they would need a node_exporter on the PVE host).
+- **Proxmox** — `Swap Total`, `Load Avg (1m)`, `I/O Wait` removed; pve-exporter reports none of them (they would need a node_exporter on the PVE host). `LXC I/O Read` / `LXC I/O Write` removed too and replaced by `LXC rootfs usage` (`pve_disk_usage_bytes / pve_disk_size_bytes`): PVE does not account container disk I/O, so `pve_disk_{read,written}_bytes_total` sit at a few kB for the container's whole lifetime and `rate()` is permanently 0. `Not backed up` + `Guests without backup` were added from `pve_not_backed_up_{total,info}`. Guest panels join `and on (id) (pve_up == 1)` so stopped guests do not draw flat-0 series while the running-count stats say otherwise; those stats count `pve_up == 1` directly and end in `or vector(0)` so an all-stopped node shows `0` rather than "No data".
 - **Node overview** — `Unhealthy` became `OOM-killed` (`docker_container_oom_killed`); cadvisor has no healthcheck state. `Stopped Containers` lists exited/OOM-killed names only — exit code and restart count are not exported.
+- **Kestra** — duration panels show an *average* (`rate(_sum) / rate(_count)`), not a p95. Kestra's `*_duration_seconds` are plain micrometer Timers exported as `_count` / `_sum` / `_max` with no histogram buckets, so `histogram_quantile()` returns an empty frame and Grafana logs "missing numeric fields" on every refresh. The `$namespace` / `$flow` / `$level` variables use `allValue: ".*"` (not `.+`) so a series that does not carry the label still matches when the variable is set to *All*.
 
 ---
 

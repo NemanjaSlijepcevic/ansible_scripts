@@ -1,0 +1,21 @@
+---
+- name: Create OpenBao directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ openbao_uid }}"
+    group: "{{ openbao_gid }}"
+    mode: "0750"
+  loop:
+    - ./data/openbao
+    - ./data/openbao/config
+    - ./data/openbao/data
+
+- name: Render OpenBao config
+  ansible.builtin.template:
+    src: config.hcl.j2
+    dest: ./data/openbao/config/config.hcl
+    owner: "{{ openbao_uid }}"
+    group: "{{ openbao_gid }}"
+    mode: "0640"
+  register: openbao_config

@@ -1,0 +1,65 @@
+---
+- name: Create environment
+  ansible.builtin.include_tasks: environment.yml
+
+- name: Deploy OpenBao container
+  community.docker.docker_container:
+    name: openbao
+    image: "{{ openbao_image }}"
+    pull: true
+    state: started
+    # Config changes need a restart; the entrypoint re-reads config.hcl on boot.
+    recreate: "{{ openbao_config is defined and openbao_config.changed }}"
+    restart_policy: unless-stopped
+    user: "{{ openbao_uid }}:{{ openbao_gid }}"
+    # OpenBao seals on stop; give it a clean shutdown window.
+    stop_signal: SIGTERM
+    stop_timeout: 30
+    networks:
+      - name: proxy
+        ipv4_address: "{{ ip['openbao'] }}"
+        aliases:
+          - openbao
+    # Bind API to localhost only for `bao` CLI / unseal via SSH; LAN reaches it
+    # through Traefik. Drop this to keep it purely internal.
+    ports:
+      - "127.0.0.1:8200:8200"
+    env:
+      BAO_ADDR: "http://127.0.0.1:8200"
+    volumes:
+      - ./data/openbao/config:/openbao/config:ro
+      - ./data/openbao/data:/openbao/data
+    command: "server -config=/openbao/config/config.hcl"
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.openbao.entrypoints: "https"
+      traefik.http.routers.openbao.rule: "{{ openbao.host }}"
+      traefik.http.routers.openbao.tls: "true"
+      # OpenBao has its own auth + UI — do not front it with Authelia.
+      traefik.http.routers.openbao.middlewares: "chain-no-auth@file"
+      traefik.http.routers.openbao.service: "openbao"
+      traefik.http.services.openbao.loadbalancer.server.port: "{{ openbao.port }}"
+    healthcheck:
+      # rc 0 = unsealed, rc 2 = sealed (still "up", awaiting unseal), else error.
+      test: ["CMD-SHELL", "bao status -address=http://127.0.0.1:8200 >/dev/null 2>&1 || test $? -eq 2"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+- name: Read OpenBao seal status
+  ansible.builtin.command:
+    cmd: "docker exec openbao bao status -address=http://127.0.0.1:8200"
+  register: openbao_status
+  changed_when: false
+  failed_when: false
+
+- name: Show OpenBao seal status / next steps
+  ansible.builtin.debug:
+    msg: >-
+      {{ openbao_status.stdout_lines | default([]) }}
+      {% if 'Initialized' in (openbao_status.stdout | default('')) and 'false' in (openbao_status.stdout | default('')) %}
+      >>> NOT initialized. Run: docker exec -it openbao bao operator init
+      then store the unseal keys + root token in your password manager, and
+      unseal with `bao operator unseal` (see docs/update/openbao.md).
+      {% endif %}
