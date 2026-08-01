@@ -1,0 +1,54 @@
+---
+# Database backups. Every dump play writes ./data/backups/<timestamp>/ on its
+# host, then pulls that directory to the control node; the final play pushes
+# the whole staging tree to the NAS. Deliberately NOT imported by site.yml —
+# site.yml is the deploy chain, this runs on its own schedule.
+- name: "Backup PostgreSQL host databases"
+  hosts: postgres
+  gather_facts: true
+  remote_user: "{{ user.name }}"
+  become: true
+  vars:
+    current_host: "postgres"
+  roles:
+    - { role: db_backup, tags: ['db_backup', 'backup', 'database'] }
+
+- name: "Backup Server databases"
+  hosts: servers
+  gather_facts: true
+  remote_user: "{{ user.name }}"
+  become: true
+  vars:
+    current_host: "server"
+  roles:
+    - { role: db_backup, tags: ['db_backup', 'backup', 'database'] }
+
+- name: "Backup Monitor databases"
+  hosts: monitors
+  gather_facts: true
+  remote_user: "{{ user.name }}"
+  become: true
+  vars:
+    current_host: "monitor"
+  roles:
+    - { role: db_backup, tags: ['db_backup', 'backup', 'database'] }
+
+- name: "Backup NAS databases"
+  hosts: nass
+  gather_facts: true
+  remote_user: "{{ user.name }}"
+  become: true
+  vars:
+    current_host: "nas"
+  roles:
+    - { role: db_backup, tags: ['db_backup', 'backup', 'database'] }
+
+- name: "Sync database dumps to the NAS"
+  hosts: nass
+  gather_facts: true
+  remote_user: "{{ user.name }}"
+  become: true
+  vars:
+    current_host: "nas"
+  roles:
+    - { role: db_backup_sync, tags: ['db_backup_sync', 'backup', 'database'] }

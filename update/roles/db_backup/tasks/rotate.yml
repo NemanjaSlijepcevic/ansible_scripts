@@ -1,0 +1,20 @@
+---
+# Only timestamp-shaped directories are candidates — never the parent
+# ./data/backups directory or anything else that ends up under it.
+- name: Find expired backup directories
+  ansible.builtin.find:
+    paths: "{{ db_backup_dir }}"
+    file_type: directory
+    patterns: '^[0-9]{8}T[0-9]{6}$'
+    use_regex: true
+    age: "{{ db_backup_retention_days }}d"
+    age_stamp: mtime
+  register: db_backup_expired
+
+- name: Remove expired backup directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ db_backup_expired.files }}"
+  loop_control:
+    label: "{{ item.path }}"

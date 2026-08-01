@@ -1,5 +1,7 @@
 pass.file
 .secrets/
+# local content dirs ansible-core scaffolds at runtime
+/.ansible/
 *.crt
 *.key
 *.csr

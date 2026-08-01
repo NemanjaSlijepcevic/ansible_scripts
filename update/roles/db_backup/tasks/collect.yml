@@ -1,0 +1,26 @@
+---
+- name: Ensure the control-node staging directory exists
+  ansible.builtin.file:
+    path: "{{ db_backup_local_dir }}/{{ inventory_hostname }}/{{ db_backup_stamp }}"
+    state: directory
+    mode: "0700"
+  delegate_to: localhost
+  become: false
+
+# become: false — rsync runs as {{ user.name }}, which the ownership fix in
+# main.yml already granted read access to the dumps.
+- name: Pull dumps to the control node
+  ansible.posix.synchronize:
+    mode: pull
+    src: "{{ db_backup_target }}/"
+    dest: "{{ db_backup_local_dir }}/{{ inventory_hostname }}/{{ db_backup_stamp }}/"
+    archive: true
+  become: false
+
+- name: Verify the pulled dumps against their checksums
+  ansible.builtin.command:
+    cmd: "sha256sum -c SHA256SUMS"
+    chdir: "{{ db_backup_local_dir }}/{{ inventory_hostname }}/{{ db_backup_stamp }}"
+  delegate_to: localhost
+  become: false
+  changed_when: false

@@ -61,6 +61,15 @@ The repository is split into two playbook families:
 | `prepare_smb` | [update/prepare_smb.md](update/prepare_smb.md) | Installs and configures Samba file sharing |
 | `filebrowser` | [update/filebrowser.md](update/filebrowser.md) | Deploys the Filebrowser web file manager (Authelia proxy auth) |
 
+### Backup
+
+Run by `update/backup.yml` (not part of `site.yml`): every host dumps its databases, the dumps are staged on the control node, then archived on the NAS.
+
+| Role | Documentation | One-line description |
+|------|--------------|----------------------|
+| `db_backup` | [update/db_backup.md](update/db_backup.md) | Dumps PostgreSQL, MySQL/MariaDB and SQLite databases on a host, checksums them and pulls them to the control node |
+| `db_backup_sync` | [update/db_backup_sync.md](update/db_backup_sync.md) | Pushes the staged dumps to the NAS archive, verifies checksums and prunes old backups |
+
 ### Monitoring & Observability
 
 | Role | Documentation | One-line description |

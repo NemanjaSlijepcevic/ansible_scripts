@@ -1,0 +1,94 @@
+---
+- name: Set backup timestamp
+  ansible.builtin.set_fact:
+    db_backup_stamp: "{{ ansible_date_time.iso8601_basic_short }}"
+
+- name: Resolve backup target and sources for this host
+  ansible.builtin.set_fact:
+    db_backup_target: "{{ db_backup_dir }}/{{ db_backup_stamp }}"
+    db_backup_source: "{{ db_backup_sources[current_host] | default({}) }}"
+
+# A host with no configured source is not an error — the whole role is skipped
+# so it leaves no empty timestamp directory behind. A host that *has* sources
+# but produces no dump is an error (asserted below).
+- name: Decide whether this host has anything to back up
+  ansible.builtin.set_fact:
+    db_backup_configured: >-
+      {{ ((db_backup_source.postgres_containers | default([])) | length
+          + (db_backup_source.sqlite | default([])) | length
+          + (db_backup_mysql_servers | length)) > 0 }}
+
+- name: Report that this host has nothing to back up
+  ansible.builtin.debug:
+    msg: >-
+      Nothing configured for db_backup_sources.{{ current_host }} on
+      {{ inventory_hostname }} — skipping.
+  when: not (db_backup_configured | bool)
+
+- name: Back up this host
+  when: db_backup_configured | bool
+  block:
+    - name: Create backup directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ user.name }}"
+        group: "{{ user.group }}"
+        mode: "0750"
+      loop:
+        - "{{ db_backup_dir }}"
+        - "{{ db_backup_target }}"
+
+    - name: Dump PostgreSQL databases
+      ansible.builtin.include_tasks: postgres.yml
+      when: (db_backup_source.postgres_containers | default([])) | length > 0
+
+    - name: Dump MySQL databases
+      ansible.builtin.include_tasks: mysql.yml
+      when: db_backup_mysql_servers | length > 0
+
+    - name: Snapshot SQLite databases
+      ansible.builtin.include_tasks: sqlite.yml
+      when: (db_backup_source.sqlite | default([])) | length > 0
+
+    # In check mode the dump commands never ran, so there is nothing to verify,
+    # checksum or pull — only the directory/inventory wiring gets exercised.
+    - name: Verify and ship the dumps
+      when: not ansible_check_mode
+      block:
+        - name: Collect dumps produced by this run
+          ansible.builtin.find:
+            paths: "{{ db_backup_target }}"
+            file_type: file
+          register: db_backup_files
+
+        - name: Fail when nothing was dumped
+          ansible.builtin.assert:
+            that:
+              - db_backup_files.files | length > 0
+            fail_msg: >-
+              No dumps were produced on {{ inventory_hostname }} — check that the
+              configured containers/SQLite paths in db_backup_sources.{{ current_host }}
+              still exist.
+            success_msg: "{{ db_backup_files.files | length }} dump file(s) written to {{ db_backup_target }}."
+
+        - name: Write checksums
+          ansible.builtin.shell:
+            cmd: "sha256sum * > SHA256SUMS"
+            chdir: "{{ db_backup_target }}"
+          changed_when: true
+
+        - name: Hand the dumps to the deploy user so they can be rsynced
+          ansible.builtin.file:
+            path: "{{ db_backup_target }}"
+            state: directory
+            owner: "{{ user.name }}"
+            group: "{{ user.group }}"
+            mode: "0750"
+            recurse: true
+
+        - name: Pull dumps to the control node
+          ansible.builtin.include_tasks: collect.yml
+
+    - name: Rotate old backups on the host
+      ansible.builtin.include_tasks: rotate.yml

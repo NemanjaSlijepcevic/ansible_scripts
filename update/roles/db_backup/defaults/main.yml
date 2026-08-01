@@ -1,0 +1,80 @@
+---
+user:
+  name: "deploy"
+  group: "docker"
+
+# Where dumps are written on the backed-up host (same ./data convention as
+# every other role) and how long they are kept there. The NAS copy is the
+# long-term one — the on-host copy only needs to cover a quick restore.
+db_backup_dir: "./data/backups"
+db_backup_retention_days: 3
+
+# Staging directory on the Ansible control node. Dumps are pulled here and
+# then pushed to the NAS by the db_backup_sync role.
+db_backup_local_dir: "/tmp/db-dumps"
+
+# Backup sources per `current_host` (set in update/backup.yml).
+#   postgres_containers — Docker container names running PostgreSQL. Dumped
+#                         over the container's unix socket (`local … trust`
+#                         in pg_hba.conf), so no password is needed.
+#   sqlite              — sqlite files to snapshot with the online backup API.
+db_backup_sources:
+  postgres:
+    postgres_containers:
+      - "postgres-db"
+    sqlite: []
+  server:
+    postgres_containers:
+      - "postgres-db"
+    sqlite: []
+  monitor:
+    postgres_containers: []
+    sqlite:
+      - name: "grafana"
+        path: "./data/grafana/grafana.db"
+      - name: "homeassistant"
+        path: "./data/homeassistant/config/home-assistant_v2.db"
+      # Zigbee pairings — cheap to dump, painful to rebuild by re-pairing.
+      - name: "homeassistant_zigbee"
+        path: "./data/homeassistant/config/zigbee.db"
+  # The *arr stack keeps its state in the central PostgreSQL server, so the
+  # NAS only owns Jellyfin's SQLite. CrowdSec's bundled SQLite is deliberately
+  # not backed up anywhere — decisions and alerts rebuild themselves.
+  nas:
+    postgres_containers: []
+    sqlite:
+      # Jellyfin 10.11+ merged library.db/playback data into a single
+      # jellyfin.db, one level below the LSIO /config/data mount.
+      - name: "jellyfin"
+        path: "./data/jellyfin/config/data/data/jellyfin.db"
+
+# Superuser used for pg_dump/pg_dumpall inside the container.
+db_backup_pg_admin_user: "{{ postgres.adm_user | default('postgres') }}"
+
+# Databases never dumped (templates are recreated by initdb on restore).
+db_backup_pg_exclude:
+  - "template0"
+  - "template1"
+
+# MySQL/MariaDB containers to dump. Defaults to the `db_server` list the sql
+# role consumes; each entry: { name, admin, pass } (+ optional dump_cmd).
+db_backup_mysql_servers: "{{ db_server | default([]) }}"
+
+# Dump binary candidates, probed inside each container in this order. MariaDB
+# 11 dropped the mysql* symlinks; older MySQL/MariaDB images only ship
+# mysqldump. A `dump_cmd` key on a db_server entry overrides the probe.
+db_backup_mysql_dump_cmds:
+  - "mariadb-dump"
+  - "mysqldump"
+
+# The MySQL dump task hides its output because the command line carries the
+# admin password. Set to false on the command line to debug a failing dump.
+db_backup_no_log: true
+
+# Sibling-service reference: the sql role's server list, documented here
+# because this role reads it for the MySQL dumps.
+db_server: []
+
+# Central PostgreSQL connection block (only adm_user is read here).
+postgres:
+  adm_user: "postgres"
