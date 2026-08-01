@@ -56,23 +56,3 @@
       timeout: 6s
       retries: 4
       start_period: 120s
-
-# Push the repo-managed flows (rendered by environment.yml into
-# ./data/kestra/flows, mounted at /flows) into the `automation` namespace.
-# --no-delete keeps flows created only in the UI; flows whose id matches a
-# repo file are overwritten (the server bumps a revision only on change,
-# so this is idempotent). Retries cover server startup after (re)create.
-- name: Deploy flows into the automation namespace
-  community.docker.docker_container_exec:
-    container: kestra
-    command: >-
-      /app/kestra flow namespace update automation /flows
-      --no-delete --server http://localhost:8080
-      --user {{ kestra.admin_user }}:{{ kestra.admin_password }}
-  register: kestra_flow_deploy
-  retries: 12
-  delay: 10
-  until: kestra_flow_deploy.rc | default(1) == 0
-  changed_when: false
-  # command line carries the admin password
-  no_log: true
