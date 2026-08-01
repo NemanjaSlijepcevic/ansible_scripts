@@ -145,7 +145,7 @@ docker run --rm \
   --network sandbox \
   --security-opt no-new-privileges \
   -v <deploy-dir>/data/ansible-runner/workspace:/workspace \
-  -v <deploy-dir>/data/ansible-runner/secrets/<key-name>.ppk:/root/<key-name>.ppk:ro \
+  -v <deploy-dir>/data/ansible-runner/secrets/<key-name>.ppk:/root/.ssh/<key-name>.ppk:ro \
   -v <deploy-dir>/data/ansible-runner/secrets/pass.file:/secrets/pass.file:ro \
   -w /workspace/ansible_scripts/update \
   ansible-runner:latest \
@@ -155,7 +155,7 @@ docker run --rm \
 **Explanation**:
 - `--network sandbox` — the same isolated bridge network `claude_runner` creates. It gives the container outbound reach to every managed host over SSH (via the automation host's normal NAT egress — there is no route to `<ip-address>`-space that isn't also reachable from the host itself) while keeping it off the `proxy` network like the Claude Code sandbox.
 - **Volume sources are host paths**, not the caller's paths — this only works because the call goes out through `socket-proxy`, which talks to the **host** Docker daemon; the daemon resolves `-v <deploy-dir>/...` against the host filesystem, not the Kestra container's filesystem. `<deploy-dir>` is the `update/` playbook's working directory on the automation host (e.g. `/home/deploy/update`).
-- `-v .../secrets/<key-name>.ppk:/root/<key-name>.ppk:ro` — the key mounts specifically at `/root/<key-name>.ppk` because the production inventory's `ansible_private_key_file` points there; this path must match whatever the inventory declares.
+- `-v .../secrets/<key-name>.ppk:/root/.ssh/<key-name>.ppk:ro` — the key mounts specifically at `/root/.ssh/<key-name>.ppk` because the production inventory's `ansible_private_key_file` points there; this path must match whatever the inventory declares.
 - `-v .../secrets/pass.file:/secrets/pass.file:ro` — the Vault password file, mounted read-only and referenced with `--vault-password-file` exactly as it would be run interactively from a workstation.
 - `-w /workspace/ansible_scripts/update` — matches `update/ansible.cfg`'s default inventory path (`inventories/production/hosts.yml`), so the playbook picks it up automatically, same as running it by hand from that directory.
 - `<host>.yml` is whichever playbook the workflow targets (`nas.yml`, `server.yml`, `monitor.yml`, `postgres.yml`, `automation.yml`, etc.); `--limit`/`--tags` can be appended the same way they would be on the command line.
@@ -201,7 +201,7 @@ sudo docker run --rm \
   --network sandbox \
   --security-opt no-new-privileges \
   -v $(pwd)/data/ansible-runner/workspace:/workspace \
-  -v $(pwd)/data/ansible-runner/secrets/<key-name>.ppk:/root/<key-name>.ppk:ro \
+  -v $(pwd)/data/ansible-runner/secrets/<key-name>.ppk:/root/.ssh/<key-name>.ppk:ro \
   -v $(pwd)/data/ansible-runner/secrets/pass.file:/secrets/pass.file:ro \
   -w /workspace/ansible_scripts/update \
   ansible-runner:latest \
@@ -227,7 +227,7 @@ sudo rm -rf ./data/ansible-runner/secrets
 ## Troubleshooting
 
 **Task container fails with `Permission denied (publickey)`**
-Confirm `./data/ansible-runner/secrets/<key-name>.ppk` exists, is `0600`, and matches the public key already authorized on the target host's `~/.ssh/authorized_keys` for `{{ user.name }}`. Confirm the `docker run` invocation mounts it at the exact path `ansible_private_key_file` expects in the inventory (typically `/root/<key-name>.ppk`).
+Confirm `./data/ansible-runner/secrets/<key-name>.ppk` exists, is `0600`, and matches the public key already authorized on the target host's `~/.ssh/authorized_keys` for `{{ user.name }}`. Confirm the `docker run` invocation mounts it at the exact path `ansible_private_key_file` expects in the inventory (typically `/root/.ssh/<key-name>.ppk`).
 
 **Task container fails with a Vault decryption error**
 `--vault-password-file /secrets/pass.file` must point at the in-container mount path, not the host path — confirm the `-v .../pass.file:/secrets/pass.file:ro` mount is present and the file's content matches the password used elsewhere with `--vault-password-file pass.file`.

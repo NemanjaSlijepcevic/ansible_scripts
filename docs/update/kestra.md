@@ -268,7 +268,7 @@ tasks:
       networkMode: sandbox
       volumes:
         - <deploy-dir>/data/ansible-runner/workspace:/workspace
-        - <deploy-dir>/data/ansible-runner/secrets/<key>.ppk:/root/<key>.ppk:ro
+        - <deploy-dir>/data/ansible-runner/secrets/<key>.ppk:/root/.ssh/<key>.ppk:ro
         - <deploy-dir>/data/ansible-runner/secrets/pass.file:/secrets/pass.file:ro
     commands:
       - cd /workspace/ansible_scripts/update && ansible-playbook nas.yml --vault-password-file /secrets/pass.file
@@ -400,4 +400,4 @@ while :; do id=$(docker ps -aq --filter ancestor=<runner-image> | head -1); \
 `null` means the mounts were dropped; a JSON array means Docker got them and the fault is elsewhere.
 
 **`ansible-playbook` reports `no such identity: <path>: No such file or directory`**
-The SSH key mount target must equal `user.private_key_path` **as it is committed in the branch the runner clones**, not the path a workstation uses — the flow runs against the checkout, so a local-only edit to that var silently desyncs the two. It must also stay absolute (`/root/<key>.ppk`); Docker rejects a `~/...` mount target outright, so the flow would fail to start the container at all.
+The SSH key mount target must equal `user.private_key_path` **as it is committed in the branch the runner clones**, not the path a workstation uses — the flow runs against the checkout, so a local-only edit to that var silently desyncs the two. It must also stay absolute (`/root/.ssh/<key>.ppk`); Docker rejects a `~/...` mount target outright, so the flow would fail to start the container at all.

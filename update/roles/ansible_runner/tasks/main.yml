@@ -11,15 +11,18 @@
 #     networkMode: "{{ claude_runner.network }}"
 #     volumes:
 #       - <deploy-dir>/data/ansible-runner/workspace:/workspace
-#       - <deploy-dir>/data/ansible-runner/secrets/<key>.ppk:/root/<key>.ppk:ro
+#       - <deploy-dir>/data/ansible-runner/secrets/<key>.ppk:/root/.ssh/<key>.ppk:ro
 #       - <deploy-dir>/data/ansible-runner/secrets/pass.file:/secrets/pass.file:ro
 #   commands:
 #     - ansible-playbook -i /workspace/ansible_scripts/update nas.yml
 #       --vault-password-file /secrets/pass.file
 #
 # Volume sources are HOST paths (the proxy talks to the host daemon).
-# The key mounts at /root/<key>.ppk because the inventory's
-# ansible_private_key_file points there. Clone/update the repo in a prior
+# The key MUST mount at the exact path the inventory's
+# ansible_private_key_file ({{ user.private_key_path }}) points to —
+# /root/.ssh/<key>.ppk — or every host comes back UNREACHABLE
+# ("no such identity ... Permission denied (publickey)", exit code 4).
+# Clone/update the repo in a prior
 # task in the same flow (same image, git is installed).
 - name: Create environment
   ansible.builtin.include_tasks: environment.yml
