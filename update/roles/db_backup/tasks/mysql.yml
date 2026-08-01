@@ -1,0 +1,58 @@
+---
+- name: Inspect MySQL containers
+  community.docker.docker_container_info:
+    name: "{{ item.name }}"
+  loop: "{{ db_backup_mysql_servers }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: db_backup_mysql_info
+
+- name: Select running MySQL containers
+  ansible.builtin.set_fact:
+    db_backup_mysql_running: >-
+      {{ db_backup_mysql_info.results
+         | selectattr('exists')
+         | selectattr('container.State.Running')
+         | map(attribute='item')
+         | list }}
+
+- name: Warn about MySQL containers that are not running
+  ansible.builtin.debug:
+    msg: >-
+      Skipping {{ item.name }} — container missing or stopped on {{ inventory_hostname }}.
+  loop: >-
+    {{ db_backup_mysql_servers | rejectattr('name', 'in', db_backup_mysql_running | map(attribute='name') | list) | list }}
+  loop_control:
+    label: "{{ item.name }}"
+
+# Probed rather than assumed — MariaDB 11 dropped the mysql* symlinks while
+# older images only ship mysqldump. This task carries no credentials, so
+# unlike the dump itself it is not no_log and a missing binary is visible.
+- name: Detect the dump binary in each MySQL container
+  ansible.builtin.command:
+    cmd: >-
+      docker exec {{ item.name }}
+      sh -c "command -v {{ db_backup_mysql_dump_cmds | join(' || command -v ') }}"
+  loop: "{{ db_backup_mysql_running }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: db_backup_mysql_bins
+  changed_when: false
+
+# MYSQL_PWD keeps the password out of the container's process list; no_log
+# keeps it out of the Ansible output — run with `-e db_backup_no_log=false`
+# to see the dump tool's own error message when a dump fails.
+- name: Dump all MySQL databases
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail &&
+      docker exec -e MYSQL_PWD='{{ item.item.pass }}' {{ item.item.name }}
+      {{ item.item.dump_cmd | default(item.stdout | trim) }}
+      -u{{ item.item.admin }} --all-databases --single-transaction --routines --events
+      | gzip -c > {{ db_backup_target }}/mysql_{{ item.item.name }}.sql.gz
+    executable: /bin/bash
+  loop: "{{ db_backup_mysql_bins.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+  changed_when: true
+  no_log: "{{ db_backup_no_log | default(true) }}"

@@ -1,0 +1,36 @@
+---
+- name: Resolve SQLite databases to back up
+  ansible.builtin.set_fact:
+    db_backup_sqlite_all: "{{ db_backup_source.sqlite | default([]) }}"
+
+- name: Check which SQLite databases exist
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+  loop: "{{ db_backup_sqlite_all }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: db_backup_sqlite_stat
+
+- name: Warn about missing SQLite databases
+  ansible.builtin.debug:
+    msg: "Skipping {{ item.item.name }} — {{ item.item.path }} not found on {{ inventory_hostname }}."
+  loop: "{{ db_backup_sqlite_stat.results | rejectattr('stat.exists') | list }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+
+# sqlite3's online backup API takes a consistent snapshot of a live database
+# (including WAL content) — copying the file would risk a torn backup.
+- name: Snapshot SQLite databases
+  ansible.builtin.shell:
+    cmd: >-
+      python3 -c 'import sqlite3, sys;
+      src = sqlite3.connect("file:" + sys.argv[1] + "?mode=ro", uri=True);
+      dst = sqlite3.connect(sys.argv[2]);
+      src.backup(dst); dst.close(); src.close()'
+      "{{ item.item.path }}" "{{ db_backup_target }}/sqlite_{{ item.item.name }}.db"
+      && gzip -f "{{ db_backup_target }}/sqlite_{{ item.item.name }}.db"
+    executable: /bin/bash
+  loop: "{{ db_backup_sqlite_stat.results | selectattr('stat.exists') | list }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+  changed_when: true

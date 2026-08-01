@@ -1,0 +1,14 @@
+---
+user:
+  name: "deploy"
+  group: "docker"
+
+# Staging directory on the control node — must match the db_backup role.
+db_backup_local_dir: "/tmp/db-dumps"
+
+# Where the dumps land on the NAS. Layout: <dir>/<host>/<timestamp>/<files>
+db_backup_nas_dir: "/mnt/data/backups/databases"
+db_backup_nas_retention_days: 30
+
+# Delete the control-node staging copy once the NAS push succeeded.
+db_backup_clean_local: true

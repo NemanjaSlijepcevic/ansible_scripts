@@ -1,0 +1,80 @@
+---
+- name: Check for staged dumps on the control node
+  ansible.builtin.find:
+    paths: "{{ db_backup_local_dir }}"
+    file_type: file
+    recurse: true
+  delegate_to: localhost
+  become: false
+  register: db_backup_staged
+
+- name: Report when there is nothing to sync
+  ansible.builtin.debug:
+    msg: "No dumps staged in {{ db_backup_local_dir }} — run the dump plays first."
+  when: db_backup_staged.files | length == 0
+
+- name: Sync dumps to the NAS
+  when: db_backup_staged.files | length > 0
+  block:
+    - name: Create the NAS backup directory
+      ansible.builtin.file:
+        path: "{{ db_backup_nas_dir }}"
+        state: directory
+        owner: "{{ user.name }}"
+        group: "{{ user.group }}"
+        mode: "0750"
+
+    # No --delete: the NAS keeps its own (longer) retention window, pruned
+    # below, and must not lose history just because staging was cleaned.
+    - name: Push staged dumps to the NAS
+      ansible.posix.synchronize:
+        src: "{{ db_backup_local_dir }}/"
+        dest: "{{ db_backup_nas_dir }}/"
+        archive: true
+        rsync_opts:
+          - "--chown={{ user.name }}:{{ user.group }}"
+      become: false
+
+    # Only the <host>/<timestamp> directories pushed by this run are verified —
+    # re-hashing the whole NAS archive would grow with every backup ever taken.
+    - name: Resolve the backup directories staged for this run
+      ansible.builtin.set_fact:
+        db_backup_sync_dirs: >-
+          {{ db_backup_staged.files
+             | map(attribute='path') | map('dirname')
+             | map('relpath', db_backup_local_dir)
+             | unique | list }}
+
+    - name: Verify the synced dumps against their checksums
+      ansible.builtin.command:
+        cmd: "sha256sum -c SHA256SUMS"
+        chdir: "{{ db_backup_nas_dir }}/{{ item }}"
+      loop: "{{ db_backup_sync_dirs }}"
+      changed_when: false
+
+    - name: Find expired backups on the NAS
+      ansible.builtin.find:
+        paths: "{{ db_backup_nas_dir }}"
+        file_type: directory
+        patterns: '^[0-9]{8}T[0-9]{6}$'
+        use_regex: true
+        recurse: true
+        age: "{{ db_backup_nas_retention_days }}d"
+        age_stamp: mtime
+      register: db_backup_nas_expired
+
+    - name: Remove expired backups from the NAS
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ db_backup_nas_expired.files }}"
+      loop_control:
+        label: "{{ item.path }}"
+
+    - name: Clean the control-node staging directory
+      ansible.builtin.file:
+        path: "{{ db_backup_local_dir }}"
+        state: absent
+      delegate_to: localhost
+      become: false
+      when: db_backup_clean_local | bool
