@@ -52,6 +52,8 @@
         "traefik.http.routers.traefik-secure.tls.domains[1].sans": "{{ traefik_links.one.sans }}",
         "traefik.http.routers.traefik-secure.tls.domains[2].main": "{{ traefik_links.two.main }}",
         "traefik.http.routers.traefik-secure.tls.domains[2].sans": "{{ traefik_links.two.sans }}",
+        "traefik.http.routers.traefik-secure.tls.domains[3].main": "{{ traefik_links.three.main }}",
+        "traefik.http.routers.traefik-secure.tls.domains[3].sans": "{{ traefik_links.three.sans }}",
       {% endif %}
       }
     healthcheck:

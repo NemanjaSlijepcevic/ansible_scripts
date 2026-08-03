@@ -116,7 +116,9 @@
   ansible.builtin.copy:
     dest: "{{ postgres_tls_client_base_dir }}/{{ client_target.0.name }}.crt"
     content: "{{ postgres_tls_client_crt_map[client_target.0.name] | b64decode }}"
-    mode: '0644'
+    owner: "{{ client_target.0.owner | default(omit) }}"
+    group: "{{ client_target.0.group | default(omit) }}"
+    mode: "{{ client_target.0.crt_mode | default('0644') }}"
   delegate_to: "{{ client_target.1 }}"
   loop: "{{ postgres_tls_clients | subelements('hosts', skip_missing=True) }}"
   loop_control:
@@ -128,9 +130,9 @@
   ansible.builtin.copy:
     dest: "{{ postgres_tls_client_base_dir }}/{{ client_target.0.name }}.key"
     content: "{{ postgres_tls_client_key_map[client_target.0.name] | b64decode }}"
-    owner: root
-    group: "{{ pgid }}"
-    mode: '0640'
+    owner: "{{ client_target.0.owner | default('root') }}"
+    group: "{{ client_target.0.group | default(pgid) }}"
+    mode: "{{ client_target.0.key_mode | default('0640') }}"
   delegate_to: "{{ client_target.1 }}"
   no_log: true
   loop: "{{ postgres_tls_clients | subelements('hosts', skip_missing=True) }}"

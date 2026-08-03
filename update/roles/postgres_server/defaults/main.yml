@@ -10,8 +10,6 @@ postgres:
 pgid: "999"
 
 postgres_service_users: []
-postgres_migrate_local_dbs: []
-postgres_migrate_source_host: primary_postgres
 
 postgres_tls_client_hosts: []
 postgres_tls_clients: []

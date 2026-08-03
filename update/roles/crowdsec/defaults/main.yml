@@ -1,21 +1,13 @@
 ---
-# Push local (cscli/crowdsec) bans to Cloudflare's edge as managed-challenges.
-# Default OFF: with no local decisions it only churns the CF Rules-Lists *write*
-# API (every 60s) until the account is rate-limited (error 10040) for zero gain —
-# community IPs are already enforced at the Traefik bouncer. Set true per-host
-# only when you actually push high-value edge bans, and then at a slow cadence.
 crowdsec_cloudflare_bouncer_enabled: false
+
+# verify.yml fails if no traefik-bouncer has pulled decisions within this many
+# seconds. The plugin pulls on updateIntervalSeconds (60s), so this is a wide
+# margin that still catches a bouncer that has stopped talking to LAPI.
+crowdsec_bouncer_max_pull_age: 900
 
 crowdsec:
   static: "172.20.0.3"
-
-# NOTE: CrowdSec runs on its bundled SQLite (USE_WAL), not Postgres — the
-# image ignores DB_BACKEND/POSTGRES_* env, so there are no DB vars here.
-
-node:
-  crowdsec:
-    host: "Host(`node-cs.example.com`)"
-    port: "6060"
 
 user:
   gid: "1000"

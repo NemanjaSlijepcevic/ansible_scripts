@@ -22,8 +22,6 @@ The role runs five task groups in order, via `main.yml`:
 > central `primary_postgres`'s `postgres_tls_client_hosts`, nor in any
 > `postgres_tls_clients[].hosts` there.
 
-`postgres_migrate_local_dbs` and `postgres_migrate_source_host` also exist in `defaults/main.yml`. No task file in this role currently reads either variable — they are reserved for a manual/future one-time migration, not part of the active execution path today.
-
 ### Key differences from the `postgres` role
 
 | Aspect | `postgres` (primary_postgres) | `postgres_server` (server host) |
@@ -345,8 +343,6 @@ ls ./data/certs
 | `postgres_tls_client_dir` | `./data/postgres/certs/clients` | Per-client cert/key directory on this host |
 | `postgres_tls_ca_key` / `postgres_tls_ca_cert` / `postgres_tls_ca_serial` | `.../ca.key` / `.../ca.crt` / `.../ca.srl` | CA material paths |
 | `postgres_tls_server_key` / `postgres_tls_server_cert` | `.../server.key` / `.../server.crt` | Server cert material paths |
-| `postgres_migrate_local_dbs` | `[]` | Not consumed by any current task — reserved for a one-time migration switch |
-| `postgres_migrate_source_host` | `primary_postgres` | Not consumed by any current task — vestigial, same migration-reference pattern as the `postgres` role's `postgres_migrate_*` vars |
 | `user.name` / `user.group` | `<username>` / `docker` | Owner of created directories and `pg_hba.conf` |
 
 ### Templates & Configuration Files

@@ -12,3 +12,54 @@
 - name: Show CrowdSec LAPI status
   ansible.builtin.debug:
     msg: "{{ crowdsec_lapi.stdout_lines | default(['LAPI not reachable: ' ~ (crowdsec_lapi.stderr | default('?'))]) }}"
+
+- name: Get registered CrowdSec bouncers
+  ansible.builtin.command:
+    cmd: "docker exec crowdsec cscli bouncers list -o json"
+  register: crowdsec_bouncers_raw
+  changed_when: false
+
+- name: Show registered bouncers
+  ansible.builtin.debug:
+    msg: "{{ (crowdsec_bouncers_raw.stdout | from_json) | map(attribute='name') | list }}"
+
+# CrowdSec auto-creates a `traefik-bouncer@<ip>` entry per source IP, so the
+# bare `traefik-bouncer` row goes stale as soon as Traefik's container IP
+# changes. Judge on the newest pull across all of them, never on one name.
+- name: Collect Traefik bouncer pull times
+  ansible.builtin.set_fact:
+    crowdsec_traefik_pulls: >-
+      {{ (crowdsec_bouncers_raw.stdout | from_json)
+         | selectattr('name', 'match', '^traefik-bouncer')
+         | rejectattr('revoked', 'equalto', true)
+         | selectattr('last_pull', 'string')
+         | map(attribute='last_pull')
+         | map('regex_replace', '(\.[0-9]+)?Z$', '')
+         | sort | list }}
+
+- name: Compute age of the newest Traefik bouncer pull
+  ansible.builtin.set_fact:
+    crowdsec_pull_age: >-
+      {{ ((now(utc=true) - (crowdsec_traefik_pulls | last | to_datetime('%Y-%m-%dT%H:%M:%S'))).total_seconds() | int)
+         if (crowdsec_traefik_pulls | length > 0) else -1 }}
+
+# LAPI being healthy says nothing about whether Traefik can reach it. An unknown
+# API key is rejected with 403, so in crowdsecMode: stream the plugin's decision
+# list stays empty and it blocks nothing while still reporting itself enabled.
+# A recent pull is the only thing that proves the two are actually talking.
+- name: Assert a Traefik bouncer has pulled decisions recently
+  ansible.builtin.assert:
+    that:
+      - crowdsec_traefik_pulls | length > 0
+      - crowdsec_pull_age | int >= 0
+      - crowdsec_pull_age | int < crowdsec_bouncer_max_pull_age | int
+    fail_msg: >-
+      Traefik bouncer not pulling decisions on {{ inventory_hostname }}.
+      Registered: {{ (crowdsec_bouncers_raw.stdout | from_json) | map(attribute='name') | list }}.
+      {% if crowdsec_traefik_pulls | length == 0 %}No traefik-bouncer has ever
+      pulled — the key Traefik uses is unknown to CrowdSec, so nothing is being
+      blocked. Re-run the crowdsec role to register it.{% else %}Newest pull was
+      {{ crowdsec_pull_age }}s ago (limit {{ crowdsec_bouncer_max_pull_age }}s) —
+      Traefik is up but no longer reaching LAPI.{% endif %}
+    success_msg: >-
+      Traefik bouncer pulling decisions, newest pull {{ crowdsec_pull_age }}s ago.

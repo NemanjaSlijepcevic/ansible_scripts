@@ -1,12 +1,4 @@
 ---
-# Documentation-only defaults for the prometheus role (monitor host only).
-# Copy the shape into host_vars/group_vars and replace with real values,
-# then keep the real inventory encrypted. Values below are placeholders.
-#
-# Prometheus is the metrics store. Every host's Alloy agent remote-writes to
-# it; it also actively scrapes the Proxmox and pfSense exporters (which cannot
-# push).
-
 user:
   name: "deploy"
   group: "docker"
@@ -18,14 +10,10 @@ prometheus:
   url: "https://prometheus.example.com"
   port: "9090"
 
-# TSDB retention. Bump if you need a longer window and have the disk.
 prometheus_retention: "90d"
 
-# Proxmox VE API endpoint scraped through prometheus-pve-exporter. api_host is
-# the PVE host:port target passed to the exporter as ?target=.
 pve:
   api_host: "192.0.2.10:8006"
 
-# pfSense node_exporter (installed on pfSense, bound to its LAN IP).
 pfsense_exporter:
-  target: "192.0.2.2:9100"
+  target: "node-router.example.com"
