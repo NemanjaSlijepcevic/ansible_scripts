@@ -28,7 +28,9 @@ scrape_configs:
       - target_label: __address__
         replacement: pve-exporter:9221
 
-  # pfSense node_exporter (FreeBSD). Scraped directly at its LAN IP.
+  # pfSense node_exporter (FreeBSD). Reached through pfSense's own HAProxy on
+  # :443, so the target is a bare hostname. No tls_config here: the cert is
+  # verified, which is why the target stays on a name the apex wildcard covers.
   - job_name: pfsense
     scheme: https
     static_configs:

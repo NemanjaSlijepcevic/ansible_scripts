@@ -14,17 +14,10 @@
   ansible.builtin.set_fact:
     crowdsec_collections_str: "{{ crowdsec_collections | join(' ') }}"
 
-# A missing host log file bind-mounted below would be auto-created by
-# Docker as a DIRECTORY (LXC guests often lack kern.log) — breaking both
-# crowdsec and alloy (which also bind-mounts /var/log). Ensure they exist as
-# files first. Does not fix an
-# already-created directory: rmdir it and touch the file by hand.
 - name: Ensure mounted host log files exist  # noqa: risky-file-permissions
   ansible.builtin.file:
     path: "{{ item }}"
     state: touch
-    # No mode: these are pre-existing system logs; imposing perms would alter
-    # their OS-managed ownership/mode. Only create the file if missing.
     modification_time: preserve
     access_time: preserve
   loop:
@@ -63,10 +56,6 @@
       TZ: "Europe/Belgrade"
       GID: "{{ user.gid | default('1000') }}"
       COLLECTIONS: "{{ crowdsec_collections_str }}"
-      # CrowdSec runs on its bundled SQLite (the crowdsec image does NOT
-      # honour DB_BACKEND/POSTGRES_* env — those never took effect). WAL lets
-      # bouncers keep reading while the community blocklist is written, so the
-      # LAPI doesn't stall on the bulk insert.
       USE_WAL: "true"
     volumes: "{{ crowdsec_volumes }}"
     labels:
@@ -87,7 +76,7 @@
   register: hub_update_result
   changed_when: >
     hub_update_result.rc == 0 and
-    'hub index is up to date' not in hub_update_result.stderr
+    'hub index is up to date' not in hub_update_result.stdout
 
 - name: Upgrade CrowdSec Hub
   community.docker.docker_container_exec:
@@ -96,22 +85,16 @@
   register: hub_upgrade_result
   changed_when: >
     hub_upgrade_result.rc == 0 and
-    hub_upgrade_result.stdout | length > 0
+    (hub_upgrade_result.stdout_lines
+     | reject('search', 'Action plan:|check & update data files|^\s*$')
+     | list | length) > 0
+
+- name: Register Traefik bouncer
+  ansible.builtin.include_tasks: bouncer-traefik.yml
 
 - name: Create CloudFlare bouncer
   ansible.builtin.include_tasks: bouncer-cloudflare.yml
   when: crowdsec_cloudflare_bouncer_enabled | default(false)
 
-- name: Check CrowdSec LAPI status
-  ansible.builtin.command:
-    cmd: "docker exec crowdsec cscli lapi status"
-  register: crowdsec_lapi
-  changed_when: false
-  failed_when: false
-  retries: 6
-  delay: 10
-  until: crowdsec_lapi.rc == 0
-
-- name: Show CrowdSec LAPI status
-  ansible.builtin.debug:
-    msg: "{{ crowdsec_lapi.stdout_lines | default(['LAPI not reachable: ' ~ (crowdsec_lapi.stderr | default('?'))]) }}"
+- name: Verify LAPI and bouncer registration
+  ansible.builtin.include_tasks: verify.yml

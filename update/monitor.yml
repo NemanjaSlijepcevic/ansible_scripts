@@ -12,10 +12,10 @@
     - { role: traefik, tags: ['traefik', 'proxy', 'security'] }
     - { role: crowdsec, tags: ['crowdsec', 'proxy', 'security'] }
     - { role: public_ip_tracker, tags: ['public_ip_tracker', 'network'] }
+    - { role: grafana, tags: ['grafana', 'monitoring'] }
     - { role: prometheus, tags: ['prometheus', 'metrics', 'monitoring'] }
     - { role: pve_exporter, tags: ['pve_exporter', 'metrics', 'monitoring'] }
     - { role: loki, tags: ['loki', 'logs', 'monitoring'] }
     - { role: alloy, tags: ['alloy', 'metrics', 'logs', 'monitoring'] }
-    - { role: grafana, tags: ['grafana', 'monitoring'] }
     - { role: homeassistant, tags: ['homeassistant'] }
     - { role: log_notification, tags: ['log_notification', 'notifications', 'monitoring'] }

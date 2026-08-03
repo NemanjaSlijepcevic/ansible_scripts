@@ -8,8 +8,15 @@
     mode: "0755"
   loop:
     - "./data/authelia"
-    - "./data/authelia/config"
     - "./data/authelia/logs"
+
+- name: Create container-owned config directory
+  ansible.builtin.file:
+    path: "./data/authelia/config"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
 
 - name: Check OIDC JWK private key
   ansible.builtin.stat:
@@ -34,8 +41,6 @@
     src: "{{ ansible_facts.env.PWD }}/data/authelia/config/authelia_oidc_jwk"
   register: authelia_oidc_jwk_content
 
-# users_database.yml holds the password hash and configuration.yml embeds the
-# plaintext OIDC signing key — same sensitivity as the secret files below.
 - name: "Generate user database file"
   ansible.builtin.template:
     src: ./users_database.yml.j2

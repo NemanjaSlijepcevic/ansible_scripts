@@ -3,6 +3,7 @@ access_control:
   rules:
     - domain:
         - "{{ authelia_links.domain }}"
+        - "{{ openbao.domain }}"
       policy: bypass
     # OpenBao carries its own auth + UI, so its router uses chain-no-auth and
     # never reaches Authelia's forward-auth. The Traefik dashboard link stays

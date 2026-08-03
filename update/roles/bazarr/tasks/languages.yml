@@ -10,6 +10,7 @@
       UPDATE table_settings_languages
       SET enabled = 1
       WHERE code3 IN ('bos', 'hrv', 'hbs', 'srp')
+        AND enabled IS DISTINCT FROM 1
   environment:
     PGSSLMODE: "verify-ca"
     PGSSLCERT: "./data/certs/bazarr.crt"

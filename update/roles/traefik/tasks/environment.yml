@@ -19,6 +19,7 @@
     rsync_opts:
       - "--chown={{ user.name }}:{{ user.group }}"
       - "--chmod=755"
+      - "--omit-dir-times"
 
 - name: Check if acme.json exists
   ansible.builtin.stat:

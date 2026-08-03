@@ -1,8 +1,50 @@
 ---
+- name: Resolve bootstrap target
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  vars:
+    base_host: "{{ target | default('new') }}"
+    base: "{{ hostvars[base_host] | default({}) }}"
+    inherit_creds: "{{ target_user is not defined }}"
+  tasks:
+    - name: Build target from CLI overrides on top of inventory
+      ansible.builtin.add_host:
+        name: "{{ target_host | default(base_host) }}"
+        groups: bootstrap_target
+        ansible_host: "{{ target_host | default(base.ansible_host | default(base_host)) }}"
+        ansible_port: "{{ target_port | default(base.ansible_port | default(22)) }}"
+        ansible_user: "{{ target_user | default(base.ansible_user | default(omit)) }}"
+        ansible_password: >-
+          {{ target_password
+             | default((base.ansible_password | default(omit))
+                       if inherit_creds | bool else omit) }}
+        ansible_become_password: >-
+          {{ target_become_password
+             | default(target_password
+                       | default((base.ansible_become_password | default(omit))
+                                 if inherit_creds | bool else omit)) }}
+        ansible_ssh_private_key_file: >-
+          {{ target_ssh_key
+             | default((base.ansible_ssh_private_key_file | default(omit))
+                       if inherit_creds | bool else omit) }}
+        ansible_host_key_checking: "{{ target_host_key_checking | default(base.host_key_checking | default(false)) }}"
+      when: >-
+        target_host is defined or target_port is defined
+        or target_user is defined or target_password is defined
+        or target_become_password is defined or target_ssh_key is defined
+        or target_host_key_checking is defined
+      changed_when: false
+
 - name: Create new users on remote machine
-  hosts: new
+  hosts: >-
+    {{ 'bootstrap_target'
+       if (target_host is defined or target_port is defined
+           or target_user is defined or target_password is defined
+           or target_become_password is defined or target_ssh_key is defined
+           or target_host_key_checking is defined)
+       else (target | default('new')) }}
   gather_facts: true
-  remote_user: "{{ ansible_user }}"
   become: true
   vars_prompt:
     - name: "new_user"
@@ -10,11 +52,11 @@
       private: false
       default: ""
     - name: "user_password"
-      prompt: "Enter the password for the new users"
+      prompt: "Enter the password for the new user"
       private: true
-    - name: "user_password_confirm"
-      prompt: "Confirm the password for the new users"
-      private: true
+      confirm: true
+  vars:
+    user_password_confirm: "{{ user_password }}"
   roles:
     - { role: install_packages, tags: ['install_packages', 'bootstrap'] }
     - { role: prepare_ssh, tags: ['prepare_ssh', 'ssh', 'security', 'bootstrap'] }

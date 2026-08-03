@@ -10,8 +10,6 @@ The role does three things, in order:
 2. **`client_certs.yml`** — generates a client key/certificate per consuming application (`postgres_tls_clients`) and distributes the CA cert + client cert/key to each host that needs to connect (`postgres_tls_client_hosts`).
 3. **`container.yml`** — renders `pg_hba.conf` and deploys the `postgres-db` container with TLS and `clientcert=verify-full` enforced.
 
-> `enable_tls.yml` also exists in `tasks/` but is **not** invoked by `main.yml` — it is a leftover from an earlier bare-metal PostgreSQL 15 (`/etc/postgresql/15/main`) setup that this role has since replaced with the Docker deployment below. The `postgres_migrate_*` variables in `defaults/main.yml` (source paths under `/etc/postgresql/15/main/certs`) are likewise vestigial, kept only as a reference for the one-time PG15 → container migration. Neither is part of the current execution path; flagging here in case a human wants to delete them.
-
 ## Prerequisites
 
 - The `common` role must have already run on the target host (creates the `proxy` Docker network and the `./data` working directory).
@@ -283,8 +281,6 @@ sudo docker run -d \
 | `postgres_tls_client_dir` | `./data/postgres/certs/clients` | Per-client cert/key directory on the postgres host |
 | `postgres_tls_ca_key` / `postgres_tls_ca_cert` / `postgres_tls_ca_serial` | `.../ca.key` / `.../ca.crt` / `.../ca.srl` | CA material paths |
 | `postgres_tls_server_key` / `postgres_tls_server_cert` | `.../server.key` / `.../server.crt` | Server cert material paths |
-| `postgres_migrate_source_host` | `primary_postgres` | Vestigial — source host alias for the one-time PG15→container migration (not used by the active task path) |
-| `postgres_migrate_tls_dir` / `postgres_migrate_tls_ca_cert` / `postgres_migrate_tls_ca_key` / `postgres_migrate_tls_ca_serial` / `postgres_migrate_tls_client_dir` | `/etc/postgresql/15/main/certs/...` | Vestigial — paths on the old bare-metal PG15 host, referenced only by the unused `enable_tls.yml`; kept as migration reference |
 | `private_ips` | list of CIDRs | (from `group_vars/all.yml`) Application subnets; one `hostssl … clientcert=verify-full` line per entry in `pg_hba.conf` |
 | `user.name` / `user.group` | `<username>` / `docker` | Owner of created directories and `pg_hba.conf` |
 

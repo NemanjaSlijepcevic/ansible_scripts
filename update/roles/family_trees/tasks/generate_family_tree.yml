@@ -20,6 +20,8 @@
     rsync_opts:
       - "--chown={{ user.name }}:{{ user.group }}"
       - "--chmod=755"
+      - "--exclude={{ family.name }}.html"
+      - "--omit-dir-times"
 
 - name: Synchronize translation files
   ansible.posix.synchronize:
@@ -28,6 +30,7 @@
     rsync_opts:
       - "--chown={{ user.name }}:{{ user.group }}"
       - "--chmod=755"
+      - "--omit-dir-times"
 
 - name: Generate translations template
   ansible.builtin.template:

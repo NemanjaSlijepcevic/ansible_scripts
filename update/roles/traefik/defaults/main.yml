@@ -20,28 +20,12 @@ cloudflare:
   account: "user@example.com"
   api_token: "changeme"
 
-# CrowdSec Traefik bouncer API key.
 crowdsec:
   traefik:
     bouncer_key: "changeme"
 
-# Extra routers Traefik renders (host-specific; only where used).
-node:
-  docker:
-    host: "Host(`docker.example.com`)"
-    url: "http://node-exporter:9323"
-
-nas:
-  host: "Host(`nas.example.com`)"
-  url: "http://192.0.2.20:80"
-
-# ISO country codes blocked by the geoblock middleware. Empty = disabled.
 geoblock_blocked_countries: []
 
-# Public webhook relay (server host only). Each connection maps an obscured
-# public prefix onto a private target prefix; the rest of the path passes
-# through. public_host is a bare hostname (Host() matcher + authelia bypass),
-# private_host is a full URL (loadBalancer server).
 hooks:
   public_host: "hooks.example.com"
   private_host: "https://kestra.example.com"

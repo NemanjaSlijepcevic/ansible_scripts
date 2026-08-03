@@ -177,7 +177,7 @@ http:
   routers:
     docker-metrics:
       entryPoints: ["https"]
-      rule: "Host(`node-server-d.your-domain.com`)"
+      rule: "Host(`<docker-metrics-host>.<private-subzone>.your-domain.com`)"
       tls: true
       middlewares: ["basic-auth@file"]
       service: docker-metrics
