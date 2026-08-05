@@ -1,0 +1,103 @@
+---
+# Schema/legend for the inventory this role consumes, plus its own knobs.
+# Placeholder values only — real data lives in host_vars/primary_openbao.yml.
+# See CLAUDE.md "Role defaults/main.yml is documentation for the encrypted inventory".
+
+user:
+  name: "deploy"
+  group: "docker"
+
+# Sibling-service reference: the openbao role's block. Only `port` is read here
+# (the API is reached on the container's localhost bind, never through Traefik —
+# unseal keys and the root token must not leave the host).
+openbao:
+  port: "8200"
+
+# API endpoint used for every call in this role.
+openbao_setup_addr: "http://127.0.0.1:{{ openbao.port }}"
+
+# Token header for every authenticated call. `openbao_setup_token` is set at
+# run time by tasks/login.yml — either the root token from the prompt (first
+# bootstrap, when no admin account exists yet) or a token obtained by logging
+# in as the admin `userpass` account. It exists only for the duration of the run.
+openbao_setup_headers:
+  X-Vault-Token: "{{ openbao_setup_token | default('') }}"
+
+# --- Secrets engines -------------------------------------------------------
+# KV v2 mount. Path layout convention: <mount>/homelab/<host>/<service>.
+openbao_setup_kv_path: "kv"
+
+# --- Policies --------------------------------------------------------------
+# Rendered from templates/policy-<name>.hcl.j2 and written only when the live
+# policy differs, so a no-op run reports no change.
+openbao_setup_policies:
+  - "admin"
+  - "ansible-read"
+  - "backup"
+  - "kestra-read"
+
+# Paths `kestra-read` may read, relative to the KV mount's data/ prefix. Kept
+# as a list so adding a secret to a flow is a one-line change here rather than
+# an edit to the policy template.
+openbao_setup_kestra_read_paths:
+  - "homelab/kestra/*"
+  - "homelab/all/log_notification"
+  - "homelab/primary_server/ghost_sites"
+
+# --- Auth methods ----------------------------------------------------------
+openbao_setup_auth_methods:
+  - path: "userpass"
+    type: "userpass"
+  - path: "approle"
+    type: "approle"
+
+# Human admin account (userpass). Created only when bao_admin_password is
+# supplied at the prompt; an existing account is never overwritten. Defaults to
+# the deploy user's name; override with -e openbao_setup_admin_user=<name>.
+openbao_setup_admin_user: "{{ user.name }}"
+openbao_setup_admin_policies: ["admin"]
+
+# --- AppRoles --------------------------------------------------------------
+# Defaults shared by every entry below; an entry may override any of them.
+openbao_setup_approle_token_ttl: "20m"
+openbao_setup_approle_token_max_ttl: "1h"
+# 0 = the SecretID itself never expires; the tokens it issues still do.
+openbao_setup_approle_secret_id_ttl: "0"
+
+# One entry per consumer. Each gets its own policies and its own credential
+# files under .secrets/ — never share an AppRole between consumers, or the
+# blast radius of a leaked SecretID becomes everything that uses it.
+openbao_setup_approles:
+  - name: "ansible"
+    policies: ["ansible-read"]
+    role_id_file: "bao_role_id"
+    secret_id_file: "bao_secret_id"
+  - name: "kestra"
+    policies: ["kestra-read"]
+    role_id_file: "kestra_role_id"
+    secret_id_file: "kestra_secret_id"
+  # Replaces the long-lived periodic backup token: update/backup.yml logs in
+  # per run instead of carrying a credential in the inventory.
+  - name: "backup"
+    policies: ["backup"]
+    role_id_file: "backup_role_id"
+    secret_id_file: "backup_secret_id"
+
+# --- Backup token ----------------------------------------------------------
+# Periodic token used by update/backup.yml to pull Raft snapshots.
+openbao_setup_backup_token_period: "768h"
+openbao_setup_backup_token_policies: ["backup"]
+
+# --- Credential output on the control node ---------------------------------
+# .secrets/ (repo root) is gitignored. Files are written 0600, owned by the
+# user running ansible-playbook — resolved against playbook_dir so the run
+# works from any working directory.
+openbao_setup_secrets_dir: ".secrets"
+openbao_setup_secrets_path: "{{ playbook_dir }}/../{{ openbao_setup_secrets_dir }}"
+# AppRole credential file names live on the openbao_setup_approles entries.
+openbao_setup_backup_token_file: "bao_backup_token"
+
+# Credentials are issued once and reused. Set to true on the command line to
+# mint a fresh SecretID / backup token (the old one keeps working until
+# revoked — revoke it by hand afterwards).
+openbao_setup_rotate_credentials: false

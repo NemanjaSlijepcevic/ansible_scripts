@@ -14,6 +14,10 @@ openbao:
   url: "https://openbao.example.com"        # external api_addr / UI URL
   port: "8200"                              # API + UI listener
   node_id: "openbao-1"                      # Raft node id (stable, never reuse)
+  # Token used by db_backup to pull Raft snapshots. Needs nothing more than
+  # read on `sys/storage/raft/snapshot` (policy `backup`, created by hand —
+  # see docs/update/openbao.md). Not read by this role itself.
+  backup_token: "changeme"
 
 # uid:gid the container runs as; owns ./data/openbao/{config,data}.
 openbao_uid: "1000"
@@ -21,6 +25,23 @@ openbao_gid: "1000"
 
 # Container image (Docker Hub: openbao/openbao, also ghcr.io/openbao/openbao).
 openbao_image: "ghcr.io/openbao/openbao:latest"
+
+# File audit device, declared in config.hcl. It cannot be enabled over the API
+# (`bao audit enable` returns 400 on OpenBao >= 2.5) — declarative config is
+# the only supported path, so this role owns it.
+openbao_audit_enabled: true
+openbao_audit_device_path: "file"                 # device path in the root namespace
+openbao_audit_file_path: "/openbao/audit/audit.log"
+
+# Rotation of ./data/openbao/audit/audit.log. An audit device that cannot write
+# makes OpenBao reject every request, so the log is capped rather than left to
+# fill the disk.
+openbao_audit_log_max_size: "50M"
+openbao_audit_log_rotate_count: 7
+
+# Read-only assertions run by tasks/verify.yml (`--tags verify`).
+openbao_verify_expect_unsealed: true          # fail if the node is still sealed
+openbao_verify_expect_audit_device: true      # fail if no audit device is enabled
 
 # Sibling-service reference: Traefik's static IP is trusted as the only
 # x_forwarded_for source (TLS is terminated at Traefik, listener is plain HTTP).

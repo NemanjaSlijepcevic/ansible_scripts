@@ -21,9 +21,11 @@ grafana_log_filters: "expr:error,tsdb.loki:error"
 authelia_links:
   url: "https://auth.example.com"
 
-# Kestra webhook the "Kestra" alert contact point posts firing alerts to
-# (grafana-alert-triage flow → Claude diagnosis → Telegram). The trailing
-# key is the kestra role's grafana_webhook_key — treat the URL as secret.
+# Kestra webhook the "Kestra" alert contact point posts firing alerts to.
+# The trailing segment is the target flow's webhook trigger key, which is the
+# only auth on that URL — treat the whole URL as a secret. The key itself lives
+# in kv/homelab/kestra/webhooks (see docs/update/kestra.md); this var must be
+# kept in step with it by hand.
 grafana_alert_webhook: "https://kestra.example.com/api/v1/main/executions/webhook/automation/grafana-alert-triage/changeme"
 
 # Hosts monitored by alert rules. Each entry is a current_host value used in

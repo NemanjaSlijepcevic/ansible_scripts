@@ -1,4 +1,78 @@
 ---
+# Fail here with a readable message rather than deep inside a `lookup('file')`
+# further down. These live on the control node, never in the inventory: two are
+# issued by openbao_setup, two are values only the flows use.
+- name: Check the control-node secret files Kestra needs
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop: "{{ kestra_required_secret_files }}"
+  loop_control:
+    label: "{{ item | basename }}"
+  register: kestra_secret_files
+  delegate_to: localhost
+  become: false
+  changed_when: false
+
+- name: Assert every required secret file is present
+  ansible.builtin.assert:
+    that:
+      - kestra_secret_files.results | map(attribute='stat.exists') | select | list | length
+        == kestra_required_secret_files | length
+    fail_msg: >-
+      Missing on the control node:
+      {{ kestra_secret_files.results | rejectattr('stat.exists') | map(attribute='item') | list }}.
+      The two AppRole files come from `ansible-playbook openbao_setup.yml`; the
+      others hold values used only by flows — see docs/update/kestra.md.
+    success_msg: "All {{ kestra_required_secret_files | length }} secret files present."
+
+# Read once here so the container task below is a plain variable reference and
+# a failure points at this task rather than at a docker_container arg.
+- name: Read the flow secrets from OpenBao
+  block:
+    - name: Fetch the plugin-property secrets
+      ansible.builtin.set_fact:
+        kestra_bridge_bot_token: >-
+          {{ (lookup('community.hashi_vault.vault_kv2_get', kestra_bridge_bot_token_kv,
+                     url=kestra_openbao_url, engine_mount_point=kestra_vault_mount,
+                     auth_method='approle', role_id=kestra_vault_role_id,
+                     secret_id=kestra_vault_secret_id)).secret[kestra_bridge_bot_token_key] }}
+        kestra_rsync_ssh_key: >-
+          {{ (lookup('community.hashi_vault.vault_kv2_get', kestra_rsync_ssh_key_kv,
+                     url=kestra_openbao_url, engine_mount_point=kestra_vault_mount,
+                     auth_method='approle', role_id=kestra_vault_role_id,
+                     secret_id=kestra_vault_secret_id)).secret[kestra_rsync_ssh_key_key] }}
+      no_log: true
+
+    # One KV read covers every webhook key: `.secret` is the whole data dict.
+    - name: Fetch the webhook trigger keys
+      ansible.builtin.set_fact:
+        kestra_webhooks: >-
+          {{ (lookup('community.hashi_vault.vault_kv2_get', kestra_webhooks_kv,
+                     url=kestra_openbao_url, engine_mount_point=kestra_vault_mount,
+                     auth_method='approle', role_id=kestra_vault_role_id,
+                     secret_id=kestra_vault_secret_id)).secret }}
+      no_log: true
+
+    # <namespace>_<flow_id> -> SECRET_WH_<NAMESPACE>_<FLOW_ID>, base64 as the
+    # OSS secrets backend expects. Flows read it as secret('WH_<NAME>').
+    - name: Build the webhook-key container env
+      ansible.builtin.set_fact:
+        kestra_webhook_env: >-
+          {{ dict(kestra_webhooks.keys() | map('upper') | map('regex_replace', '^', 'SECRET_WH_')
+                  | zip(kestra_webhooks.values() | map('b64encode'))) }}
+      no_log: true
+  rescue:
+    - name: Explain why the OpenBao read failed
+      ansible.builtin.fail:
+        msg: >-
+          Could not read Kestra's flow secrets from OpenBao at
+          {{ kestra_openbao_url }}. Usual causes, in order: `hvac` is not
+          installed on the control node (pip install hvac); OpenBao is sealed
+          (openbao_setup.yml --tags unseal); or one of the paths
+          {{ kestra_bridge_bot_token_kv }} / {{ kestra_rsync_ssh_key_kv }} /
+          {{ kestra_webhooks_kv }} does not exist yet. This role is the only one
+          that needs OpenBao unsealed to deploy.
+
 - name: Create directories if they don't exist
   ansible.builtin.file:
     path: "{{ item }}"
@@ -9,7 +83,6 @@
   loop:
     - "./data/kestra"
     - "./data/kestra/storage"
-    - "./data/kestra/flows"
 
 - name: Render Kestra configuration
   ansible.builtin.template:

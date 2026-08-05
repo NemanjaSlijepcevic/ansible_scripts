@@ -1,0 +1,66 @@
+---
+- name: List the enabled auth methods
+  ansible.builtin.uri:
+    url: "{{ openbao_setup_addr }}/v1/sys/auth"
+    method: GET
+    headers: "{{ openbao_setup_headers }}"
+    status_code: 200
+  register: openbao_setup_auth
+  changed_when: false
+  no_log: true
+
+- name: Enable the missing auth methods
+  ansible.builtin.uri:
+    url: "{{ openbao_setup_addr }}/v1/sys/auth/{{ item.path }}"
+    method: POST
+    headers: "{{ openbao_setup_headers }}"
+    body_format: json
+    body:
+      type: "{{ item.type }}"
+    status_code: [200, 204]
+  loop: "{{ openbao_setup_auth_methods }}"
+  loop_control:
+    label: "{{ item.path }}"
+  when: (item.path ~ '/') not in openbao_setup_auth.json.data
+  changed_when: true
+
+- name: Check whether the admin account exists
+  ansible.builtin.uri:
+    url: "{{ openbao_setup_addr }}/v1/auth/userpass/users/{{ openbao_setup_admin_user }}"
+    method: GET
+    headers: "{{ openbao_setup_headers }}"
+    status_code: [200, 404]
+  register: openbao_setup_admin_state
+  changed_when: false
+
+# Only created, never updated: re-running must not silently reset the password
+# of a working account. Change it from the UI, or delete the user and re-run.
+- name: Create the admin userpass account
+  ansible.builtin.uri:
+    url: "{{ openbao_setup_addr }}/v1/auth/userpass/users/{{ openbao_setup_admin_user }}"
+    method: POST
+    headers: "{{ openbao_setup_headers }}"
+    body_format: json
+    body:
+      password: "{{ bao_admin_password }}"
+      token_policies: "{{ openbao_setup_admin_policies | join(',') }}"
+    status_code: [200, 204]
+  when:
+    - openbao_setup_admin_state.status == 404
+    - (bao_admin_password | default('')) | length > 0
+  no_log: true
+  changed_when: true
+
+- name: Report the admin account state
+  ansible.builtin.debug:
+    msg: >-
+      {% if openbao_setup_admin_state.status == 200 %}
+      userpass account '{{ openbao_setup_admin_user }}' already exists — left untouched.
+      {% elif (bao_admin_password | default('')) | length > 0 %}
+      userpass account '{{ openbao_setup_admin_user }}' created with policies
+      {{ openbao_setup_admin_policies }}. Log in with it, then revoke the root
+      token: docker exec -e BAO_TOKEN openbao bao token revoke -self
+      {% else %}
+      No admin account created (no password given at the prompt) — you are
+      still relying on the root token.
+      {% endif %}

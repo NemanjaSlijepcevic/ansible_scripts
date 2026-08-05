@@ -1,0 +1,112 @@
+---
+# Called once per entry of openbao_setup_approles, with the entry in
+# `openbao_setup_approle`. Each AppRole gets its own policy set and its own
+# credential files under .secrets/ on the control node.
+- name: Read the current definition of AppRole '{{ openbao_setup_approle.name }}'
+  ansible.builtin.uri:
+    url: "{{ openbao_setup_addr }}/v1/auth/approle/role/{{ openbao_setup_approle.name }}"
+    method: GET
+    headers: "{{ openbao_setup_headers }}"
+    status_code: [200, 404]
+  register: openbao_setup_approle_state
+  changed_when: false
+
+- name: Create or update AppRole '{{ openbao_setup_approle.name }}'
+  ansible.builtin.uri:
+    url: "{{ openbao_setup_addr }}/v1/auth/approle/role/{{ openbao_setup_approle.name }}"
+    method: POST
+    headers: "{{ openbao_setup_headers }}"
+    body_format: json
+    body:
+      token_policies: "{{ openbao_setup_approle.policies | join(',') }}"
+      token_ttl: "{{ openbao_setup_approle.token_ttl | default(openbao_setup_approle_token_ttl) }}"
+      token_max_ttl: "{{ openbao_setup_approle.token_max_ttl | default(openbao_setup_approle_token_max_ttl) }}"
+      secret_id_ttl: "{{ openbao_setup_approle.secret_id_ttl | default(openbao_setup_approle_secret_id_ttl) }}"
+    status_code: [200, 204]
+  when: >-
+    openbao_setup_approle_state.status == 404 or
+    (openbao_setup_approle_state.json.data.token_policies | default([]) | sort)
+      != (openbao_setup_approle.policies | sort)
+  changed_when: true
+
+- name: Ensure the control-node secrets directory exists
+  ansible.builtin.file:
+    path: "{{ openbao_setup_secrets_path }}"
+    state: directory
+    mode: "0700"
+  delegate_to: localhost
+  become: false
+
+- name: Check which credentials of '{{ openbao_setup_approle.name }}' are already stored
+  ansible.builtin.stat:
+    path: "{{ openbao_setup_secrets_path }}/{{ item }}"
+  loop:
+    - "{{ openbao_setup_approle.role_id_file }}"
+    - "{{ openbao_setup_approle.secret_id_file }}"
+  loop_control:
+    label: "{{ item }}"
+  register: openbao_setup_cred_files
+  delegate_to: localhost
+  become: false
+
+- name: Decide whether credentials need issuing
+  ansible.builtin.set_fact:
+    openbao_setup_need_creds: >-
+      {{ openbao_setup_rotate_credentials | bool
+         or not (openbao_setup_cred_files.results | map(attribute='stat.exists') | select | list | length == 2) }}
+
+- name: Issue and store the credentials of '{{ openbao_setup_approle.name }}'
+  when: openbao_setup_need_creds | bool
+  block:
+    # The RoleID is stable — reading it again is harmless and idempotent.
+    - name: Read the RoleID
+      ansible.builtin.uri:
+        url: "{{ openbao_setup_addr }}/v1/auth/approle/role/{{ openbao_setup_approle.name }}/role-id"
+        method: GET
+        headers: "{{ openbao_setup_headers }}"
+        status_code: 200
+      register: openbao_setup_role_id
+      changed_when: false
+      no_log: true
+
+    # A SecretID, by contrast, is minted fresh each time — which is exactly why
+    # this whole block is skipped once the files exist. Old SecretIDs stay
+    # valid until revoked, so rotating leaves the previous one usable.
+    - name: Generate a SecretID
+      ansible.builtin.uri:
+        url: "{{ openbao_setup_addr }}/v1/auth/approle/role/{{ openbao_setup_approle.name }}/secret-id"
+        method: POST
+        headers: "{{ openbao_setup_headers }}"
+        status_code: 200
+      register: openbao_setup_secret_id
+      no_log: true
+      changed_when: true
+
+    - name: Store the credentials on the control node
+      ansible.builtin.copy:
+        content: "{{ item.value }}"
+        dest: "{{ openbao_setup_secrets_path }}/{{ item.file }}"
+        mode: "0600"
+      loop:
+        - file: "{{ openbao_setup_approle.role_id_file }}"
+          value: "{{ openbao_setup_role_id.json.data.role_id }}"
+        - file: "{{ openbao_setup_approle.secret_id_file }}"
+          value: "{{ openbao_setup_secret_id.json.data.secret_id }}"
+      loop_control:
+        label: "{{ item.file }}"
+      delegate_to: localhost
+      become: false
+      no_log: true
+
+- name: Report the credential state of '{{ openbao_setup_approle.name }}'
+  ansible.builtin.debug:
+    msg: >-
+      {% if openbao_setup_need_creds | bool %}
+      AppRole '{{ openbao_setup_approle.name }}' credentials written to
+      {{ openbao_setup_secrets_path }}/ ({{ openbao_setup_approle.role_id_file }},
+      {{ openbao_setup_approle.secret_id_file }}).
+      {% else %}
+      AppRole '{{ openbao_setup_approle.name }}' credentials already present in
+      {{ openbao_setup_secrets_path }}/ — left alone. Re-run with
+      -e openbao_setup_rotate_credentials=true to mint a new SecretID.
+      {% endif %}

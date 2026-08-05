@@ -16,6 +16,7 @@
     db_backup_configured: >-
       {{ ((db_backup_source.postgres_containers | default([])) | length
           + (db_backup_source.sqlite | default([])) | length
+          + (db_backup_source.raft | default([])) | length
           + (db_backup_mysql_servers | length)) > 0 }}
 
 - name: Report that this host has nothing to back up
@@ -50,6 +51,10 @@
     - name: Snapshot SQLite databases
       ansible.builtin.include_tasks: sqlite.yml
       when: (db_backup_source.sqlite | default([])) | length > 0
+
+    - name: Snapshot OpenBao Raft storage
+      ansible.builtin.include_tasks: raft.yml
+      when: (db_backup_source.raft | default([])) | length > 0
 
     # In check mode the dump commands never ran, so there is nothing to verify,
     # checksum or pull — only the directory/inventory wiring gets exercised.

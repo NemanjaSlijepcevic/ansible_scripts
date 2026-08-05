@@ -1,0 +1,28 @@
+---
+- name: Read {{ openbao_load_host_file | basename }}
+  ansible.builtin.include_vars:
+    file: "{{ openbao_load_host_file }}"
+    name: openbao_load_host_vars
+
+- name: Warn about a host_vars file with no matching host
+  ansible.builtin.debug:
+    msg: >-
+      {{ openbao_load_host_file | basename }} has no host in the inventory —
+      skipped. Nothing reads these variables at deploy time either.
+  when: (openbao_load_host_file | basename | splitext | first) not in groups['all']
+
+# Values come from hostvars, not from the file, so `{{ base_domain }}` and the
+# `_service` composition anchors are stored resolved. The key list still comes
+# from the file: hostvars also carries group_vars and Ansible's own magic
+# variables, and neither belongs under this host's scope.
+- name: Write the variables of {{ openbao_load_host_file | basename | splitext | first }}
+  ansible.builtin.include_tasks: load_scope.yml
+  vars:
+    openbao_load_host: "{{ openbao_load_host_file | basename | splitext | first }}"
+    openbao_load_scope: "{{ openbao_load_host }}"
+    openbao_load_keys: "{{ openbao_load_host_vars.keys() | list }}"
+    openbao_load_values: >-
+      {{ dict(openbao_load_keys | zip(openbao_load_keys
+         | map('extract', hostvars[openbao_load_host]) | list))
+         if openbao_load_render_host_vars | bool else openbao_load_host_vars }}
+  when: (openbao_load_host_file | basename | splitext | first) in groups['all']

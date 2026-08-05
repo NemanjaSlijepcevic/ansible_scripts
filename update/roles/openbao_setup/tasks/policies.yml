@@ -1,0 +1,33 @@
+---
+- name: Read the policies that already exist
+  ansible.builtin.uri:
+    url: "{{ openbao_setup_addr }}/v1/sys/policies/acl/{{ item }}"
+    method: GET
+    headers: "{{ openbao_setup_headers }}"
+    status_code: [200, 404]
+  loop: "{{ openbao_setup_policies }}"
+  loop_control:
+    label: "{{ item }}"
+  register: openbao_setup_policy_state
+  changed_when: false
+
+# Writing is a PUT, so it would report "changed" on every run. Comparing the
+# rendered template against the live policy first keeps a no-op run silent —
+# and makes a drifted policy (edited by hand in the UI) visible.
+- name: Write policies that are missing or have drifted
+  ansible.builtin.uri:
+    url: "{{ openbao_setup_addr }}/v1/sys/policies/acl/{{ item.item }}"
+    method: PUT
+    headers: "{{ openbao_setup_headers }}"
+    body_format: json
+    body:
+      policy: "{{ lookup('template', 'policy-' ~ item.item ~ '.hcl.j2') }}"
+    status_code: [200, 204]
+  loop: "{{ openbao_setup_policy_state.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: >-
+    item.status == 404 or
+    (item.json.data.policy | default('') | trim)
+      != (lookup('template', 'policy-' ~ item.item ~ '.hcl.j2') | trim)
+  changed_when: true

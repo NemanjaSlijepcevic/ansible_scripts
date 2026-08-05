@@ -43,6 +43,16 @@
   roles:
     - { role: db_backup, tags: ['db_backup', 'backup', 'database'] }
 
+- name: "Backup OpenBao Raft storage"
+  hosts: openbaos
+  gather_facts: true
+  remote_user: "{{ user.name }}"
+  become: true
+  vars:
+    current_host: "openbao"
+  roles:
+    - { role: db_backup, tags: ['db_backup', 'backup', 'database', 'openbao'] }
+
 - name: "Sync database dumps to the NAS"
   hosts: nass
   gather_facts: true

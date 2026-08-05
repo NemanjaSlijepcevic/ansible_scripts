@@ -1,0 +1,48 @@
+---
+# Mirror the whole inventory into OpenBao's KV v2 store.
+#
+#   ansible-playbook openbao_load.yml --vault-password-file ../pass.file
+#
+# Populate-only: the inventory stays the source of truth and every role keeps
+# reading host_vars, so a sealed OpenBao never blocks a deploy. Re-running is
+# safe — a secret is written only when it is missing or its value changed, so
+# no-op runs cut no new KV versions.
+#
+# Preview without writing:  -e openbao_load_dry_run=true
+# One host only:            --limit primary_nas  (the first play still runs)
+#
+# Two plays because each host must render its own variables: a value containing
+# `hostvars[...]` cannot be resolved from another host's context. No host is
+# actually connected to — facts are off and every API call is delegated to the
+# OpenBao host, whose container binds 127.0.0.1:8200.
+- name: "Load the shared inventory into OpenBao KV"
+  hosts: openbaos
+  gather_facts: false
+  become: false
+  vars:
+    current_host: "openbao"
+  vars_prompt:
+    - name: bao_admin_user
+      prompt: "Admin username (empty = the deploy user)"
+      private: false
+      confirm: false
+
+    - name: bao_admin_password
+      prompt: "Password for the admin userpass account"
+      private: true
+      confirm: false
+  roles:
+    - { role: openbao_load, tags: ['openbao_load', 'openbao', 'secrets'] }
+
+- name: "Load the per-host inventory into OpenBao KV"
+  hosts: all
+  gather_facts: false
+  become: false
+  tags: ['openbao_load', 'openbao', 'secrets']
+  tasks:
+    - name: Write each host's variables
+      ansible.builtin.include_role:
+        name: openbao_load
+        tasks_from: host.yml
+      vars:
+        openbao_load_host_file: "{{ inventory_dir }}/host_vars/{{ inventory_hostname }}.yml"

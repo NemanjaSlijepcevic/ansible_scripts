@@ -1,0 +1,60 @@
+---
+- name: Check whether a backup token is already stored
+  ansible.builtin.stat:
+    path: "{{ openbao_setup_secrets_path }}/{{ openbao_setup_backup_token_file }}"
+  register: openbao_setup_backup_file
+  delegate_to: localhost
+  become: false
+
+- name: Issue and store the backup token
+  when: openbao_setup_rotate_credentials | bool or not openbao_setup_backup_file.stat.exists
+  block:
+    # Periodic, so it never hits a max TTL — but it still has to be renewed
+    # inside each period. `bao token renew` or a re-run with
+    # openbao_setup_rotate_credentials=true does that.
+    - name: Create the backup token
+      ansible.builtin.uri:
+        url: "{{ openbao_setup_addr }}/v1/auth/token/create"
+        method: POST
+        headers: "{{ openbao_setup_headers }}"
+        body_format: json
+        body:
+          policies: "{{ openbao_setup_backup_token_policies }}"
+          period: "{{ openbao_setup_backup_token_period }}"
+          display_name: "backup"
+          no_parent: true
+        status_code: 200
+      register: openbao_setup_backup_token
+      no_log: true
+      changed_when: true
+
+    - name: Store the backup token on the control node
+      ansible.builtin.copy:
+        content: "{{ openbao_setup_backup_token.json.auth.client_token }}"
+        dest: "{{ openbao_setup_secrets_path }}/{{ openbao_setup_backup_token_file }}"
+        mode: "0600"
+      delegate_to: localhost
+      become: false
+      no_log: true
+
+    # Deliberately not written into host_vars: that file is meant to be
+    # vault-encrypted, and editing an encrypted file from a play would either
+    # decrypt it on disk or rewrite it wholesale. Copy it across by hand once.
+    - name: Explain where the backup token has to go
+      ansible.builtin.debug:
+        msg: >-
+          Backup token written to
+          {{ openbao_setup_secrets_path }}/{{ openbao_setup_backup_token_file }}.
+          Copy it into host_vars/primary_openbao.yml as `openbao.backup_token`
+          (replacing "changeme"), then update/backup.yml can take Raft snapshots.
+
+- name: Report that a backup token already exists
+  ansible.builtin.debug:
+    msg: >-
+      Backup token already present in
+      {{ openbao_setup_secrets_path }}/{{ openbao_setup_backup_token_file }} —
+      left alone. Re-run with -e openbao_setup_rotate_credentials=true to
+      issue a new one (revoke the old one afterwards).
+  when:
+    - not (openbao_setup_rotate_credentials | bool)
+    - openbao_setup_backup_file.stat.exists

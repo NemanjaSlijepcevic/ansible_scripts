@@ -18,6 +18,9 @@ db_backup_local_dir: "/tmp/db-dumps"
 #                         over the container's unix socket (`local … trust`
 #                         in pg_hba.conf), so no password is needed.
 #   sqlite              — sqlite files to snapshot with the online backup API.
+#   raft                — OpenBao nodes to snapshot over the local API. Each
+#                         entry: { name, url, token }; the token only needs
+#                         read on `sys/storage/raft/snapshot`.
 db_backup_sources:
   postgres:
     postgres_containers:
@@ -47,6 +50,15 @@ db_backup_sources:
       # jellyfin.db, one level below the LSIO /config/data mount.
       - name: "jellyfin"
         path: "./data/jellyfin/config/data/data/jellyfin.db"
+  # OpenBao keeps everything in its Raft store; a snapshot is the only
+  # supported backup. The node must be unsealed for it to work.
+  openbao:
+    postgres_containers: []
+    sqlite: []
+    raft:
+      - name: "openbao"
+        url: "http://127.0.0.1:8200"
+        token: "{{ openbao.backup_token | default('changeme') }}"
 
 # Superuser used for pg_dump/pg_dumpall inside the container.
 db_backup_pg_admin_user: "{{ postgres.adm_user | default('postgres') }}"
@@ -78,3 +90,8 @@ db_server: []
 # Central PostgreSQL connection block (only adm_user is read here).
 postgres:
   adm_user: "postgres"
+
+# Sibling-service reference: the openbao role's block, documented here because
+# the raft snapshot source reads its backup token.
+openbao:
+  backup_token: "changeme"

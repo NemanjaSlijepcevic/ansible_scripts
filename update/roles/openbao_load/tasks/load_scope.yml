@@ -1,0 +1,69 @@
+---
+# Writes one KV v2 secret per top-level variable of the current scope.
+# KV v2 secrets must be objects, so a scalar or list value is wrapped as
+# {"value": …}; a mapping is stored as-is.
+- name: Build the desired secrets for '{{ openbao_load_scope }}'
+  ansible.builtin.set_fact:
+    openbao_load_desired: "{{ openbao_load_desired_json | from_json }}"
+  vars:
+    openbao_load_desired_json: >-
+      {% set out = [] %}
+      {% for key in (openbao_load_values.keys() | difference(openbao_load_exclude_keys) | sort) %}
+      {% set value = openbao_load_values[key] %}
+      {% set _ = out.append({
+           'path': openbao_load_prefix ~ '/' ~ openbao_load_scope ~ '/' ~ key,
+           'data': value if value is mapping else {'value': value}}) %}
+      {% endfor %}
+      {{ out | to_json }}
+  no_log: true
+
+- name: Read the current value of each secret in '{{ openbao_load_scope }}'
+  ansible.builtin.uri:
+    url: "{{ openbao_load_addr }}/v1/{{ openbao_load_kv_path }}/data/{{ item.path }}"
+    method: GET
+    headers: "{{ openbao_load_headers }}"
+    status_code: [200, 404]
+  loop: "{{ openbao_load_desired }}"
+  register: openbao_load_current
+  delegate_to: "{{ openbao_load_delegate }}"
+  changed_when: false
+  no_log: true
+
+# A missing secret (404) or one whose data differs. Writing an identical value
+# would still cut a new KV version, so an unchanged run must write nothing.
+- name: Work out which secrets differ in '{{ openbao_load_scope }}'
+  ansible.builtin.set_fact:
+    openbao_load_changed: "{{ openbao_load_changed_json | from_json }}"
+  vars:
+    openbao_load_changed_json: >-
+      {% set out = [] %}
+      {% for result in openbao_load_current.results %}
+      {% if result.status == 404 or (result.json.data.data | default({})) != result.item.data %}
+      {% set _ = out.append(result.item) %}
+      {% endif %}
+      {% endfor %}
+      {{ out | to_json }}
+  no_log: true
+
+- name: Report the pending changes in '{{ openbao_load_scope }}'
+  ansible.builtin.debug:
+    msg: >-
+      {{ openbao_load_scope }}: {{ openbao_load_changed | length }} of
+      {{ openbao_load_desired | length }} secret(s)
+      {{ 'would change' if openbao_load_dry_run | bool else 'to write' }}
+      {{ openbao_load_changed | map(attribute='path') | list }}
+
+- name: Write the secrets of '{{ openbao_load_scope }}'
+  ansible.builtin.uri:
+    url: "{{ openbao_load_addr }}/v1/{{ openbao_load_kv_path }}/data/{{ item.path }}"
+    method: POST
+    headers: "{{ openbao_load_headers }}"
+    body_format: json
+    body:
+      data: "{{ item.data }}"
+    status_code: 200
+  loop: "{{ openbao_load_changed }}"
+  when: not (openbao_load_dry_run | bool)
+  delegate_to: "{{ openbao_load_delegate }}"
+  no_log: true
+  changed_when: true

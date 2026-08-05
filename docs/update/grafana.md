@@ -113,7 +113,7 @@ Alert rules, the Telegram contact point, and the notification policy are file-pr
 Alerts fan out to two contact points (all provisioned rules carry a `severity` label, which both routes match):
 
 - **Telegram** (`log_notification` bot) — raw alert, immediately, repeat 4h.
-- **Kestra** (webhook, `grafana_alert_webhook`) — posts the firing alert to the `grafana-alert-triage` flow on the automation host, where Claude Code produces a diagnosis that arrives in the same Telegram chat as a follow-up; repeat 24h so each firing alert is analyzed roughly once. The webhook URL embeds the flow's trigger key and must match the kestra role's `grafana_webhook_key` — treat it as a secret.
+- **Kestra** (webhook, `grafana_alert_webhook`) — posts the firing alert to a triage flow on the automation host, where Claude Code produces a diagnosis that arrives in the same Telegram chat as a follow-up; repeat 24h so each firing alert is analyzed roughly once. The URL ends in the target flow's webhook trigger key, which is the only auth on it — treat the whole URL as a secret. The key lives in `kv/homelab/kestra/webhooks` (see [kestra](kestra.md)); this variable is kept in step with it by hand.
 
 Rules with `noDataState: Alerting` are the dead-man-style checks; the rest treat missing data as OK.
 

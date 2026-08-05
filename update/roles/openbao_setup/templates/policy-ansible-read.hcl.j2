@@ -1,0 +1,12 @@
+# Managed by Ansible (update/roles/openbao_setup). Do not edit by hand.
+# The Ansible control node: read-only on the homelab tree, nothing else.
+# Deliberately no write capability — a deploy must never be able to change a
+# secret, only consume it.
+
+path "{{ openbao_setup_kv_path }}/data/homelab/*" {
+  capabilities = ["read"]
+}
+
+path "{{ openbao_setup_kv_path }}/metadata/homelab/*" {
+  capabilities = ["read", "list"]
+}

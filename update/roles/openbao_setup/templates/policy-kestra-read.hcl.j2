@@ -1,0 +1,17 @@
+# Managed by Ansible (update/roles/openbao_setup). Do not edit by hand.
+# Kestra's flows: read-only, and only the paths the flows actually need.
+# Deliberately narrower than `ansible-read`, which can read the whole homelab
+# tree (vault_password included) — Kestra runs user-authored flows, so it gets
+# the least privilege that still works.
+{% for path in openbao_setup_kestra_read_paths %}
+
+path "{{ openbao_setup_kv_path }}/data/{{ path }}" {
+  capabilities = ["read"]
+}
+{% endfor %}
+
+# Listing is limited to the kestra subtree: enough to discover what a flow may
+# use, without enumerating every secret in the store.
+path "{{ openbao_setup_kv_path }}/metadata/homelab/kestra/*" {
+  capabilities = ["read", "list"]
+}

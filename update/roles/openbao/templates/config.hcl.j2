@@ -32,3 +32,20 @@ telemetry {
   prometheus_retention_time = "30s"
   disable_hostname          = true
 }
+
+{% if openbao_audit_enabled | bool %}
+# Audit device. OpenBao >= 2.5 refuses `bao audit enable` over the API on
+# purpose (a file device can write to any path, a socket device to any socket —
+# operator territory, not token territory), so it is declared here and applied
+# on restart/SIGHUP. Writes to the ./data/openbao/audit mount, rotated by
+# /etc/logrotate.d/openbao.
+#
+# If every enabled audit device fails to write, OpenBao rejects every request.
+audit "file" "{{ openbao_audit_device_path }}" {
+  description = "Managed by Ansible (update/roles/openbao)"
+
+  options {
+    file_path = "{{ openbao_audit_file_path }}"
+  }
+}
+{% endif %}
