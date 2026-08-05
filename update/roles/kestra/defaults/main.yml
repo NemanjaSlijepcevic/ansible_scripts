@@ -34,3 +34,49 @@ authelia:
 
 default:
   dns: "192.0.2.1"
+
+# --- OpenBao access for flows ----------------------------------------------
+# Kestra reaches OpenBao over its public URL (Traefik, chain-no-auth) because
+# the two run on different hosts. Taken from the openbao host's own vars so
+# there is one definition of the URL.
+kestra_openbao_url: >-
+  {{ hostvars[groups['openbaos'] | first]['openbao']['url'] | default('https://openbao.example.com') }}
+
+# AppRole credentials issued by openbao_setup into .secrets/ on the control
+# node (gitignored, 0600). Read at deploy time and passed to the container as
+# base64 SECRET_* env, which is how Kestra OSS exposes secret().
+kestra_openbao_role_id_path: "{{ playbook_dir }}/../.secrets/kestra_role_id"
+kestra_openbao_secret_id_path: "{{ playbook_dir }}/../.secrets/kestra_secret_id"
+
+# Only the AppRole bootstrap lives on disk — "secret zero", which by definition
+# cannot be stored in the thing it unlocks. Everything else comes from OpenBao.
+kestra_required_secret_files:
+  - "{{ kestra_openbao_role_id_path }}"
+  - "{{ kestra_openbao_secret_id_path }}"
+
+# --- Deploy-time reads from OpenBao ----------------------------------------
+# Two flow secrets cannot be fetched at *runtime*: they are consumed as plugin
+# properties (TelegramSend.token, ssh.Command.privateKey), which only accept an
+# expression — and the output of the task feeding that expression would be
+# persisted in Kestra's execution record. So Ansible reads them here instead
+# and passes them as masked SECRET_* env. OpenBao stays the only copy.
+#
+# Read with the *ansible* AppRole (ansible-read), not Kestra's own — this is a
+# control-node operation. Requires `pip install hvac` and an unsealed OpenBao:
+# deploying this one role is the only thing that gains that dependency.
+kestra_vault_role_id: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/../.secrets/bao_role_id') | trim }}"
+kestra_vault_secret_id: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/../.secrets/bao_secret_id') | trim }}"
+kestra_vault_mount: "kv"
+
+kestra_bridge_bot_token_kv: "homelab/kestra/telegram_bridge"
+kestra_bridge_bot_token_key: "bot_token"
+kestra_rsync_ssh_key_kv: "homelab/kestra/ssh_bridge"
+kestra_rsync_ssh_key_key: "private_key"
+
+# Webhook trigger keys — one KV field per flow that has a Webhook trigger,
+# named <namespace>_<flow_id>. A Webhook trigger's `key` IS a dynamic property,
+# so the flow holds no literal: it reads key: "{{ secret('WH_<NAME>') }}" and
+# every field here is handed to the container as SECRET_WH_<NAME|upper>.
+# The key is the only auth on a webhook URL, hence it lives here and not in a
+# flow file that could be exported, pasted or committed.
+kestra_webhooks_kv: "homelab/kestra/webhooks"

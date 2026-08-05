@@ -7,5 +7,12 @@ collections:
     version: "*"
   - name: community.general
     version: "*"
+  # OpenBao/Vault lookups. The collection alone is not enough — the `hvac`
+  # library must be importable by *Ansible's own* interpreter. With a
+  # pipx-installed Ansible that means `pipx inject ansible hvac`; a plain
+  # `pip install hvac` lands in user site-packages, which the venv ignores.
+  # Used by the kestra role at deploy time.
+  - name: community.hashi_vault
+    version: "*"
   - name: community.mysql
     version: "*"

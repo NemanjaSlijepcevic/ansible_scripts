@@ -1,0 +1,46 @@
+---
+# One-shot (re-runnable) setup of everything *inside* OpenBao: unseal, KV v2,
+# policies, userpass, AppRole for Ansible, backup token.
+#
+#   ansible-playbook update/openbao_setup.yml --vault-password-file pass.file
+#
+# Every secret is prompted for and lives only in memory for the run — nothing
+# is written to the inventory, the host, or the shell history. Re-running is
+# safe: each step checks the live state first and only creates what is missing.
+#
+# Unseal only:            --tags unseal
+# Everything but unseal:  --skip-tags unseal
+- name: "Set up OpenBao (unseal + bootstrap)"
+  hosts: openbaos
+  gather_facts: true
+  remote_user: "{{ user.name }}"
+  become: true
+  vars:
+    current_host: "openbao"
+  vars_prompt:
+    - name: bao_root_token
+      prompt: "Root token (empty to skip everything except unsealing)"
+      private: true
+      confirm: false
+
+    - name: bao_unseal_key_1
+      prompt: "Unseal key 1 of 3 (empty if already unsealed)"
+      private: true
+      confirm: false
+
+    - name: bao_unseal_key_2
+      prompt: "Unseal key 2 of 3"
+      private: true
+      confirm: false
+
+    - name: bao_unseal_key_3
+      prompt: "Unseal key 3 of 3"
+      private: true
+      confirm: false
+
+    - name: bao_admin_password
+      prompt: "Password for the admin userpass account (empty to skip creating it)"
+      private: true
+      confirm: false
+  roles:
+    - { role: openbao_setup, tags: ['openbao_setup', 'openbao', 'secrets'] }

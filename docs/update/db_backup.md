@@ -4,13 +4,14 @@
 
 Dumps every database on a host into a timestamped directory, checksums the dumps, pulls them to the Ansible control node, and prunes old on-host backups.
 
-Three engines are handled, all through the running containers — nothing is installed on the host:
+Four store types are handled, all through the running containers — nothing is installed on the host:
 
 | Engine | Tool | Output |
 |--------|------|--------|
 | PostgreSQL | `pg_dumpall --globals-only` + `pg_dump -Fc` per database | `pg_<container>_globals.sql.gz`, `pg_<container>_<database>.dump` |
 | MySQL / MariaDB | `mariadb-dump` (or `mysqldump`, probed) `--all-databases` | `mysql_<container>.sql.gz` |
 | SQLite | Python `sqlite3` online backup API | `sqlite_<name>.db.gz` |
+| OpenBao (Raft) | `GET /v1/sys/storage/raft/snapshot` over the local API | `raft_<name>.snap.gz` |
 
 A host with no configured source is skipped silently; a host that *has* sources but produced no file fails the play (that means a container or path disappeared).
 
@@ -23,7 +24,8 @@ The companion role [`db_backup_sync`](db_backup_sync.md) pushes the staged dumps
 - `python3` on the host (used for the SQLite snapshot) — present on every host in this repo.
 - `ansible.posix` collection on the control node (`synchronize`).
 - `gather_facts: true` — the timestamp comes from `ansible_date_time`.
-- `current_host` set by the playbook (`postgres`, `server`, `monitor`, `nas`).
+- `current_host` set by the playbook (`postgres`, `server`, `monitor`, `nas`, `openbao`).
+- For the OpenBao source: the node **unsealed**, and `.secrets/backup_role_id` + `.secrets/backup_secret_id` on the control node (issued by [`openbao_setup`](openbao_setup.md)). The role logs in with that AppRole per run and gets a short-lived token carrying the `backup` policy — `read` on `sys/storage/raft/snapshot` and nothing else. No OpenBao credential lives in the inventory.
 
 ## Manual Execution Guide
 
@@ -33,9 +35,10 @@ The companion role [`db_backup_sync`](db_backup_sync.md) pushes the staged dumps
 2. Dump PostgreSQL globals, then each database.
 3. Dump MySQL/MariaDB servers.
 4. Snapshot SQLite databases.
-5. Write `SHA256SUMS`.
-6. Pull the directory to the control node and verify it.
-7. Delete backup directories older than the retention window.
+5. Snapshot OpenBao Raft storage.
+6. Write `SHA256SUMS`.
+7. Pull the directory to the control node and verify it.
+8. Delete backup directories older than the retention window.
 
 ---
 
@@ -117,7 +120,22 @@ gzip -f "$TARGET/sqlite_<name>.db"
 
 ---
 
-#### Step 5: Checksums
+#### Step 5: Snapshot OpenBao Raft storage
+
+The node must be **unsealed** — a sealed node has no root key and cannot produce a snapshot.
+
+```bash
+curl -sf -H "X-Vault-Token: <secret>" \
+  http://127.0.0.1:8200/v1/sys/storage/raft/snapshot \
+  -o "$TARGET/raft_<name>.snap"
+gzip -f "$TARGET/raft_<name>.snap"
+```
+
+**Explanation**: the API endpoint is used instead of `bao operator raft snapshot save` because the CLI wants the token in argv or the environment, both readable via `ps` on the host; a header is not. The token needs only `read` on `sys/storage/raft/snapshot` (policy `backup`, see [openbao.md](openbao.md)).
+
+---
+
+#### Step 6: Checksums
 
 ```bash
 cd "$TARGET" && sha256sum * > SHA256SUMS
@@ -125,7 +143,7 @@ cd "$TARGET" && sha256sum * > SHA256SUMS
 
 ---
 
-#### Step 6: Pull to the control node
+#### Step 7: Pull to the control node
 
 Run this **on the control node**:
 
@@ -139,7 +157,7 @@ cd /tmp/db-dumps/<host-alias>/$STAMP && sha256sum -c SHA256SUMS
 
 ---
 
-#### Step 7: Rotate
+#### Step 8: Rotate
 
 ```bash
 find ./data/backups -maxdepth 1 -type d -regextype posix-extended \
@@ -191,6 +209,18 @@ docker start <service>
 
 Delete any `-wal`/`-shm` sidecar files next to the restored database before starting the container; they belong to the old file.
 
+### OpenBao (Raft)
+
+Restore into a **running, unsealed** node — the snapshot carries the encrypted store, so the target must already have the same unseal keys:
+
+```bash
+gunzip -c raft_<name>.snap.gz > /tmp/restore.snap
+docker cp /tmp/restore.snap openbao:/tmp/restore.snap
+docker exec openbao bao operator raft snapshot restore /tmp/restore.snap
+```
+
+Restoring replaces the entire store. To test a snapshot without touching the live node, start a throwaway OpenBao container with its own data dir, `bao operator init` it, then restore with `-force` and unseal it with the **original** keys.
+
 ---
 
 ## Variables
@@ -202,7 +232,7 @@ Documented with placeholders in `defaults/main.yml`.
 | `db_backup_dir` | Backup root on the host (`./data/backups`) |
 | `db_backup_retention_days` | On-host retention (3) |
 | `db_backup_local_dir` | Staging directory on the control node (`/tmp/db-dumps`) |
-| `db_backup_sources` | Per-`current_host` dict: `postgres_containers` (list) + `sqlite` (list of `{name, path}`) |
+| `db_backup_sources` | Per-`current_host` dict: `postgres_containers` (list) + `sqlite` (list of `{name, path}`) + `raft` (list of `{name, url, token}`) |
 | `db_backup_pg_admin_user` | Superuser for `pg_dump`/`pg_dumpall` (from `postgres.adm_user`) |
 | `db_backup_pg_exclude` | Databases never dumped (`template0`, `template1`) |
 | `db_backup_mysql_servers` | MySQL containers, defaults to the `sql` role's `db_server` list (`{name, admin, pass}`, optional `dump_cmd`) |
@@ -217,7 +247,7 @@ cd ./data/backups/<timestamp>/ && sha256sum -c SHA256SUMS
 gzip -t ./data/backups/<timestamp>/*.gz
 ```
 
-Each PostgreSQL container should contribute one `_globals.sql.gz` plus one `.dump` per database; each MySQL container one `.sql.gz`; each configured SQLite path one `.db.gz`.
+Each PostgreSQL container should contribute one `_globals.sql.gz` plus one `.dump` per database; each MySQL container one `.sql.gz`; each configured SQLite path one `.db.gz`; each OpenBao node one `.snap.gz`.
 
 ## Troubleshooting
 
@@ -229,6 +259,8 @@ Each PostgreSQL container should contribute one `_globals.sql.gz` plus one `.dum
 | `command -v` task fails | Neither `mariadb-dump` nor `mysqldump` exists in that image — add `dump_cmd:` to the container's `db_server` entry. |
 | `pg_dump: error: … permission denied` | The container's `pg_hba.conf` lost its `local all all trust` line, or `db_backup_pg_admin_user` is not a superuser. |
 | Pull step permission denied | The dumps are not owned by the deploy user — the "Hand the dumps to the deploy user" task must run before the pull. |
+| `SKIPPING <name> — OpenBao … is sealed` | The node sealed itself (reboot). Unseal with 3 shares and re-run; nothing has been backed up since. |
+| Raft snapshot fails with 403 | The `backup` AppRole lost its policy, or `.secrets/backup_secret_id` is stale — re-run `openbao_setup.yml`. |
 
 ## Reversing
 

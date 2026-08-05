@@ -29,6 +29,8 @@
     volumes:
       - ./data/openbao/config:/openbao/config:ro
       - ./data/openbao/data:/openbao/data
+      # Target of the file audit device (enabled once, by hand — see docs).
+      - ./data/openbao/audit:/openbao/audit
     command: "server -config=/openbao/config/config.hcl"
     labels:
       traefik.enable: "true"
@@ -46,6 +48,22 @@
       timeout: 10s
       retries: 3
       start_period: 20s
+
+# Kept off the deploy path: a fresh node is legitimately uninitialized and a
+# rebooted one is legitimately sealed, and neither should fail a deploy. The
+# `never` tag alone is not enough — the role's own tags are inherited here, so
+# `--tags openbao` would still select it; the explicit ansible_run_tags check
+# is what limits this to a deliberate `--tags verify`. Nothing to check in
+# check mode either: every task in verify.yml is read-only.
+- name: Verify OpenBao is initialized, unsealed and audited
+  ansible.builtin.include_tasks:
+    file: verify.yml
+    apply:
+      tags: ['verify']
+  when:
+    - "'verify' in ansible_run_tags"
+    - not ansible_check_mode
+  tags: ['verify', 'never']
 
 - name: Read OpenBao seal status
   ansible.builtin.command:

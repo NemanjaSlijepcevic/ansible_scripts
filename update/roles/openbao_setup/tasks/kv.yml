@@ -1,0 +1,31 @@
+---
+- name: List the mounted secrets engines
+  ansible.builtin.uri:
+    url: "{{ openbao_setup_addr }}/v1/sys/mounts"
+    method: GET
+    headers: "{{ openbao_setup_headers }}"
+    status_code: 200
+  register: openbao_setup_mounts
+  changed_when: false
+  no_log: true
+
+- name: Enable the KV v2 secrets engine
+  ansible.builtin.uri:
+    url: "{{ openbao_setup_addr }}/v1/sys/mounts/{{ openbao_setup_kv_path }}"
+    method: POST
+    headers: "{{ openbao_setup_headers }}"
+    body_format: json
+    body:
+      type: "kv"
+      options:
+        version: "2"
+    status_code: [200, 204]
+  when: (openbao_setup_kv_path ~ '/') not in openbao_setup_mounts.json.data
+  no_log: true
+  changed_when: true
+
+- name: Report the KV mount
+  ansible.builtin.debug:
+    msg: >-
+      KV v2 mounted at {{ openbao_setup_kv_path }}/ — path convention
+      {{ openbao_setup_kv_path }}/homelab/<host>/<service>, one key per field.

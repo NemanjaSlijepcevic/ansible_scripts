@@ -1,0 +1,62 @@
+---
+# Two ways in, in order of preference:
+#
+#   1. the admin `userpass` account — the normal case, and the reason the root
+#      token can stay revoked;
+#   2. the root token — only on a first bootstrap, when no admin account
+#      exists yet and there is nothing else to authenticate as.
+#
+# Whichever is used, the resulting token lives only for this run.
+- name: Log in with the admin userpass account
+  ansible.builtin.uri:
+    url: "{{ openbao_setup_addr }}/v1/auth/userpass/login/{{ openbao_setup_admin_user }}"
+    method: POST
+    body_format: json
+    body:
+      password: "{{ bao_admin_password }}"
+    status_code: [200, 400]
+  register: openbao_setup_login
+  when: openbao_setup_use_userpass | bool
+  no_log: true
+  changed_when: false
+
+# A 400 here on a *first* run is expected: the account is created later in
+# auth.yml. It is only fatal when there is no root token to fall back on.
+- name: Assert the userpass login worked
+  ansible.builtin.assert:
+    that:
+      - openbao_setup_login.status == 200
+    fail_msg: >-
+      userpass login failed for '{{ openbao_setup_admin_user }}' and no root
+      token was supplied. If this is a first bootstrap, paste the root token at
+      the prompt — the admin account does not exist yet. Otherwise check the
+      username (it defaults to the deploy user) and the password. Repeated
+      failures can trip OpenBao's user lockout.
+  when:
+    - openbao_setup_use_userpass | bool
+    - (bao_root_token | default('')) | length == 0
+
+- name: Keep the token for the rest of the run
+  ansible.builtin.set_fact:
+    openbao_setup_token: >-
+      {{ openbao_setup_login.json.auth.client_token
+         if (openbao_setup_use_userpass | bool and openbao_setup_login.status | default(0) == 200)
+         else bao_root_token }}
+  no_log: true
+
+- name: Verify the token works
+  ansible.builtin.uri:
+    url: "{{ openbao_setup_addr }}/v1/auth/token/lookup-self"
+    method: GET
+    headers: "{{ openbao_setup_headers }}"
+    status_code: 200
+  register: openbao_setup_token_info
+  changed_when: false
+  no_log: true
+
+- name: Show which identity is being used
+  ansible.builtin.debug:
+    msg: >-
+      Authenticated as {{ openbao_setup_token_info.json.data.display_name }}
+      with policies {{ openbao_setup_token_info.json.data.policies }}
+      ({{ 'userpass' if openbao_setup_login.status | default(0) == 200 else 'root token' }}).

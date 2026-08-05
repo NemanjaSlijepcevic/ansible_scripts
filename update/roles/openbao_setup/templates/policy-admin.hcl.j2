@@ -1,0 +1,18 @@
+# Managed by Ansible (update/roles/openbao_setup). Do not edit by hand.
+# Human administrators: full control over secrets, auth and system config.
+
+path "{{ openbao_setup_kv_path }}/*" {
+  capabilities = ["create", "read", "update", "delete", "list", "patch"]
+}
+
+path "sys/*" {
+  capabilities = ["create", "read", "update", "delete", "list", "sudo"]
+}
+
+path "auth/*" {
+  capabilities = ["create", "read", "update", "delete", "list", "sudo"]
+}
+
+path "identity/*" {
+  capabilities = ["create", "read", "update", "delete", "list"]
+}

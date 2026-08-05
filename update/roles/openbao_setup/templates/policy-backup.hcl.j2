@@ -1,0 +1,8 @@
+# Managed by Ansible (update/roles/openbao_setup). Do not edit by hand.
+# update/backup.yml and nothing else: pull a Raft snapshot. A snapshot is a
+# full copy of the store, so this token is as sensitive as the data itself —
+# it just cannot read, write or mount anything through the normal paths.
+
+path "sys/storage/raft/snapshot" {
+  capabilities = ["read"]
+}

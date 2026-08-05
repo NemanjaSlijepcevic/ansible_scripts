@@ -1,0 +1,100 @@
+---
+# Read-only. Run alone with: ansible-playbook update/openbao.yml --tags verify
+- name: Get OpenBao container state
+  community.docker.docker_container_info:
+    name: openbao
+  register: openbao_container
+
+- name: Assert the OpenBao container is running
+  ansible.builtin.assert:
+    that:
+      - openbao_container.exists
+      - openbao_container.container.State.Running | bool
+    fail_msg: >-
+      OpenBao container is not running on {{ inventory_hostname }}
+      (exists={{ openbao_container.exists }}).
+    success_msg: "OpenBao container running, health={{ openbao_container.container.State.Health.Status | default('n/a') }}."
+
+# rc 0 = unsealed, rc 2 = sealed (up, awaiting unseal), anything else = broken.
+- name: Read OpenBao seal status
+  ansible.builtin.command:
+    cmd: "docker exec openbao bao status -address=http://127.0.0.1:8200 -format=json"
+  register: openbao_status_raw
+  changed_when: false
+  failed_when: openbao_status_raw.rc not in [0, 2]
+
+- name: Parse seal status
+  ansible.builtin.set_fact:
+    openbao_status: "{{ openbao_status_raw.stdout | from_json }}"
+
+- name: Show seal status
+  ansible.builtin.debug:
+    msg: >-
+      initialized={{ openbao_status.initialized }}
+      sealed={{ openbao_status.sealed }}
+      {% if openbao_status.sealed %}progress={{ openbao_status.progress }}/{{ openbao_status.t }}{% endif %}
+      storage={{ openbao_status.storage_type }} version={{ openbao_status.version }}
+
+- name: Assert OpenBao is initialized
+  ansible.builtin.assert:
+    that:
+      - openbao_status.initialized | bool
+    fail_msg: >-
+      OpenBao on {{ inventory_hostname }} is NOT initialized. Run once:
+      docker exec -it openbao bao operator init — then store the unseal shares
+      and root token offline (see docs/update/openbao.md).
+    success_msg: "OpenBao is initialized (Raft node {{ openbao.node_id }})."
+
+# Sealed is a legitimate state right after a reboot, so this is opt-out: set
+# openbao_verify_expect_unsealed=false when checking a node you have not
+# unsealed yet.
+- name: Assert OpenBao is unsealed
+  ansible.builtin.assert:
+    that:
+      - not (openbao_status.sealed | bool)
+    fail_msg: >-
+      OpenBao on {{ inventory_hostname }} is sealed
+      ({{ openbao_status.progress }}/{{ openbao_status.t }} shares entered).
+      Unseal with: docker exec -it openbao bao operator unseal (x{{ openbao_status.t }}).
+    success_msg: "OpenBao is unsealed."
+  when: openbao_verify_expect_unsealed | bool
+
+- name: Check the audit log
+  ansible.builtin.stat:
+    path: ./data/openbao/audit/audit.log
+  register: openbao_audit_log
+
+# Checking the file rather than `bao audit list` on purpose: listing audit
+# devices needs a root/sudo token, and no automation on this host should hold
+# one. A growing log proves the device is enabled *and* able to write — and a
+# device that cannot write makes OpenBao reject every request.
+- name: Assert the file audit device is enabled and writing
+  ansible.builtin.assert:
+    that:
+      - openbao_audit_log.stat.exists
+      - openbao_audit_log.stat.size > 0
+    fail_msg: >-
+      No audit log at ./data/openbao/audit/audit.log on {{ inventory_hostname }}.
+      The device is declared in config.hcl (openbao_audit_enabled) and applied
+      on restart — if the file is missing after a deploy, reload with
+      `docker kill -s HUP openbao` and check `bao audit list -detailed`.
+    success_msg: "Audit log present ({{ openbao_audit_log.stat.size | default(0) }} bytes)."
+  when: openbao_verify_expect_audit_device | bool
+
+- name: Check the health endpoint through Traefik
+  ansible.builtin.uri:
+    # standbyok/sealedcode/uninitcode force 200 for states that are not errors,
+    # so a non-200 here means the route itself is broken, not that OpenBao is
+    # sealed. Same query the Alloy http_check uses.
+    url: "{{ openbao.url }}/v1/sys/health?standbyok=true&sealedcode=200&uninitcode=200"
+    method: GET
+    status_code: 200
+    return_content: true
+  register: openbao_health
+  retries: 3
+  delay: 5
+  until: openbao_health.status | default(0) == 200
+
+- name: Show health endpoint response
+  ansible.builtin.debug:
+    msg: "{{ openbao.url }} → {{ openbao_health.json | default(openbao_health.content) }}"

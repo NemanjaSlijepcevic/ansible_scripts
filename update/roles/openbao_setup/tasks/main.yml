@@ -1,0 +1,72 @@
+---
+- name: Read seal status
+  ansible.builtin.uri:
+    url: "{{ openbao_setup_addr }}/v1/sys/seal-status"
+    method: GET
+    status_code: 200
+  register: openbao_setup_seal_raw
+  changed_when: false
+
+- name: Keep the seal status handy
+  ansible.builtin.set_fact:
+    openbao_setup_seal: "{{ openbao_setup_seal_raw.json }}"
+
+- name: Assert OpenBao is initialized
+  ansible.builtin.assert:
+    that:
+      - openbao_setup_seal.initialized | bool
+    fail_msg: >-
+      OpenBao on {{ inventory_hostname }} is not initialized. That step is
+      deliberately manual (it prints the unseal shares and the root token,
+      which must never pass through Ansible):
+      docker exec -it openbao bao operator init
+    success_msg: "OpenBao is initialized."
+
+- name: Unseal OpenBao
+  ansible.builtin.include_tasks:
+    file: unseal.yml
+    apply:
+      tags: ['unseal']
+  when: openbao_setup_seal.sealed | bool
+  tags: ['unseal']
+
+- name: Report that OpenBao was already unsealed
+  ansible.builtin.debug:
+    msg: "OpenBao on {{ inventory_hostname }} was already unsealed — nothing to do."
+  when: not (openbao_setup_seal.sealed | bool)
+  tags: ['unseal']
+
+# Everything below needs a privileged identity: the admin userpass account, or
+# the root token on a first bootstrap. With neither, the play is still useful
+# as an unseal-only run, which is the common case after a reboot.
+- name: Bootstrap OpenBao configuration
+  when: openbao_setup_can_authenticate | bool
+  block:
+    - name: Authenticate
+      ansible.builtin.include_tasks: login.yml
+
+    - name: Enable the KV v2 secrets engine
+      ansible.builtin.include_tasks: kv.yml
+
+    - name: Write the ACL policies
+      ansible.builtin.include_tasks: policies.yml
+
+    - name: Enable the auth methods
+      ansible.builtin.include_tasks: auth.yml
+
+    - name: Configure the AppRoles
+      ansible.builtin.include_tasks: approle.yml
+      loop: "{{ openbao_setup_approles }}"
+      loop_control:
+        loop_var: openbao_setup_approle
+        label: "{{ openbao_setup_approle.name }}"
+
+    - name: Issue the backup token
+      ansible.builtin.include_tasks: backup_token.yml
+
+- name: Report that the bootstrap was skipped
+  ansible.builtin.debug:
+    msg: >-
+      No root token supplied — only the unseal step ran. Re-run with the root
+      token at the prompt to configure KV, policies, auth methods and tokens.
+  when: (bao_root_token | default('')) | length == 0

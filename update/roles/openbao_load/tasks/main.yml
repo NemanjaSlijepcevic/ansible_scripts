@@ -1,0 +1,109 @@
+---
+# Runs on the OpenBao host: preflight, login, and the scopes that belong to no
+# single host — group_vars/all.yml and any orphaned host_vars file.
+- name: Read seal status
+  ansible.builtin.uri:
+    url: "{{ openbao_load_addr }}/v1/sys/seal-status"
+    method: GET
+    status_code: 200
+  register: openbao_load_seal
+  changed_when: false
+
+- name: Assert OpenBao is initialized and unsealed
+  ansible.builtin.assert:
+    that:
+      - openbao_load_seal.json.initialized | bool
+      - not (openbao_load_seal.json.sealed | bool)
+    fail_msg: >-
+      OpenBao on {{ inventory_hostname }} is sealed or uninitialized — nothing
+      can be written. Unseal it first:
+      ansible-playbook openbao_setup.yml --vault-password-file ../pass.file --tags unseal
+    success_msg: "OpenBao is unsealed."
+
+# 400 is accepted here so the assert below can explain the failure. Left to the
+# uri module, a bad password fails with a censored result (no_log hides the
+# body), which says nothing about which account was tried.
+- name: Log in with the admin userpass account
+  ansible.builtin.uri:
+    url: "{{ openbao_load_addr }}/v1/auth/userpass/login/{{ openbao_load_admin_user }}"
+    method: POST
+    body_format: json
+    body:
+      password: "{{ bao_admin_password }}"
+    status_code: [200, 400]
+  register: openbao_load_login
+  no_log: true
+  changed_when: false
+
+- name: Assert the login succeeded
+  ansible.builtin.assert:
+    that:
+      - openbao_load_login.status == 200
+    fail_msg: >-
+      userpass login failed for '{{ openbao_load_admin_user }}'. Check the name
+      (it defaults to the deploy user) and the password. List the accounts with
+      a privileged token: bao list auth/userpass/users. Repeated failures can
+      trip OpenBao's user lockout — wait it out rather than retrying.
+    success_msg: "Logged in as '{{ openbao_load_admin_user }}'."
+
+# Kept as a fact on this host so the second play can read it back through
+# hostvars instead of logging in once per host.
+- name: Keep the token for the rest of the run
+  ansible.builtin.set_fact:
+    openbao_load_token: "{{ openbao_load_login.json.auth.client_token }}"
+  no_log: true
+
+- name: Show which account is being used
+  ansible.builtin.debug:
+    msg: >-
+      Authenticated as '{{ openbao_load_admin_user }}' with policies
+      {{ openbao_load_login.json.auth.token_policies }}.
+
+- name: List the mounted secrets engines
+  ansible.builtin.uri:
+    url: "{{ openbao_load_addr }}/v1/sys/mounts"
+    method: GET
+    headers: "{{ openbao_load_headers }}"
+    status_code: 200
+  register: openbao_load_mounts
+  changed_when: false
+  no_log: true
+
+- name: Assert the KV v2 engine is mounted
+  ansible.builtin.assert:
+    that:
+      - (openbao_load_kv_path ~ '/') in openbao_load_mounts.json.data
+    fail_msg: >-
+      No secrets engine mounted at {{ openbao_load_kv_path }}/. Run the
+      bootstrap first: ansible-playbook openbao_setup.yml --vault-password-file ../pass.file
+    success_msg: "KV mounted at {{ openbao_load_kv_path }}/."
+
+# group_vars/all.yml is the base layer: it contains no Jinja, and rendering it
+# through a host would silently capture that host's overrides (ufw_rules,
+# prometheus, …). So it is read straight off disk and written as written.
+# Read through the `file` lookup, not include_vars: lookup results are marked
+# unsafe, so nothing here is ever templated. include_vars defers templating to
+# first use, which would resolve any Jinja against *this* host and silently
+# capture its overrides. The lookup decrypts the vaulted file the same way.
+- name: Read group_vars/all.yml without rendering it
+  ansible.builtin.set_fact:
+    openbao_load_group_vars: "{{ lookup('ansible.builtin.file', inventory_dir ~ '/group_vars/all.yml') | from_yaml }}"
+
+- name: Write the group variables
+  ansible.builtin.include_tasks: load_scope.yml
+  vars:
+    openbao_load_scope: "all"
+    openbao_load_values: "{{ openbao_load_group_vars }}"
+
+- name: Find host_vars files with no matching host
+  ansible.builtin.set_fact:
+    openbao_load_orphans: >-
+      {{ query('ansible.builtin.fileglob', inventory_dir ~ '/host_vars/*.yml') | sort
+         | reject('search', '/(' ~ (groups['all'] | join('|')) ~ ')[.]yml$') | list }}
+
+- name: Write the orphaned host_vars files
+  ansible.builtin.include_tasks: load_orphan.yml
+  loop: "{{ openbao_load_orphans }}"
+  loop_control:
+    loop_var: openbao_load_orphan_file
+    label: "{{ openbao_load_orphan_file | basename }}"

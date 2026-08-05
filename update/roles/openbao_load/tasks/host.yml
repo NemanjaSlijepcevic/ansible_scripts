@@ -1,0 +1,37 @@
+---
+# Runs once per inventory host. The values must be rendered in that host's own
+# play context: a variable whose value contains `hostvars[...]` (see
+# primary_postgres' postgres_tls_clients) cannot be resolved from another
+# host's context — `map('extract', hostvars[other])` raises "'hostvars' is
+# undefined". `vars` is the current host's own variable dict, which resolves.
+- name: Look for this host's host_vars file
+  ansible.builtin.stat:
+    path: "{{ openbao_load_host_file }}"
+  register: openbao_load_host_stat
+  delegate_to: localhost
+  become: false
+  changed_when: false
+
+- name: Note that this host has no host_vars file
+  ansible.builtin.debug:
+    msg: "{{ inventory_hostname }} has no host_vars file — nothing host-specific to write."
+  when: not openbao_load_host_stat.stat.exists
+
+- name: Write this host's variables
+  when: openbao_load_host_stat.stat.exists
+  block:
+    # The key list comes from the file, not from `vars`: `vars` also carries
+    # group_vars, the connection settings and Ansible's own magic variables,
+    # and none of those belong under this host's scope.
+    - name: Read {{ openbao_load_host_file | basename }}
+      ansible.builtin.include_vars:
+        file: "{{ openbao_load_host_file }}"
+        name: openbao_load_host_vars
+
+    - name: Write the variables of {{ inventory_hostname }}
+      ansible.builtin.include_tasks: load_scope.yml
+      vars:
+        openbao_load_scope: "{{ inventory_hostname }}"
+        openbao_load_keys: "{{ openbao_load_host_vars.keys() | list }}"
+        openbao_load_values: >-
+          {{ dict(openbao_load_keys | zip(openbao_load_keys | map('extract', vars) | list)) }}

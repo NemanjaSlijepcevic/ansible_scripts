@@ -1,0 +1,47 @@
+---
+- name: Collect the unseal keys given at the prompt
+  ansible.builtin.set_fact:
+    openbao_setup_keys: >-
+      {{ [bao_unseal_key_1 | default(''), bao_unseal_key_2 | default(''),
+          bao_unseal_key_3 | default('')]
+         | reject('equalto', '') | list }}
+  no_log: true
+
+- name: Fail when the node is sealed and no keys were given
+  ansible.builtin.fail:
+    msg: >-
+      OpenBao on {{ inventory_hostname }} is sealed
+      ({{ openbao_setup_seal.progress }}/{{ openbao_setup_seal.t }} shares
+      entered) but no unseal keys were supplied. Re-run and paste
+      {{ openbao_setup_seal.t }} different shares at the prompt.
+  when: openbao_setup_keys | length == 0
+
+# Each share is POSTed on its own; OpenBao counts them until the threshold is
+# met. A duplicate share does not advance the count, so the assert below is
+# what catches "I pasted the same key twice".
+- name: Submit the unseal keys
+  ansible.builtin.uri:
+    url: "{{ openbao_setup_addr }}/v1/sys/unseal"
+    method: PUT
+    body_format: json
+    body:
+      key: "{{ item }}"
+    status_code: 200
+  loop: "{{ openbao_setup_keys }}"
+  loop_control:
+    index_var: openbao_setup_key_index
+    label: "share {{ openbao_setup_key_index + 1 }}"
+  register: openbao_setup_unseal
+  no_log: true
+  changed_when: true
+
+- name: Assert the node is now unsealed
+  ansible.builtin.assert:
+    that:
+      - not (openbao_setup_unseal.results | last).json.sealed
+    fail_msg: >-
+      Still sealed after {{ openbao_setup_keys | length }} share(s):
+      {{ (openbao_setup_unseal.results | last).json.progress }}/{{ (openbao_setup_unseal.results | last).json.t }}
+      accepted. Duplicate shares do not count — paste
+      {{ (openbao_setup_unseal.results | last).json.t }} *different* ones.
+    success_msg: "OpenBao unsealed."

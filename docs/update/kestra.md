@@ -34,13 +34,13 @@ Kestra sits behind Traefik with Authelia forward-auth protecting the UI; webhook
 
 #### Step 1: Create data directories
 
-**Purpose**: Kestra's local storage backend (flow files, execution artifacts) needs a directory owned by the in-container `kestra` user (uid `1000` — see `kestra.uid`).
+**Purpose**: Kestra's local storage backend (execution artifacts, namespace files) needs a directory owned by the in-container `kestra` user (uid `1000` — see `kestra.uid`).
 
 **Commands**:
 ```bash
-sudo mkdir -p ./data/kestra/storage ./data/kestra/flows
+sudo mkdir -p ./data/kestra/storage
 sudo chown -R 1000:docker ./data/kestra
-sudo chmod 0755 ./data/kestra ./data/kestra/storage ./data/kestra/flows
+sudo chmod 0755 ./data/kestra ./data/kestra/storage
 ```
 
 **Explanation**: `./data/kestra/storage` maps to `/app/storage` inside the container. Workflow definitions, users, and execution state live in PostgreSQL, not here — this holds only internal storage objects (task outputs, namespace files).
@@ -177,7 +177,6 @@ sudo docker network connect docker-api kestra
 | `kestra.admin_user` | `admin@example.com` | Kestra basic-auth login (must be an email) |
 | `kestra.admin_password` | `changeme` | Kestra basic-auth password |
 | `kestra.uid` | `1000` | In-container `kestra` user; owns storage + Postgres client key |
-| `kestra.disabled_flows` | all flow ids | Flow ids imported with `disabled: true` — visible in the UI, never executable, triggers never fire. Remove an id and re-run to enable it |
 | `kestra_db.user` | `kestra` | PostgreSQL user (provisioned by `prepare_postgres`) |
 | `kestra_db.password` | `changeme` | PostgreSQL user password |
 | `postgres.ip` | `192.0.2.10` | Central PostgreSQL server address |
@@ -192,67 +191,106 @@ sudo docker network connect docker-api kestra
 | Template | Destination | Purpose |
 |----------|-------------|---------|
 | `application.yml.j2` | `./data/kestra/application.yml` (mode 0600, `kestra.uid`:docker) | Full Kestra config: Postgres JDBC mTLS, basic auth, encryption, socket-proxy task runner defaults |
-| `flows/*.yml.j2` | `./data/kestra/flows/*.yml` (mode 0644) | Repo-managed flow definitions, pushed into the `automation` namespace on every role run |
 
-## Repo-managed flows
+## Flows are not in this repo
 
-Flow YAML lives in the role at `templates/flows/*.yml.j2` and is deployed by the role itself — no manual UI work:
+The role deploys the **platform** — container, config, secrets, sandbox images, the socket-proxy task-runner defaults. It deploys **no flow YAML**: there is no `templates/flows/`, no `/flows` bind mount, and no `flow namespace update` step. Flows are authored in the Kestra UI and live in the central Postgres `kestra` database.
 
-1. `environment.yml` renders each template into `./data/kestra/flows/` using **custom Jinja delimiters** (`[[ var ]]` / `[% block %]`) so Kestra's own `{{ ... }}` expressions pass through to the server unrendered. Inventory values (image names, sandbox network, deploy-dir host paths, key filename) are resolved at render time.
-2. The container mounts that directory read-only at `/flows`.
-3. After the container starts, the role runs Kestra's bundled CLI against the local API (retried until the server is up):
+That is a deliberate choice, not an omission. There is no render step, no delimiter juggling between Ansible's Jinja and Kestra's Pebble, and no deploy that can silently overwrite something edited in the UI.
 
-```bash
-sudo docker exec kestra /app/kestra flow namespace update automation /flows \
-  --no-delete --server http://localhost:8080 --user admin@your-domain.com:<secret>
-```
+Consequences to respect:
 
-`--no-delete` preserves flows created only in the UI; a flow whose `id` matches a repo file is **overwritten** (the server only bumps a revision when the source actually changed, so re-runs are idempotent). Treat repo flows as code: edit them in `templates/flows/`, not in the UI. Drop `--no-delete` if the repo should be the single source of truth for the namespace.
+- **Backups cover flows.** Flow source, revisions, executions and users are rows in the `kestra` Postgres database, dumped by `update/backup.yml` along with every other database. Restoring that database restores every flow at its last revision.
+- **Re-running `automation.yml` never touches a flow.** Editing in the UI is safe; nothing overwrites it on the next deploy.
 
-### Importing flows disabled (`kestra.disabled_flows`)
+### Webhook keys live in OpenBao, not in the flow
 
-Every flow id listed in `kestra.disabled_flows` is rendered with a flow-level `disabled: true`. The flow is still imported and readable in the UI, but it **cannot be executed** — no manual runs, and its triggers (cron, webhook, flow) never fire. Useful on a first rollout: import everything, learn one flow at a time, enable as you go.
+A Webhook trigger's `key` is the **only** authentication on its URL — the webhook path bypasses both Traefik/Authelia and Kestra's basic auth, so the key is effectively a password for whatever the flow does.
+
+`key` **is a dynamic property**, so it never holds a literal:
 
 ```yaml
-# host_vars/primary_automation.yml
-kestra:
-  disabled_flows:
-    - "ansible-update-all"
-    - "ansible-on-merge"
+triggers:
+  - id: github_webhook
+    type: io.kestra.plugin.core.trigger.Webhook
+    key: "{{ secret('WH_<NAMESPACE>_<FLOW_ID>') }}"
 ```
 
-Enable a flow by **removing its id from the list and re-running the playbook**. The UI's enable toggle works only until the next deploy: the role always runs `flow namespace update`, which overwrites the flow from the repo source and restores `disabled: true`. An empty list (or omitting the key) makes every flow live.
+The chain: `kv/homelab/kestra/webhooks` holds one field per webhook flow, named `<namespace>_<flow_id>` → the role reads the whole path in `environment.yml` and hands each field to the container as `SECRET_WH_<NAME|upper>` (base64) → the flow reads it back with `secret()`. Adding a webhook flow means adding one KV field and re-running `automation.yml --tags kestra`; nothing in this repo lists the flows.
 
-Trigger-only suppression — flow runnable by hand, no automatic firing — is a per-trigger `disabled: true` inside the `triggers:` block instead; the role does not template that.
+Verified behaviour, since the docs do not state it plainly: a flow whose key rendered to `abcdef` answers on `…/webhook/<ns>/<flow>/abcdef` (HTTP 200) and the unrendered literal 404s/500s. Non-dynamic properties are the ones the plugin docs explicitly label *Non-dynamic*; `key` carries no such label.
 
-Shipped starter flows:
+### Exporting flows by hand
 
-| Flow id | Purpose |
-|---------|---------|
-| `ansible-deploy` | Pulls this repo in the shared workspace, then runs a chosen `update/` playbook via `AnsibleCLI` in the `ansible-runner` image (SELECT input for the playbook, BOOLEAN input for `--check` dry run, defaults to dry run) |
-| `claude-task` | Runs a Claude Code prompt (STRING input, passed via env var to avoid shell injection) in the `claude-runner` sandbox, JSON output |
-| `ghost-new-article` | Webhook-triggered by Ghost on post publish; mails the subscriber list (bcc, from `kestra.ghost_subscribers`) via the same Gmail SMTP account Authelia uses (`SMTP_USERNAME`/`SMTP_PASSWORD` Kestra secrets) |
-| `ansible-update-all` | Cron-scheduled (`kestra.update_schedule`, default Sunday 05:00): syncs the repo, then runs each playbook in `kestra.update_playbooks` sequentially (`ForEach`, `concurrencyLimit: 1`). Per-playbook failures are `allowFailure` → execution ends WARNING and the rest still run; hard failures (e.g. repo sync) mail the admin via the `errors` block. **`automation.yml` is deliberately excluded** — it can recreate the Kestra container mid-run and kill its own orchestrating execution; update the automation host via `ansible-deploy` or a workstation |
-| `ansible-on-merge` | Webhook-triggered by a GitHub **push** hook on this repo (key `kestra.github_webhook_key`); an `If` task acts only on `refs/heads/main` (a merged PR lands as a push to main), then calls `ansible-update-all` as a `Subflow` (`wait` + `transmitFailed`) so the playbook loop is defined in exactly one place. GitHub wiring: repo → Settings → Webhooks → Add webhook, payload URL `https://<kestra-domain>/api/v1/main/executions/webhook/automation/ansible-on-merge/<github_webhook_key>`, content type `application/json`, just the push event. Requires the Kestra domain to be reachable **from GitHub** (public exposure) |
-| `claude-telegram` | Worker subflow: takes a `prompt` input, runs Claude Code in the `claude-runner` sandbox with the ansible repo mounted read-only at `/repo` (full infra context), posts the answer to Telegram via the bot API (`SECRET_TELEGRAM_*`). If Claude fails, a stub message is sent and the task still succeeds |
-| `grafana-alert-triage` | Webhook-triggered by Grafana's "Kestra" contact point (key `kestra.grafana_webhook_key`); on `status == firing` builds a diagnosis prompt from the alert payload (`trigger.body \| toJson`) and calls `claude-telegram`. Telegram thus gets the raw alert (direct from Grafana) plus a Claude diagnosis as follow-up |
-| `kestra-failure-triage` | `Flow` trigger on any `FAILED` execution in the `automation` namespace; asks Claude to read the failed flow's source under `/repo` and explain likely causes → Telegram. Loop guard: ignores failures of itself and of `claude-telegram` (else an Anthropic outage would retrigger forever) |
+To take a copy outside the database backup — one ZIP per namespace, written inside the container, then copied out:
 
-### Wiring Ghost to `ghost-new-article` (one-time, in Ghost admin)
-
-1. Ghost admin → **Settings → Integrations → Add custom integration** (name it e.g. `kestra`).
-2. In the integration, **Add webhook**: event **Post published**, target URL:
-
-```
-https://kestra.your-domain.com/api/v1/main/executions/webhook/automation/ghost-new-article/<ghost_webhook_key>
+```bash
+# on the automation host
+sudo docker exec kestra sh /app/kestra flow export \
+  --namespace <namespace> \
+  --server http://localhost:8080 \
+  --user <admin-user>:<admin-password> \
+  /tmp
+sudo docker cp kestra:/tmp/flows.zip ./flows-<namespace>.zip
 ```
 
-3. Publish a post — Ghost POSTs `{ "post": { "current": { title, url, excerpt, ... } } }` and the flow mails every address in `kestra.ghost_subscribers` (recipients are in **bcc**; the `to` field is the sender itself).
+Two things that bite:
 
-Notes:
-- The webhook path bypasses Authelia and Kestra's basic auth, so the random `<ghost_webhook_key>` in the URL is the **only** auth — treat it like a password (it lives in `host_vars` as `kestra.ghost_webhook_key`).
-- Subscriber list changes = edit `kestra.ghost_subscribers` in `host_vars` and re-run the role (flows are redeployed idempotently).
-- Gmail sending limits apply (~500 recipients/day for a normal account) — fine for a small blog list; move to a transactional provider if the list grows.
+- The launcher is a self-executing JAR with a batch header — `docker exec kestra /app/kestra …` fails with `exec format error`. Always invoke it through a shell: **`sh /app/kestra`**.
+- `--user` puts the admin password in the container's argv, visible to anything that can read `/proc` on the automation host. Acceptable only because reading it needs root there — and root on that host already holds every secret on it.
+
+The export carries no credentials — webhook keys are `secret()` expressions and every other secret is fetched at runtime — but it does map every flow, trigger and target, so keep it out of the repo anyway.
+
+### Live flows
+
+Five namespaces, authored in the UI — `homestation` for the homelab itself, `shared` for cross-site subflows, and one per site/client (`<org-a>`, `<org-b>`, `<org-c>` below). Webhook URLs follow `https://<kestra-domain>/api/v1/main/executions/webhook/<namespace>/<flow-id>/<webhook-key>`.
+
+| Namespace / flow | Trigger | What it does |
+|---|---|---|
+| `homestation.run_ansible` | — (subflow) | Clones this repo and runs one playbook in the `ansible-runner` sandbox. Inputs: `playbook`, `tags`, `limit`, `branch`, `extra_args`. The single copy of the clone + `AnsibleCLI` body every deploy flow used to duplicate |
+| `homestation.clone_update_ansible_scripts` | Schedule (weekly) + Webhook | `site.yml` via `run_ansible` |
+| `homestation.backup_dbs` | Schedule (weekly) | `backup.yml` via `run_ansible` |
+| `homestation.update_public_ip_tracker` | Webhook (GitHub push) | `monitor.yml --tags public_ip_tracker` via `run_ansible` |
+| `homestation.update_public_ip_whitelist_updater` | Webhook (GitHub push) | `server.yml --tags public_ip_whitelist_updater` via `run_ansible` |
+| `<org-a>.update_bibliography` | Webhook (GitHub push) | `server.yml --tags bibliography` via `run_ansible` |
+| `<org-a>.update_kaleidoscope` | Webhook (GitHub push) | `server.yml --tags kaleidoscope` via `run_ansible` |
+| `shared.ghost_subscriber_email` | — (subflow) | On a Ghost "post published" payload, mails every subscribed member one message each over Gmail SMTP. Inputs: `body`, `site_url`, `ghost_kv_path`, `mail_site_name`, `sender_email`, `sender_name`, optional `brand_name` / `send_delay_seconds` |
+| `<org-a>.ghost_cms_subscriber_email` | Webhook (Ghost) | Per-site values → `shared.ghost_subscriber_email` |
+| `<org-b>.ghost_cms_subscriber_email` | Webhook (Ghost) | Per-site values → `shared.ghost_subscriber_email` |
+| `homestation.telegram_claude_bridge` | Webhook (Telegram bot) | Relays a Telegram message to a Claude Code run in the `claude-runner` sandbox and answers in the chat |
+| `homestation.weekly_rsync_data` | Schedule (weekly) | `rsync` between directories on a remote host over SSH (`ssh.Command`, key from OpenBao) |
+| `<org-c>.zoho_desk_caller`, `<org-c>.zoho_ticket_ack` | Webhook (Zoho Desk) | Zoho Desk ticket automation |
+
+**Subflow pattern.** The deploy and Ghost-mail flows are thin callers: a trigger plus one `io.kestra.plugin.core.flow.Subflow` task with `wait: true` and `transmitFailed: true`. The caller owns its webhook key (one URL per producer, so no shared key can fire every deploy) and its `finally:` Telegram notification (the message names the flow that actually ran, not the shared worker). The subflow owns the logic and has **no triggers at all**.
+
+A subflow cannot read `trigger.body`, so a webhook caller forwards the payload as an input:
+
+```yaml
+tasks:
+  - id: mail_subscribers
+    type: io.kestra.plugin.core.flow.Subflow
+    namespace: shared
+    flowId: ghost_subscriber_email
+    wait: true
+    transmitFailed: true
+    inputs:
+      body: "{{ trigger.body | toJson }}"
+      site_url: "https://your-domain.com"
+      ghost_kv_path: "homelab/kestra/<site>"
+      mail_site_name: "<ghost_sites entry name>"
+      sender_email: "<address>"
+      sender_name: "<display name>"
+```
+
+### Wiring a producer to a webhook flow
+
+**GitHub** (deploy on push): repo → Settings → Webhooks → Add webhook. Payload URL `https://<kestra-domain>/api/v1/main/executions/webhook/<namespace>/<flow-id>/<webhook-key>`, content type `application/json`, just the push event. Needs the Kestra domain reachable **from GitHub**.
+
+**Ghost** (mail subscribers on publish): Ghost admin → Settings → Integrations → Add custom integration → Add webhook, event **Post published**, same URL shape. Ghost POSTs `{ "post": { "current": {…}, "previous": {…} } }`; the flow mails only when `current.status == published` and `previous.status != published`, so an edit to an already-published post sends nothing.
+
+Both need their site's Ghost Admin API key in OpenBao (see [KV paths the flows use](#kv-paths-the-flows-use)) — the flow mints a short-lived JWT from it and reads the member list over the Admin API. Gmail's sending limits apply (~500 recipients/day on a normal account).
+
+To read a key back for rebuilding a URL, open the flow in the UI — the `key:` is in its source. Rotating one means editing the flow and re-registering the URL with the producer.
 
 ## Using the sandbox images from flows
 
@@ -342,6 +380,105 @@ sudo docker run --rm --network proxy curlimages/curl -sf \
 ```
 
 Visualised by the `Homelab — Kestra` dashboard (`grafana/files/kestra.json`, uid `homelab-kestra`) and alerted on by the `homelab-kestra` rule group (`hl-kestra-down`, `-failed`, `-worker-backlog`, `-log-errors`), whose thresholds live in the `alerts` dict of the grafana role's `defaults/main.yml`.
+
+## Secrets in flows (OpenBao)
+
+Flows hold no credentials. Kestra OSS has no Vault/OpenBao plugin — external secret managers are an EE feature — so secrets arrive by one of two routes, chosen by *where the value is consumed*:
+
+| Route | Used when | Exposure |
+|-------|-----------|----------|
+| **Fetched from OpenBao inside the script** | the value is used by Python/shell task code | none — the secret stays in the task process |
+| **`{{ secret('NAME') }}`** | the value is a *plugin property* (`TelegramSend.token`, `ssh.Command.privateKey`) | masked by Kestra in logs and UI |
+
+The split exists because a plugin property only accepts an expression, and an expression must come from a preceding task whose **output Kestra persists** — the secret would land in the execution record and the UI. So plugin properties use the masked `secret()` backend instead.
+
+### Runtime reads
+
+Script tasks carry three env entries and a small helper:
+
+```yaml
+env:
+  BAO_URL: "{{ envs.openbao_url }}"        # from ENV_OPENBAO_URL
+  BAO_ROLE_ID: "{{ secret('OPENBAO_ROLE_ID') }}"
+  BAO_SECRET_ID: "{{ secret('OPENBAO_SECRET_ID') }}"
+script: |
+  import os
+  # ... helper _bao(path) : AppRole login -> GET kv/data/<path> -> dict
+  api_key = _bao("homelab/kestra/<service>")["api_key"]
+```
+
+Only **`ENV_`**-prefixed container variables reach flows: the prefix is stripped and the remainder lowercased, so `ENV_OPENBAO_URL` is read as `{{ envs.openbao_url }}`. The prefix is `kestra.variables.env-vars-prefix` (default `ENV_`), left at its default here.
+
+A `KESTRA_` prefix does **not** work — Micronaut consumes those as configuration overrides (`KESTRA_OPENBAO_URL` → config property `kestra.openbao.url`), so the variable never appears in `envs` and every flow reading it dies with `Unable to find 'openbao_url' used in the expression '{{ envs.openbao_url }}'`.
+
+Access is the dedicated **`kestra` AppRole** with the **`kestra-read`** policy — read-only, and only on the paths in `openbao_setup_kestra_read_paths`. It deliberately does *not* get `ansible-read`, which can read the whole homelab tree including `vault_password`. Adding a secret to a flow means adding its path to that list and re-running `openbao_setup.yml`.
+
+### KV paths the flows use
+
+| Path | Keys | Source |
+|------|------|--------|
+| `kv/homelab/kestra/ghost_kgb` | `admin_api_key` | flow-only, written by hand |
+| `kv/homelab/kestra/ghost_skup` | `admin_api_key` | flow-only, written by hand |
+| `kv/homelab/kestra/amitylink_caller` | `api_key` | flow-only, written by hand |
+| `kv/homelab/kestra/ssh_bridge` | `private_key`, optional `passphrase` | flow-only, written by hand |
+| `kv/homelab/kestra/webhooks` | one field per webhook flow, named `<namespace>_<flow_id>` | written by hand; read at **deploy** time → `SECRET_WH_<NAME>` |
+| `kv/homelab/primary_server/ghost_sites` | `value[]` → `mail_user`, `mail_pass` | mirrored from the inventory by [`openbao_load`](openbao_load.md) |
+
+The Ghost SMTP credentials are read from the mirrored inventory entry and selected by site name, so they stay defined in exactly one place.
+
+### One-time bootstrap
+
+Write the flow-only secrets with an admin token (never on the command line):
+
+```bash
+read -rs BAO_TOKEN; export BAO_TOKEN
+
+docker exec -e BAO_TOKEN openbao bao kv put kv/homelab/kestra/ghost_kgb        admin_api_key=<key>
+docker exec -e BAO_TOKEN openbao bao kv put kv/homelab/kestra/ghost_skup       admin_api_key=<key>
+docker exec -e BAO_TOKEN openbao bao kv put kv/homelab/kestra/amitylink_caller api_key=<key>
+
+# multi-line values come from a file rather than the shell
+docker exec -i -e BAO_TOKEN openbao bao kv put kv/homelab/kestra/ssh_bridge private_key=- < bridge_key.pem
+
+unset BAO_TOKEN
+```
+
+The bridge bot token goes in too — it is read at *deploy* time, not runtime, but OpenBao is still its only home:
+
+```bash
+docker exec -e BAO_TOKEN openbao bao kv put kv/homelab/kestra/telegram_bridge bot_token='<token>'
+```
+
+The webhook keys are one path holding every key — all fields in a single `put`, since `kv put` replaces the whole secret:
+
+```bash
+docker exec -e BAO_TOKEN openbao bao kv put kv/homelab/kestra/webhooks \
+  homestation_update_public_ip_tracker='<key>' \
+  klub_gacana_update_bibliography='<key>' \
+  ...
+```
+
+Generate a key with `openssl rand -base64 48 | tr -d '/+=' | cut -c1-64`. To add one later, re-`put` the full set (read the current one first with `bao kv get`) or use `bao kv patch`.
+
+Nothing else goes on disk. `.secrets/kestra_role_id` and `.secrets/kestra_secret_id` are written by `openbao_setup.yml` and are the only files this role needs — "secret zero", the one credential that cannot live inside the store it unlocks. The role asserts both exist before deploying.
+
+### Deploy-time reads
+
+Some values are consumed as plugin properties and so cannot be fetched at runtime — the task producing them would land in the execution record. Ansible reads them from OpenBao during the deploy and passes them as masked `SECRET_*` env:
+
+| Env | KV path | Key |
+|-----|---------|-----|
+| `SECRET_TELEGRAM_BRIDGE_BOT_TOKEN` | `kv/homelab/kestra/telegram_bridge` | `bot_token` |
+| `SECRET_RSYNC_SSH_KEY` | `kv/homelab/kestra/ssh_bridge` | `private_key` |
+| `SECRET_WH_<NAMESPACE>_<FLOW_ID>` | `kv/homelab/kestra/webhooks` | every field, one per webhook flow |
+
+That read uses the **ansible** AppRole (`.secrets/bao_role_id`), needs `pipx inject ansible hvac` (or `pip install hvac` if Ansible is not pipx-installed — a pipx venv is isolated from user site-packages), and is the one thing that makes this role require an unsealed OpenBao at deploy time. Nothing else in the repo gains that dependency.
+
+### Rotation
+
+A secret fetched at runtime is picked up on the next flow execution — no redeploy. The `secret()`-backed values are baked into the container env, so rotating one means updating it in OpenBao and re-running `automation.yml --tags kestra`.
+
+Rotating a **webhook key** is that plus one more step: the producer holds the old URL. Update the field in `kv/homelab/kestra/webhooks`, re-run the role, then re-register the new URL in GitHub / Ghost / whatever calls it. The flow itself never changes.
 
 ## Handlers & Service Management
 

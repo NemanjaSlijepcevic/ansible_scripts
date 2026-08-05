@@ -1,0 +1,51 @@
+---
+# Schema/legend for the inventory this role consumes, plus its own knobs.
+# Placeholder values only — real data lives in host_vars/primary_openbao.yml.
+# See CLAUDE.md "Role defaults/main.yml is documentation for the encrypted inventory".
+
+user:
+  name: "deploy"
+  group: "docker"
+
+# Sibling-service reference: the openbao role's block. Only `port` is read here.
+# The API is reached on the container's localhost bind, never through Traefik —
+# this role ships the entire inventory over the wire, so it must not leave the
+# host. Every request is therefore delegated to the OpenBao host.
+openbao:
+  port: "8200"
+
+openbao_load_group: "openbaos"
+openbao_load_delegate: "{{ groups[openbao_load_group] | first }}"
+openbao_load_addr: "http://127.0.0.1:{{ openbao.port }}"
+
+# --- What gets written -----------------------------------------------------
+# KV v2 mount and the path prefix under it. One secret per top-level inventory
+# variable:
+#
+#   group_vars/all.yml : <key>  ->  kv/homelab/all/<key>
+#   host_vars/<h>.yml  : <key>  ->  kv/homelab/<h>/<key>
+#
+# A variable whose value is a mapping is stored as-is. A scalar or list is
+# wrapped as {"value": <the value>} because KV v2 secrets must be objects.
+openbao_load_kv_path: "kv"
+openbao_load_prefix: "homelab"
+
+# Top-level variable names never written to KV. Empty by default: this role
+# mirrors the inventory as-is. `vault_password` is the obvious candidate —
+# holding the Ansible Vault password inside OpenBao makes the store able to
+# decrypt the inventory that seeds it.
+openbao_load_exclude_keys: []
+
+# --- Authentication --------------------------------------------------------
+# userpass login; the root token is revoked by design. Both come from the
+# playbook prompt and exist only for the duration of the run. The token is a
+# fact on the OpenBao host, so the second play reads it back from there.
+openbao_load_admin_user: "{{ bao_admin_user | default('') or user.name }}"
+openbao_load_headers:
+  X-Vault-Token: "{{ hostvars[openbao_load_delegate]['openbao_load_token'] | default('') }}"
+
+# --- Safety ----------------------------------------------------------------
+# true = report which paths would change and write nothing. The `uri` module
+# has no usable check mode for POST, so this is the preview switch rather than
+# --check. Set on the command line: -e openbao_load_dry_run=true
+openbao_load_dry_run: false

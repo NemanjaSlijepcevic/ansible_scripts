@@ -67,7 +67,7 @@ Run by `update/backup.yml` (not part of `site.yml`): every host dumps its databa
 
 | Role | Documentation | One-line description |
 |------|--------------|----------------------|
-| `db_backup` | [update/db_backup.md](update/db_backup.md) | Dumps PostgreSQL, MySQL/MariaDB and SQLite databases on a host, checksums them and pulls them to the control node |
+| `db_backup` | [update/db_backup.md](update/db_backup.md) | Dumps PostgreSQL, MySQL/MariaDB and SQLite databases (and OpenBao Raft snapshots) on a host, checksums them and pulls them to the control node |
 | `db_backup_sync` | [update/db_backup_sync.md](update/db_backup_sync.md) | Pushes the staged dumps to the NAS archive, verifies checksums and prunes old backups |
 
 ### Monitoring & Observability
@@ -99,6 +99,8 @@ Run by `update/backup.yml` (not part of `site.yml`): every host dumps its databa
 | `transmission` | [update/transmission.md](update/transmission.md) | Deploys Transmission BitTorrent client |
 | `netboot` | [update/netboot.md](update/netboot.md) | Deploys netboot.xyz network boot server |
 | `openbao` | [update/openbao.md](update/openbao.md) | Deploys OpenBao secrets-management server (Raft storage) |
+| `openbao_setup` | [update/openbao_setup.md](update/openbao_setup.md) | Unseals OpenBao and configures KV v2, policies, auth methods, AppRole and backup token (prompted secrets, run by `update/openbao_setup.yml`) |
+| `openbao_load` | [update/openbao_load.md](update/openbao_load.md) | Mirrors the whole inventory into KV v2 under `kv/homelab/` (populate-only, run by `update/openbao_load.yml`) |
 
 ### Web Applications
 
