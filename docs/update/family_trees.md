@@ -127,22 +127,38 @@ in.
 dig +short tree-<family-name>.your-domain.com
 ```
 
-### The genealogy export already exists on this host
+### The genealogy exports are available from a Git repository
 
-You need the export's entry-point HTML file and its matching support folder (the folder the export
-tool generated alongside it, holding every page it links to — individual people, sources, media)
-somewhere readable on this machine, e.g. staged under your home directory after transferring it here
-however you like (`scp`, a USB drive, whatever got it onto the box). Confirm both pieces are present
-before you start:
+The exports are kept in their own Git repository, one folder per family, each holding that family's
+entry-point HTML file and its matching support folder (the folder the export tool generated alongside
+it, holding every page it links to — individual people, sources, media):
+
+```
+<family-name>/<family-name>.html
+<family-name>/<family-name>.html.files/
+<family-name-2>/<family-name-2>.html
+<family-name-2>/<family-name-2>.html.files/
+```
+
+Keeping them in Git rather than on a local disk is what lets any machine build the sites: there is no
+hand-staged directory to remember to copy around, and regenerating a tree is a commit rather than a
+file transfer. Clone it somewhere throwaway and confirm both pieces are present:
 
 ```bash
-ls -la ~/family-export/<family-name>/<family-name>.html
-ls ~/family-export/<family-name>/<family-name>.html.files | head
+git clone --depth 1 <sources-repo-url> /tmp/family_trees_src
+ls -la /tmp/family_trees_src/<family-name>/<family-name>.html
+ls /tmp/family_trees_src/<family-name>/<family-name>.html.files | head
 ```
+
+`--depth 1` keeps the clone small — the history of a genealogy export is of no use here, only its
+current state. Re-clone (or `git pull`) whenever the tree is regenerated; nothing else caches it.
 
 If the support folder is missing or incomplete, every internal link on the rendered site (photos,
 individual pages, sources) will 404 — the entry-point file is not self-contained, it is a shell that
 references hundreds of sibling files.
+
+If the repository is private, clone it over SSH with a key that can read it, or with a token in the
+URL; the machine building the sites needs read access to it and nothing more.
 
 ---
 
@@ -151,7 +167,7 @@ references hundreds of sibling files.
 ### Overview
 
 1. Create the directory the site will be served from.
-2. Copy the export into it.
+2. Copy the export out of the clone into it.
 3. Strip the export's inline styles and add a mobile viewport tag and the external stylesheet link.
 4. Add the Cyrillic/Latin transliteration widget.
 5. Install the shared stylesheet, script and translation dictionary.
@@ -181,9 +197,9 @@ stylesheet, the script, the dictionary — has to live here flat, at the top lev
 ```bash
 rsync -a --chown=<username>:docker --chmod=755 --omit-dir-times \
   --exclude '<family-name>.html' \
-  ~/family-export/<family-name>/ /opt/<family-name>/
+  /tmp/family_trees_src/<family-name>/ /opt/<family-name>/
 
-sudo cp ~/family-export/<family-name>/<family-name>.html /opt/<family-name>/<family-name>.html
+sudo cp /tmp/family_trees_src/<family-name>/<family-name>.html /opt/<family-name>/<family-name>.html
 sudo chown <username>:docker /opt/<family-name>/<family-name>.html
 sudo chmod 0755 /opt/<family-name>/<family-name>.html
 ```
@@ -508,6 +524,7 @@ file in it by relative path.
 
 | Placeholder | What it is | How to choose it | Used in |
 | --- | --- | --- | --- |
+| `<sources-repo-url>` | Git repository holding the exports | one folder per family, each with `<family-name>/<family-name>.html` and its support folder | Before you start, Updating & day-to-day |
 | `<username>` | account that owns `/opt/<family-name>` | the unprivileged deploy account, group `docker` | Steps 1, 2, 5, 8 |
 | `<family-name>` | the export's base filename and the served directory's name | matches the genealogy export exactly (`<family-name>.html`, `<family-name>.html.files/`) | Steps 1–8 |
 | `<container>` | container, router and service name | usually `tree-<family-name>`; must be unique across the host | Step 7 |
@@ -549,9 +566,17 @@ instead — the domain ended up with a `bypass` policy somewhere, or the router 
 
 ## Updating & day-to-day
 
-**Refresh a tree from a newer export**: repeat Steps 2 through 6 with the new export, then do
-nothing else — the container mounts the directory read-only and serves whatever is on disk, so an
-updated file is live immediately with no restart.
+**Refresh a tree from a newer export**: pull the newer export into the clone, then repeat Steps 2
+through 6 — nothing else is needed, because the container mounts the directory read-only and serves
+whatever is on disk, so an updated file is live immediately with no restart.
+
+```bash
+git -C /tmp/family_trees_src pull --depth 1 || \
+  { rm -rf /tmp/family_trees_src && git clone --depth 1 <sources-repo-url> /tmp/family_trees_src; }
+```
+
+A shallow clone cannot always fast-forward across a rewritten or squashed history, which is why the
+fallback simply throws the directory away and clones again — the clone holds nothing worth keeping.
 
 ```bash
 docker exec <container> nginx -s reload  # only needed if you also change nginx's own config, which this setup never does

@@ -6,7 +6,7 @@
 
 - name: Copy a index file
   ansible.builtin.copy:
-    src: "{{ family_location }}/{{ family.name }}/{{ family.name }}.html"
+    src: "{{ family_trees_checkout }}/{{ family.name }}/{{ family.name }}.html"
     dest: "/opt/{{ family.name }}/{{ family.name }}.html"
     owner: "{{ user.name }}"
     group: "{{ user.group }}"
@@ -15,7 +15,7 @@
 
 - name: Synchronize files for "{{ family.name }}"
   ansible.posix.synchronize:
-    src: "{{ family_location }}/{{ family.name }}/"
+    src: "{{ family_trees_checkout }}/{{ family.name }}/"
     dest: "/opt/{{ family.name }}/"
     rsync_opts:
       - "--chown={{ user.name }}:{{ user.group }}"
