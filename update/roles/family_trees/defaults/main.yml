@@ -8,8 +8,14 @@ user:
   name: "deploy"
   group: "docker"
 
-# Local path (on the controller) holding the per-family source HTML folders.
-source_directory: "/path/to/family_tree_sources"
+# Git repository holding one folder per family, each with <name>/<name>.html
+# plus its <name>.html.files/ support folder. Cloned on the controller at run
+# time, so no source tree has to pre-exist on the machine running the deploy.
+family_trees_repo: "https://github.com/example/family-trees"
+family_trees_version: "main"
+
+# Where the clone lands on the controller. Throwaway — re-created every run.
+family_trees_checkout: "/tmp/family_trees_src"
 
 # Serbian -> Latin/English translation map rendered into dictionary.json.
 dictionary:
