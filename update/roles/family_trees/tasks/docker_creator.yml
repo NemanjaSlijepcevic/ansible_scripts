@@ -27,8 +27,6 @@
     env:
       TZ: Europe/Belgrade
     labels: "{{ traefik_labels }}"
-    # Serve-check a known static page (returns a plain 200, no redirect).
-    # nginx:latest ships curl.
     healthcheck:
       test:
         - "CMD"

@@ -1,163 +1,243 @@
-# Role: openbao_load
+# OpenBao Configuration Sync
 
-## Purpose
+## What this is
 
-Mirrors the **whole Ansible inventory** into OpenBao's KV v2 store: every top-level variable of `group_vars/all.yml` and of each `host_vars/<host>.yml` becomes one KV secret under `kv/homelab/`.
+This is the operation that copies every value out of the configuration files you keep off this host
+— one shared file and one file per machine, together holding every domain, credential and setting
+this homelab runs on — into OpenBao's key-value store, so that a consumer which wants to fetch a
+secret from the vault instead of holding a private copy of it can find one there.
 
-This is **populate-only**. The inventory stays the source of truth, every role keeps reading `host_vars`, and nothing in a deploy path depends on OpenBao being reachable — a sealed OpenBao must never block a deploy, least of all the deploy of OpenBao itself. Wiring roles to read from KV at runtime (via `community.hashi_vault` lookups) is a separate, incremental step.
+It is **populate-only**. Your configuration files stay the single source of truth; nothing on any
+machine has been switched over to reading from the vault at deploy time by this procedure alone, and
+no deploy anywhere is blocked by the vault being unreachable — the vault only ever receives a copy, it
+never feeds one back. Writing is also change-only: the current value under each path is read first and
+compared to what would be written, and a write only happens when a value is missing or different, so a
+value that has not changed since the last sync produces no write. Run this twice in a row with nothing
+changed in the source files, and the second run writes nothing at all.
 
-Companion to [`openbao`](openbao.md) (deploys the container) and [`openbao_setup`](openbao_setup.md) (mounts KV, writes policies, creates accounts). Run this one last.
+Path convention, one secret per top-level entry:
+
+```
+a key from the shared settings file    ->  kv/homelab/all/<key>
+a key from one machine's settings file ->  kv/homelab/<machine-name>/<key>
+```
+
+A key-value v2 secret has to be a JSON object. A value that is already a mapping — several related
+fields grouped together, like a set of named URLs — is written with its own fields intact. Anything
+else — a plain string, a number, a list — is wrapped as `{"value": <the value>}` before it is sent.
+
+Per-machine values are written **fully resolved**: if a setting for one machine embeds another
+machine's address or a value from the shared file, what lands in the vault is the final, computed
+value, not an unresolved reference to it — a consumer reading the vault gets something it can use
+immediately, not something it would need your own configuration tooling to finish evaluating. The
+shared file, by contrast, is written exactly as typed. Several machines override individual pieces of
+the shared settings for themselves, and resolving the shared file through any one machine's context
+would silently bake that one machine's override into the copy every other machine also reads from
+`kv/homelab/all/`.
+
+## Before you start
+
+**The vault is running, unsealed, has its key-value store mounted, and you have an account able to
+write to it**
 
 ```bash
-cd update && ansible-playbook openbao_load.yml --vault-password-file ../pass.file
+curl -s http://127.0.0.1:8200/v1/sys/seal-status | jq '{initialized, sealed}'
+# expect initialized=true, sealed=false — if not, unseal it first (see the vault's own setup steps)
+
+read -rs ADMIN_PASSWORD; echo
+BAO_TOKEN=$(curl -s -X POST http://127.0.0.1:8200/v1/auth/userpass/login/<admin-user> \
+  --data "{\"password\":\"$ADMIN_PASSWORD\"}" | jq -r '.auth.client_token')
+export BAO_TOKEN
+unset ADMIN_PASSWORD
+
+curl -s http://127.0.0.1:8200/v1/sys/mounts -H "X-Vault-Token: $BAO_TOKEN" | jq 'keys'
+# expect "kv/" in the list
 ```
 
-> Run it from `update/` — the inventory is set in `update/ansible.cfg`, so a run started from the repo root matches no hosts.
+If either check fails, the vault has not been through its own one-time setup yet — that has to happen
+before there is anywhere for this sync to write to.
 
-Prompts:
-
-| Prompt | Notes |
-|--------|-------|
-| Admin username | echoes; empty = the deploy user (`user.name`) |
-| Admin password | silent; the `userpass` account created by `openbao_setup` |
-
-The root token is not used — it is revoked by design once the admin account works.
-
-## Path layout
-
-One secret per top-level variable:
-
-```
-group_vars/all.yml : <key>      ->  kv/homelab/all/<key>
-host_vars/<host>.yml : <key>    ->  kv/homelab/<host>/<key>
-```
-
-KV v2 secrets must be JSON objects, so:
-
-- a variable whose value is a **mapping** is stored as-is — `traefik_links` lands as `kv/homelab/<host>/traefik_links` with its own keys intact;
-- a **scalar or list** is wrapped — `base_domain` lands as `{"value": "your-domain.com"}`.
-
-Read one back:
+**`jq` is available**, to build and read the JSON payloads used throughout this guide:
 
 ```bash
-docker exec -e BAO_TOKEN openbao bao kv get kv/homelab/<host>/<key>
-docker exec -e BAO_TOKEN openbao bao kv list kv/homelab/
+jq --version
 ```
 
-## Rendered vs raw
+**You know where every configuration file currently lives**: one shared file, plus one file per
+machine, kept somewhere off this host. Their contents are read and sent over the API; the files
+themselves are never copied onto this machine as part of this process.
 
-**Host variables are stored rendered.** `Host(`svc.{{ base_domain }}`)` is written resolved, and the `_service` composition anchors are resolved too, so a consumer reading KV gets the final value — not a template it cannot evaluate.
+## Setup
 
-**Group variables are stored as written.** `group_vars/all.yml` is the base layer; rendering it through a host would silently capture that host's overrides (`ufw_rules`, `prometheus`, `influxdb`, `log_notification` are all overridden somewhere) and write the wrong value under the shared `all` scope. The file is therefore read with the `file` lookup rather than `include_vars` — lookup results are marked unsafe, so nothing in them is ever templated. (`include_vars` does not render at load time either; it defers templating to first *use*, which is exactly when the wrong context would be applied.) The lookup decrypts a vaulted file just as `include_vars` does.
+### Overview
 
-This is why the playbook has **two plays**. A variable whose value references another host — for example `owner: "{{ hostvars['primary_automation'].kestra.uid }}"` in the postgres TLS client list — cannot be resolved from a different host's play context; `map('extract', hostvars[other])` fails with `'hostvars' is undefined`. Each host must therefore render its own variables, which is what `vars` (the current host's variable dict) gives. No host is actually connected to: facts are off and every API call is `delegate_to` the OpenBao host.
+1. Authenticate and keep the token for the rest of the run.
+2. For each entry in the shared file, compare the vault's current copy against the source and write
+   it only if it differs.
+3. For each machine, do the same against its own file, resolving any value that references another
+   machine first.
 
-## Idempotence
+---
 
-Each secret is read before it is written, and written only when it is missing (404) or its data differs. This matters more than usual: KV v2 is versioned, so a blind write would cut a new version on every run and inflate the store forever. A no-op run reports `changed=0`.
-
-Preview without writing anything:
+#### Step 1: Authenticate
 
 ```bash
-ansible-playbook openbao_load.yml --vault-password-file ../pass.file -e openbao_load_dry_run=true
+read -rs ADMIN_PASSWORD; echo
+BAO_TOKEN=$(curl -s -X POST http://127.0.0.1:8200/v1/auth/userpass/login/<admin-user> \
+  --data "{\"password\":\"$ADMIN_PASSWORD\"}" | jq -r '.auth.client_token')
+export BAO_TOKEN
+unset ADMIN_PASSWORD
+
+curl -s http://127.0.0.1:8200/v1/auth/token/lookup-self -H "X-Vault-Token: $BAO_TOKEN" | jq '.data.policies'
 ```
 
-The `uri` module has no usable check mode for `POST`, so `openbao_load_dry_run` is the preview switch rather than `--check`. It still performs the reads, so the reported paths are exactly what a real run would write.
+**Explanation**: This sync ships the entire contents of every configuration file over the wire, so it
+runs on the vault's own host, against its loopback address, and never through the public domain — none
+of it should ever cross a network hop it does not have to. A root token is deliberately not an option
+here: it should already be retired once an administrator account exists, and this operation only ever
+needs the ability to write under `kv/data/*`, never full control of the vault.
 
-## Prerequisites
+---
 
-- OpenBao deployed, **unsealed**, and bootstrapped by [`openbao_setup`](openbao_setup.md) — the run asserts both the seal status and that `kv/` is mounted.
-- A `userpass` account whose policy allows `create`/`update` on `kv/data/*` (the `admin` policy does).
-- The vault password file, since the vaulted `host_vars` are decrypted on the control node to be read.
+#### Step 2: Write the shared settings
 
-## Variables
-
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `openbao_load_group` | `openbaos` | inventory group holding the OpenBao host |
-| `openbao_load_delegate` | first host of that group | every API call is delegated here |
-| `openbao_load_addr` | `http://127.0.0.1:{{ openbao.port }}` | container's localhost bind; never Traefik — this role ships the entire inventory over the wire |
-| `openbao_load_kv_path` | `kv` | KV v2 mount |
-| `openbao_load_prefix` | `homelab` | path prefix under the mount |
-| `openbao_load_exclude_keys` | `[]` | top-level variable names never written |
-| `openbao_load_admin_user` | `{{ user.name }}` | overridden by the username prompt |
-| `openbao_load_dry_run` | `false` | report changes, write nothing |
-
-### On `vault_password`
-
-`group_vars/all.yml` holds a `vault_password` key. By default this role mirrors the inventory as-is and writes it, which means the KV store then contains the key that decrypts the inventory seeding it. To keep it out:
-
-```yaml
-openbao_load_exclude_keys:
-  - "vault_password"
-```
-
-### Orphaned `host_vars`
-
-A `host_vars/<name>.yml` with no matching host in `hosts.yml` is still written, but **raw** — with no host to render against, its Jinja references cannot be resolved. It is read with the same `file` lookup as the group scope, so no resolution is attempted at all. Loading it with `include_vars` instead fails outright: a self-reference such as `url: "{{ immich.url }}/api/server/ping"` looks for a top-level `immich` variable, and inside a namespaced dict there is none.
-
-The run prints a warning naming the file. Treat it as an inventory cleanup hint: nothing reads those variables at deploy time either.
-
-## Manual execution guide
-
-The equivalent by hand, for one variable. Never put the token on the command line:
+For each top-level entry in the shared configuration file:
 
 ```bash
-read -rs BAO_TOKEN; export BAO_TOKEN     # a userpass token with the admin policy
+KEY=<key>
+VALUE_JSON='<the value from the shared file, as JSON — a mapping as-is, anything else wrapped as {"value": ...}>'
 
-# read the current value (404 = not there yet)
-docker exec -e BAO_TOKEN openbao \
-  bao kv get -format=json kv/homelab/<host>/<key>
+CURRENT=$(curl -s http://127.0.0.1:8200/v1/kv/data/homelab/all/$KEY -H "X-Vault-Token: $BAO_TOKEN")
 
-# write a mapping-valued variable
-docker exec -i -e BAO_TOKEN openbao \
-  bao kv put kv/homelab/<host>/traefik_links - <<'JSON'
-{"name": {"url": "svc.your-domain.com"}}
-JSON
-
-# write a scalar (wrapped, to match what the role writes)
-docker exec -e BAO_TOKEN openbao \
-  bao kv put kv/homelab/<host>/base_domain value=your-domain.com
-
-unset BAO_TOKEN
+if [ "$(echo "$CURRENT" | jq -c '.data.data // {}')" != "$(echo "$VALUE_JSON" | jq -c .)" ]; then
+  curl -s -X POST http://127.0.0.1:8200/v1/kv/data/homelab/all/$KEY \
+    -H "X-Vault-Token: $BAO_TOKEN" \
+    --data "{\"data\":$VALUE_JSON}"
+fi
 ```
+
+**Explanation**: The read-and-compare before the write is what keeps this operation safe to run
+repeatedly. Key-value v2 secrets are versioned — every write keeps the old value and adds a new one on
+top of it — so writing unconditionally on every run would mean the version history behind every one of
+these secrets grows forever, almost all of it identical copies of the same unchanged value. Reading
+first and writing only on a genuine difference means a run in which nothing changed produces zero new
+versions.
+
+Repeat this for every entry in the shared file. A value that is already a mapping is sent with its own
+fields intact; anything else — a string, a number, a list — is wrapped in `{"value": ...}` first, since
+the key-value engine only ever stores JSON objects, never a bare scalar.
+
+---
+
+#### Step 3: Write each machine's settings
+
+Repeat Step 2's read-compare-write once per machine, targeting `kv/homelab/<machine-name>/<key>`
+instead of `kv/homelab/all/<key>`, reading from that machine's own configuration file as the source.
+Resolve every value fully before building `VALUE_JSON` — if a value embeds another machine's address
+or a shared setting, substitute the real value in before sending it, rather than sending the reference
+unresolved.
+
+**Explanation**: This has to run once per machine, and any value that references another machine has
+to be resolved from the *referenced* machine's own context, not from wherever this sync happens to be
+running — "the workflow engine's own address on the database server" only means something once you
+know which machine's perspective it is being read from. That is also why the shared file in Step 2 is
+handled differently: it has no single owning machine, several machines override pieces of it for
+themselves, and resolving it through any one machine's context would capture that one machine's
+override under a name every other machine also reads.
+
+A configuration file for a machine that no longer exists can still be written — under its own file
+name as the scope — but it has no machine to resolve a cross-reference *from*, so send it exactly as
+written, unresolved. Treat its continued presence as a cleanup reminder: nothing reads it at deploy
+time either.
+
+## Values to fill in
+
+| Placeholder | What it is | How to choose it | Used in |
+| --- | --- | --- | --- |
+| `<admin-user>` | The administrator account to authenticate as | The account created during the vault's own one-time setup | Before you start, Step 1 |
+| `<key>` | A top-level entry name in a configuration file | Whatever the entry is called in the source file | Steps 2, 3 |
+| `<machine-name>` | A machine's own scope name under `kv/homelab/` | The name that file is kept under in your configuration | Step 3 |
 
 ## Verification
 
+Everything landed:
+
 ```bash
-# 1. everything landed
 docker exec -e BAO_TOKEN openbao bao kv list kv/homelab/
-docker exec -e BAO_TOKEN openbao bao kv list kv/homelab/<host>/
-
-# 2. a rendered value really is resolved (no {{ … }} left)
-docker exec -e BAO_TOKEN openbao bao kv get kv/homelab/<host>/traefik_links
-
-# 3. no version churn — re-run and expect changed=0
-ansible-playbook openbao_load.yml --vault-password-file ../pass.file
-
-# 4. version count stays at 1 for an untouched secret
-docker exec -e BAO_TOKEN openbao bao kv metadata get kv/homelab/<host>/base_domain
+docker exec -e BAO_TOKEN openbao bao kv list kv/homelab/<machine-name>/
 ```
+
+A resolved per-machine value really is resolved — no unresolved reference left inside it:
+
+```bash
+docker exec -e BAO_TOKEN openbao bao kv get kv/homelab/<machine-name>/<key>
+```
+
+Running the sync twice writes nothing the second time — check a version count before and after an
+unchanged run:
+
+```bash
+docker exec -e BAO_TOKEN openbao bao kv metadata get kv/homelab/<machine-name>/<key>
+# note "current_version", re-run the whole sync, check again — it should be unchanged
+```
+
+## Updating & day-to-day
+
+**Re-run after any configuration file changes.** Only the entries that actually changed get a new
+version; everything else is a no-op read.
+
+**Never sync the one value that decrypts your configuration files themselves**, if you keep one. Skip
+it explicitly in Step 2 rather than sending it. Writing it into the vault creates a circular
+dependency: the value that protects your source-of-truth configuration would then be readable by
+anyone who can read the vault it seeded, which defeats the reason it was kept separate in the first
+place.
+
+**Preview without writing anything**: run Steps 2 and 3 with the `curl -X POST` write calls removed or
+commented out — the read-and-compare half alone tells you exactly which paths would change, without
+sending anything.
 
 ## Rollback
 
-Nothing on any host changes — the only effect is inside KV. To undo a scope:
+Nothing on any machine changes — the only effect of this sync is inside the vault's key-value store.
+To undo one scope:
 
 ```bash
-docker exec -e BAO_TOKEN openbao bao kv metadata delete kv/homelab/<host>/<key>
+docker exec -e BAO_TOKEN openbao bao kv metadata delete kv/homelab/<machine-name>/<key>
 ```
 
-`kv metadata delete` removes the secret and all its versions; `kv delete` only soft-deletes the latest one. A [Raft snapshot](db_backup.md) taken before the run restores the whole store.
+`kv metadata delete` removes the secret and every one of its past versions outright; `kv delete` on its
+own only soft-deletes the latest version and leaves the history recoverable. A Raft snapshot of this
+vault taken before the run restores the whole store, including everything this sync ever wrote.
 
 ## Troubleshooting
 
-| Symptom | Cause | Fix |
-|---------|-------|-----|
-| `OpenBao … is sealed or uninitialized` | node sealed after a reboot | `ansible-playbook openbao_setup.yml --vault-password-file ../pass.file --tags unseal` |
-| `No secrets engine mounted at kv/` | bootstrap never ran | run [`openbao_setup`](openbao_setup.md) first |
-| 400 on login | wrong username — it defaults to `user.name`, not the account you may have created by hand | pass the right name at the prompt |
-| 403 on the write tasks | the account's policy has no `create`/`update` on `kv/data/*` | log in with an `admin`-policy account |
-| `'hostvars' is undefined` | a task was moved out of the per-host play; cross-host references only resolve in their own host's context | keep the per-host writes in the second play |
-| `'<service>' is undefined` on an orphan scope | the orphan file was loaded with `include_vars`, so its self-references were templated | read orphans with the `file` lookup — see "Orphaned `host_vars`" |
-| Every run reports changes | a value is genuinely drifting (a timestamp or a generated secret in the inventory), or a type changed (`"8200"` vs `8200`) | compare with `bao kv get -format=json` and fix the inventory |
-| Run reports changes on `all/*` after a host deploy | a `group_vars` key is overridden per host and you edited the override | expected — the `all` scope tracks `group_vars/all.yml` only |
+**`sys/seal-status` shows `sealed: true`, or `initialized: false`**
+The vault restarted since it was last unsealed, or has never been through its own setup. Unseal it (or
+run its one-time setup) before this sync can write anything.
+
+**`No secrets engine mounted at kv/`**
+The vault's key-value engine was never enabled. That is part of the vault's own one-time setup, not
+this sync — do that first.
+
+**`400` on login, "invalid username or password"**
+The username is wrong more often than the password — it has no default derived from anything in this
+guide, it is whatever account you created for the vault. Double-check it.
+
+**`403` on the write calls**
+The account's policy has no `create`/`update` capability on `kv/data/*`. Log in with an account that
+has full control instead, or grant that capability to the one you are using.
+
+**A value read back from the vault still contains an unresolved reference to another machine**
+A per-machine value was written without resolving it first (Step 3), or the machine has no match in
+your current configuration, in which case it is written unresolved on purpose — see the note at the
+end of Step 3.
+
+**Every re-run reports changes even though nothing was meant to change**
+Either a value genuinely drifts on its own (a timestamp, a freshly generated secret in the source
+file), or its JSON type changed between runs — a string `"8200"` one time and a bare number `8200` the
+next look identical to a human and different to the comparison. Pull the current value with `bao kv
+get -format=json` and compare it byte-for-byte against what the source file actually contains.
+
+**Values under `kv/homelab/all/` change right after syncing one machine's file**
+That should not happen — the shared scope only ever tracks the shared file. If it does, check that the
+write in Step 2 is actually targeting `kv/homelab/all/`, not the machine's own scope, for that entry.

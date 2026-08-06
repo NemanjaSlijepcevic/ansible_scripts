@@ -8,9 +8,6 @@
     db_backup_target: "{{ db_backup_dir }}/{{ db_backup_stamp }}"
     db_backup_source: "{{ db_backup_sources[current_host] | default({}) }}"
 
-# A host with no configured source is not an error — the whole role is skipped
-# so it leaves no empty timestamp directory behind. A host that *has* sources
-# but produces no dump is an error (asserted below).
 - name: Decide whether this host has anything to back up
   ansible.builtin.set_fact:
     db_backup_configured: >-
@@ -56,8 +53,6 @@
       ansible.builtin.include_tasks: raft.yml
       when: (db_backup_source.raft | default([])) | length > 0
 
-    # In check mode the dump commands never ran, so there is nothing to verify,
-    # checksum or pull — only the directory/inventory wiring gets exercised.
     - name: Verify and ship the dumps
       when: not ansible_check_mode
       block:

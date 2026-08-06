@@ -15,8 +15,6 @@
     env:
       TZ: "Europe/Belgrade"
       MARIADB_ROOT_PASSWORD: "{{ db.pass }}"
-    # Official mariadb image ships healthcheck.sh; --connect verifies it accepts
-    # connections and --innodb_initialized that startup/recovery has finished.
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 30s

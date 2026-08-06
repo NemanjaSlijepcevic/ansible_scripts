@@ -10,9 +10,6 @@
     - "./data/filebrowser"
     - "./data/filebrowser/config"
 
-# Host dirs for local ./data access drives must exist and be writable by
-# the container user or filebrowser answers 403 on create. External mounts
-# (e.g. /podaci) are left untouched — chowning a whole drive is not ours.
 - name: Create local access-drive directories
   ansible.builtin.file:
     path: "{{ item.split(':') | first }}"

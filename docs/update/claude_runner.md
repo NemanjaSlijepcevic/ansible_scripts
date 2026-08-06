@@ -1,60 +1,102 @@
-# Role: claude_runner
+# Claude Code Sandbox
 
-## Purpose
+## What this is
 
-Builds the `claude-runner:latest` Docker image used as an **ephemeral sandbox** for running the Claude Code CLI on behalf of Kestra flows. This role deploys no long-lived container — it only (1) builds the image, (2) prepares the host-path directories Kestra's Docker task runner mounts into each sandbox run, and (3) creates a dedicated `sandbox` bridge network with its own subnet, isolated from every other Docker network in this project.
+This is an **image**, not a running service. `claude-runner:latest` is a Docker image built once on the
+automation host: a slim Node.js base with the Claude Code CLI installed and nothing else standing. It
+has no long-lived container and no port. A workflow orchestrator's Docker task runner is what actually
+uses it — every time a flow needs to run an agentic Claude Code task, the orchestrator asks the host's
+Docker Engine to start a brand-new container from this image, the CLI does one piece of work inside
+`/workspace`, and the container is removed the instant it exits.
 
-The design intent: Kestra's Docker task runner, talking to the host Docker daemon through the filtered `socket_proxy`, launches a brand-new `claude-runner` container per task, the container does its work in `/workspace`, and it disappears. There is no standing Claude Code process to compromise, and the sandbox network gives it outbound internet access (for the Anthropic API) without any route to Postgres, Traefik, Authelia, or any other internal service.
+That shape is deliberate, not incidental, and it changes how you think about the whole guide:
 
-## Prerequisites
+- **There is nothing to restart.** "Is the service up" is the wrong question — there is no daemon to be
+  up or down. The only things that persist are the image itself and one directory holding a login
+  session.
+- **There is nothing to check with `docker ps` in steady state.** A container only exists for the
+  seconds or minutes a task takes to run. If you see one, a task is in flight.
+- **Isolation is the whole security model.** Each task gets a throwaway, unprivileged, resource-capped
+  container on a network that can reach the open internet (for the Anthropic API) and nothing on your
+  internal network. There is no standing process to compromise, only a brief window per task.
 
-- `common` role must have run (Docker Engine installed).
-- `socket_proxy` role should exist alongside this one — it's what actually lets Kestra *invoke* the image this role builds; `claude_runner` itself doesn't depend on it to build.
-- Consumed by: Kestra flows, whose Docker task runner tasks reference `claude-runner:latest` (`containerImage`) and the `sandbox` network (`networkMode`) by name.
-- A one-time interactive Claude Code login (subscription OAuth) must be performed manually after the image is built — see Step 3 — before any flow can successfully invoke `claude -p ...` unattended.
-- Variables: `claude_runner.*` (including `claude_runner.uid`, the in-container `node` uid that owns the bind-mounted home/workspace).
+This is why the Claude Code CLI is not driven directly by the orchestrator's own built-in chat plugin: a
+built-in "call the Anthropic API and get a chat completion" plugin is exactly that — one request, one
+response, no tool use, no file edits, no shell commands. Agentic work — reading a repository, editing
+files, running commands, iterating — needs the real CLI running with tool permissions, which only makes
+sense inside a container you can throw away afterward. Hence this image, launched as a plain command
+inside a Docker task rather than through any AI-specific plugin.
 
-## Manual Execution Guide
+Runs on: the automation host, alongside the workflow orchestrator and its filtered Docker API gateway.
+Talks to: the Anthropic API over the open internet — and nothing else, by network design, not by
+configuration you have to get right.
+
+## Before you start
+
+**Docker is installed and your account can use it**
+
+```bash
+docker --version
+id -nG | tr ' ' '\n' | grep -qx docker && echo "docker group: ok" || echo "docker group: MISSING"
+```
+
+**Outbound HTTPS works from a container**
+
+The CLI needs to reach the Anthropic API, both for the one-time login and for every task afterward.
+
+```bash
+docker run --rm curlimages/curl -sf -o /dev/null -w '%{http_code}\n' https://api.anthropic.com
+```
+
+**You have a Claude account you can log into interactively, once**
+
+The image authenticates by OAuth (the same device/browser login flow the CLI uses anywhere else). That
+flow needs a terminal, so budget five minutes at a keyboard for Step 4 below — it cannot be scripted or
+delegated to an orchestrator.
+
+**You have decided the sandbox network's address range**
+
+Pick a subnet that is not used anywhere else on this host — not the shared bridge network the rest of
+your services sit on, and not any other isolated network you may already have created for a similar
+purpose. Any private range works; there is nothing else on it to collide with.
+
+## Setup
 
 ### Overview
 
-1. Create the sandbox's home/workspace directories and the image build directory.
-2. Copy the Dockerfile and build the `claude-runner:latest` image (Node.js base + Claude Code CLI, non-root).
-3. Create the isolated `sandbox` bridge network with its own subnet/gateway.
-4. Perform a one-time interactive login so the OAuth session persists in the `home` volume.
-5. (Reference only, executed by Kestra at flow run time, not by this role) launch ephemeral task containers.
-
-### Step-by-Step Instructions
-
-#### Step 1: Create data directories
-
-**Purpose**: `/home/node` inside the sandbox holds the Claude Code CLI's config and OAuth session token — it must persist across ephemeral container runs, so it's bind-mounted from the host. `/workspace` is where the CLI actually operates; flows can stage input files and collect output files there via bind mounts.
-
-**Commands**:
-```bash
-sudo mkdir -p ./data/claude-runner/home ./data/claude-runner/workspace ./data/claude-runner/build
-sudo chown -R 1000:docker ./data/claude-runner/home ./data/claude-runner/workspace
-sudo chmod 0755 ./data/claude-runner/home ./data/claude-runner/workspace
-sudo chown deploy:docker ./data/claude-runner/build
-sudo chmod 0755 ./data/claude-runner/build
-```
-
-**Explanation**: Ownership uid `1000` (`claude_runner.uid`) matches the image's `node` user (see Step 2), so files the sandbox writes into the bind-mounted `home`/`workspace` directories stay readable/writable across runs.
+1. Create the host directories the sandbox mounts at runtime.
+2. Write the Dockerfile and build the image.
+3. Create the isolated `sandbox` network.
+4. Log in once, interactively, so the OAuth session persists.
+5. Confirm a task container can actually run unattended, the way the orchestrator will run it.
 
 ---
 
-#### Step 2: Build the sandbox image
+#### Step 1: Create the host directories
 
-**Purpose**: Produce a minimal, non-root image with just enough tooling (git, curl, jq, python3) plus the Claude Code CLI itself for the kinds of tasks workflows are expected to run (repo operations, API calls, light scripting).
-
-**Commands**:
 ```bash
-sudo cp update/roles/claude_runner/files/Dockerfile ./data/claude-runner/build/Dockerfile
-sudo docker build -t claude-runner:latest ./data/claude-runner/build
+sudo mkdir -p ./data/claude-runner/home ./data/claude-runner/workspace ./data/claude-runner/build
+sudo chown -R <puid>:<pgid> ./data/claude-runner/home ./data/claude-runner/workspace
+sudo chmod 0755 ./data/claude-runner/home ./data/claude-runner/workspace
+sudo chown <username>:<pgid> ./data/claude-runner/build
+sudo chmod 0755 ./data/claude-runner/build
 ```
 
-Dockerfile contents (for reference):
-```dockerfile
+**Explanation**: `home` and `workspace` are bind-mounted into every task container at `/home/node` and
+`/workspace`. `home` is what makes the OAuth login from Step 4 durable — the CLI writes its session
+token under the home directory of whichever user runs it, and since every task container is destroyed on
+exit, that token has to live on the host instead, or every single task would demand a fresh interactive
+login. `workspace` is where a task's input files land and where the CLI does its work; a flow stages
+files there before the container starts and collects them after it exits. `<puid>` is `1000`, fixed by
+the Dockerfile's base image (Step 2) — it is not a value you choose, it must match the `node` user the
+image runs as, or the container cannot write into either directory it was just handed.
+
+---
+
+#### Step 2: Write the Dockerfile and build the image
+
+```bash
+sudo tee ./data/claude-runner/build/Dockerfile >/dev/null <<'EOF'
 FROM node:22-bookworm-slim
 
 RUN apt-get update \
@@ -69,24 +111,32 @@ RUN apt-get update \
 
 RUN npm install -g @anthropic-ai/claude-code
 
-# Sandbox tasks run as the unprivileged node user (uid 1000); OAuth
-# credentials persist in the /home/node volume mounted at runtime.
 USER node
 WORKDIR /workspace
 
 ENTRYPOINT []
 CMD ["claude", "--help"]
+EOF
+
+sudo docker build -t claude-runner:latest ./data/claude-runner/build
 ```
 
-**Explanation**: `USER node` (uid `1000`, baked into the `node:22-bookworm-slim` base image) means every task container runs unprivileged from the start — combined with the runtime flags in Step 5 (`--cap-drop ALL`, `--security-opt no-new-privileges`), this is defense in depth: even if the Docker-level isolation were somehow bypassed, the process inside has no root and no elevatable capabilities. `ENTRYPOINT []` clears the base image's npm entrypoint so `docker run ... claude-runner:latest claude -p "..."` invokes the CLI directly rather than being wrapped.
+**Explanation**: The package list is deliberately narrow — `git`, `curl`, `jq`, `python3` and `procps`
+cover the kinds of tasks a coding agent is actually asked to do (repository operations, calling an API,
+light scripting, reading process state), not a general-purpose toolbox. `USER node` switches to the
+image's built-in unprivileged user (uid `1000`) for every instruction after it, so nothing the CLI does
+inside a task container ever runs as root — this is the first of several independent layers of
+containment; Step 5 adds the rest at the point where a task container is actually launched.
+`ENTRYPOINT []` clears the base image's own npm entrypoint wrapper, so a plain
+`docker run claude-runner:latest claude -p "..."` invokes the CLI directly instead of being wrapped by
+something that changes how its arguments are parsed. The default `CMD` is harmless on its own — running
+the image with no arguments just prints help text — which matters because it means an accidental bare
+`docker run claude-runner:latest` does nothing destructive.
 
 ---
 
 #### Step 3: Create the isolated sandbox network
 
-**Purpose**: Give sandbox containers outbound internet access (needed to reach `api.anthropic.com`) while keeping them off the `proxy` network — no sandbox container can ever reach Traefik, Postgres, Authelia, or any other internal service by design, because it's simply never attached to those networks.
-
-**Commands**:
 ```bash
 sudo docker network create --driver bridge \
   --subnet <docker-subnet> \
@@ -94,121 +144,159 @@ sudo docker network create --driver bridge \
   sandbox
 ```
 
-**Explanation**: Unlike `docker-api` (the `socket_proxy` role's network), `sandbox` is **not** `--internal` — it needs the normal bridge NAT path to the internet. Isolation here comes from simply never connecting it to `proxy` or `docker-api`, not from blocking egress. If you need to further restrict egress (e.g. allow-list only `api.anthropic.com`), that has to be done with host firewall rules against this network's subnet — nothing in this role does that.
+**Explanation**: This network is a normal bridge with the usual NAT path to the internet — unlike a
+Docker API gateway's network, it is **not** created `--internal`, because a task container genuinely
+needs to reach `api.anthropic.com`. Isolation here comes entirely from what this network is *not*
+connected to: it is never attached to the bridge network your other services live on, so a task container
+has literally no route to anything internal — not because a firewall rule blocks it, but because there is
+no network path to be blocked. If you later want to restrict egress further (for instance, allowing only
+the Anthropic API's addresses out), that has to be done with host firewall rules against this subnet;
+nothing here does it for you.
 
 ---
 
-#### Step 4: One-time interactive login
+#### Step 4: Log in once, interactively
 
-**Purpose**: The Claude Code CLI in `claude-runner` authenticates via subscription OAuth. That login flow requires an interactive terminal, so it can't happen inside an unattended `docker run --rm` invocation from a workflow — do it once, by hand, and the resulting session token persists in the `home` volume for every future ephemeral run to reuse.
-
-**Commands**:
 ```bash
 sudo docker run -it --rm \
   --network sandbox \
-  -v $(pwd)/data/claude-runner/home:/home/node \
+  -v "$(pwd)/data/claude-runner/home:/home/node" \
   claude-runner:latest claude
 ```
 
-**Explanation**: Follow the interactive login prompt (device-code / browser flow). Once complete, the CLI writes its credentials under `/home/node` — which is the bind-mounted host directory `./data/claude-runner/home` — so it survives container removal (`--rm`). No `-v .../workspace` mount is needed for login since no task is being run.
+Follow the login prompt — it will give you a URL or a device code to complete in a browser. Once it
+reports success, exit the CLI.
+
+**Explanation**: `-it` gives the container a real terminal, which is the one thing an unattended task
+container will never have, and which is exactly why this step cannot be folded into an automated
+deployment — the moment this container exits, its filesystem is gone (`--rm`), but the token the CLI just
+wrote lives on the bind-mounted `home` directory, so every future task container that mounts the same
+path inherits the login without repeating it. No `workspace` mount is needed here; nothing is being
+worked on, only authenticated.
 
 ---
 
-#### Step 5: (Reference) how Kestra launches a sandboxed task
+#### Step 5: Confirm a task container runs the way the orchestrator will run it
 
-**Purpose**: This role builds the image and prepares the network/directories; it does **not** run task containers itself. This is documented here for operators debugging or manually reproducing what a Kestra Docker task runner task does at runtime, via the socket proxy (`tcp://socket-proxy:2375`).
-
-**Commands**:
 ```bash
 docker run --rm \
   --network sandbox \
-  --memory 2g \
-  --cpus 1.5 \
-  --pids-limit 512 \
+  --memory <memory-limit> \
+  --cpus <cpu-limit> \
+  --pids-limit <pids-limit> \
   --security-opt no-new-privileges \
   --cap-drop ALL \
-  -v <deploy-dir>/data/claude-runner/home:/home/node \
-  -v <deploy-dir>/data/claude-runner/workspace:/workspace \
+  -v "$(pwd)/data/claude-runner/home:/home/node" \
+  -v "$(pwd)/data/claude-runner/workspace:/workspace" \
   -w /workspace \
-  claude-runner:latest claude -p "<task>" --output-format json \
+  claude-runner:latest claude -p "say hello" --output-format json \
   --dangerously-skip-permissions
 ```
 
-**Explanation**:
-- `--memory`/`--cpus`/`--pids-limit` come from `claude_runner.memory`/`claude_runner.cpus`/`claude_runner.pids_limit` and bound resource usage per task so a runaway or malicious flow can't starve the host.
-- `--security-opt no-new-privileges --cap-drop ALL` — the container gets no Linux capabilities beyond the unprivileged default and can never regain privileges via setuid binaries.
-- **Volume sources are host paths**, not the caller's paths — this only works because the task runner's Docker API calls go out through `socket-proxy`, which talks to the **host** Docker daemon; the daemon resolves `-v <deploy-dir>/...` against the host filesystem, not the Kestra container's filesystem. `<deploy-dir>` is the same path used throughout this manual (the `update/` playbook's working directory on the automation host, e.g. `/home/deploy/update`).
-- `-p "<task>"` is the natural-language/task prompt; `--output-format json` makes the result machine-parseable for the flow to consume.
-- `--dangerously-skip-permissions` is **required** for unattended runs — headless containers have no TTY on which the CLI could ask for tool-use approval, so without this flag any task needing file edits or shell commands stalls/fails. The flag is acceptable *only inside this sandbox*: the container is unprivileged (`--cap-drop ALL`, `no-new-privileges`), resource-capped, sees nothing but the mounted `home`/`workspace` host paths, and sits on a network with no route to internal services. Never use this flag for a `claude` process running directly on a host.
+**Explanation**: `--memory`, `--cpus` and `--pids-limit` bound what one task can consume, so a runaway or
+malicious flow cannot starve the host — the orchestrator applies limits like these to every task
+container it spawns from this image. `--security-opt no-new-privileges --cap-drop ALL` removes every
+Linux capability beyond the unprivileged default and blocks any path back to privilege through a setuid
+binary; combined with the non-root `USER node` baked into the image, a task container that were somehow
+broken out of would still have nothing to escalate with. `--dangerously-skip-permissions` is required for
+any unattended run: the CLI's normal behaviour is to pause and ask a human before editing a file or
+running a shell command, and a headless container has no terminal to ask through, so without this flag
+every task simply hangs. That flag is acceptable **only** inside a sandbox shaped exactly like this one —
+unprivileged, capability-dropped, resource-capped, and on a network with no route to anything internal.
+Never pass it to a `claude` process running directly on a host, or in any container that still has a path
+to a real service. Volume sources here are host paths (`$(pwd)/data/...`), which matters once this is
+launched by an orchestrator rather than by hand: if the orchestrator reaches the Docker Engine through a
+filtered API gateway rather than a socket mounted into its own container, that gateway forwards to the
+**host's** daemon, and the host daemon resolves bind-mount sources against the **host** filesystem, not
+the orchestrator's own container filesystem — so the path an orchestrator's task definition gives here is
+always a host path, never a path relative to wherever the flow definition itself lives.
 
----
+## Values to fill in
 
-## Configuration Reference
-
-### Default Variables
-
-| Variable | Default Value | Description |
-|----------|--------------|-------------|
-| `claude_runner.image` | `claude-runner:latest` | Image name:tag built by this role and referenced by Kestra flows |
-| `claude_runner.network` | `sandbox` | Name of the isolated bridge network |
-| `claude_runner.subnet` | `172.20.1.0/24` | Subnet for the sandbox network (placeholder — see `<docker-subnet>` above) |
-| `claude_runner.gateway` | `172.20.1.1` | Gateway for the sandbox network |
-| `claude_runner.memory` | `2g` | Per-task container memory limit |
-| `claude_runner.cpus` | `1.5` | Per-task container CPU limit |
-| `claude_runner.pids_limit` | `512` | Per-task container process-count limit (guards against fork bombs) |
-| `claude_runner.uid` | `1000` | In-container `node` user; owns `./data/claude-runner/{home,workspace}` |
-| `user.name` / `user.group` | `deploy` / `docker` | Ownership for the build directory |
-
-### Templates & Configuration Files
-
-None. `files/Dockerfile` is a static file copied verbatim to `./data/claude-runner/build/Dockerfile` (see Step 2) — there is no `templates/` directory for this role.
-
-## Handlers & Service Management
-
-This role defines no handlers and manages no long-lived service/container — there is nothing to "restart." Image rebuilds are driven by Ansible's `docker_image` `force_source` parameter, tied to the Dockerfile copy task reporting a change. After rebuilding the image, no running container needs to be recreated, since task containers are always launched fresh from the current image tag by Kestra at flow-run time.
+| Placeholder | What it is | How to choose it | Used in |
+| --- | --- | --- | --- |
+| `<username>` / `<pgid>` | Owner of the build directory | The deploy account and the `docker` group | Step 1 |
+| `<puid>` | Owner of `home`/`workspace` | Fixed at `1000` by the base image's built-in `node` user — not a free choice | Step 1 |
+| `<docker-subnet>` / `<docker-gateway-ip>` | Address range for the isolated `sandbox` network | Any private range not already used by another Docker network on this host | Step 3 |
+| `<memory-limit>` / `<cpu-limit>` / `<pids-limit>` | Per-task resource ceiling | Size to the largest task you expect; `2g` / `1.5` / `512` are reasonable starting points | Step 5 |
 
 ## Verification
 
 ```bash
-sudo docker images claude-runner:latest
-sudo docker network inspect sandbox --format '{{.IPAM.Config}}'
-# Confirm it is NOT flagged internal and is NOT the "proxy" network.
+# the image exists
+docker images claude-runner:latest
 
-# Confirm the OAuth session persisted after Step 4
+# the sandbox network exists, is not internal, and is not the same network as your other services
+docker network inspect sandbox --format '{{.IPAM.Config}}'
+
+# the OAuth session persisted after Step 4
 sudo ls -la ./data/claude-runner/home
-sudo docker run --rm --network sandbox \
-  -v $(pwd)/data/claude-runner/home:/home/node \
+
+# a headless task actually completes
+docker run --rm --network sandbox \
+  -v "$(pwd)/data/claude-runner/home:/home/node" \
   claude-runner:latest claude -p "say hello" --output-format json \
   --dangerously-skip-permissions
 
-# Confirm sandbox containers cannot reach internal services (should fail/timeout)
-sudo docker run --rm --network sandbox curlimages/curl -m 3 -s -o /dev/null -w '%{http_code}\n' http://socket-proxy:2375/version
+# the sandbox genuinely has no route to an internal service (expect a timeout or connection refused,
+# never a response) — substitute a container name and port that exist on your internal network
+docker run --rm --network sandbox curlimages/curl -m 3 -s -o /dev/null -w '%{http_code}\n' \
+  http://<container>:<port>
 ```
+
+## Updating & day-to-day
+
+**Rebuild the image** after changing the Dockerfile, or to pick up a newer Claude Code CLI release:
+
+```bash
+sudo docker build --pull --no-cache -t claude-runner:latest ./data/claude-runner/build
+```
+
+Nothing needs to be "recreated" the way a long-lived container does — every future task launches fresh
+from whatever the `claude-runner:latest` tag currently points at, so a rebuild takes effect on the very
+next task with no further action.
+
+**Reading a task's output after the fact.** A task container removes itself (`--rm`) the moment it exits,
+so there is no `docker logs` to go back to once it is gone. If you need to inspect a failure, rerun the
+same command without `--rm` and pull the logs before removing it by hand:
+
+```bash
+docker run --network sandbox ... claude-runner:latest claude -p "<task>" ...
+docker logs <container-id>
+docker rm <container-id>
+```
+
+**The workspace is shared, not per-task.** Every task container mounts the same host `workspace`
+directory, so files one task leaves behind are visible to the next. Clear it between unrelated tasks if
+that matters to you:
+
+```bash
+sudo rm -rf ./data/claude-runner/workspace/*
+```
+
+**Rotating the login.** There is no expiry to plan around beyond whatever the CLI's own OAuth session
+lifetime is; if a task starts failing with an authentication error, repeat Step 4.
 
 ## Rollback / Uninstall
 
 ```bash
 sudo docker rmi claude-runner:latest
 sudo docker network rm sandbox
-# Destroys the persisted OAuth session and any files left in the shared workspace:
 sudo rm -rf ./data/claude-runner
 ```
 
-**Warning**: Removing `./data/claude-runner/home` destroys the OAuth login — Step 4 must be repeated after recreating it. Removing `./data/claude-runner/workspace` destroys any staged flow files on that shared host path.
+**Warning**: removing `./data/claude-runner/home` destroys the OAuth login — Step 4 has to be repeated
+after recreating it. Removing `./data/claude-runner/workspace` destroys any files a flow left staged
+there. Only remove the `sandbox` network if nothing else still uses it — an Ansible sandbox image built
+alongside this one typically shares the same network.
 
 ## Troubleshooting
 
-**Task containers fail with an authentication/login error**
-The OAuth session in `./data/claude-runner/home` is missing, expired, or wasn't mounted. Re-run Step 4. Confirm the `-v .../home:/home/node` mount is present in the `docker run` invocation the workflow used.
-
-**Task container has no internet access**
-Confirm `sandbox` was created **without** `--internal` (Step 3) and that the host's outbound firewall/NAT rules aren't blocking the subnet. Compare against `docker-api` (the `socket_proxy` role's network), which is intentionally `--internal` — do not copy that flag here.
-
-**Task container CAN reach an internal service it shouldn't**
-It should only ever be attached to `sandbox`. If a task container shows up attached to `proxy` or `docker-api`, that's a bug in whatever invoked `docker run` (a workflow manually specifying the wrong `--network`) — the role's own network creation is correct by construction, but nothing stops a workflow author from overriding `--network` at call time; treat `--network sandbox` as a workflow-authoring convention to audit for, not an enforced boundary from the platform side.
-
-**`docker: Error response from daemon: pull access denied` or image not found**
-The image is built locally (`claude-runner:latest`) and is not pulled from a registry — confirm Step 2 completed and `docker images` on the automation host lists it. There is no `pull: true` semantic for this role's image.
-
-**OOM-killed or `pids-limit` errors on legitimate tasks**
-Increase `claude_runner.memory`/`claude_runner.cpus`/`claude_runner.pids_limit` in host_vars and re-run the role — these are per-task ceilings, not global daemon limits, so raising them only affects future sandbox invocations.
+| Symptom | Cause / fix |
+| --- | --- |
+| Task fails with an authentication or login error | The OAuth session in `./data/claude-runner/home` is missing, expired, or the volume was not mounted. Repeat Step 4 and confirm the `-v .../home:/home/node` mount is present in whatever invocation the task used. |
+| Task container has no internet access | Confirm `sandbox` was created without `--internal` (Step 3), and that the host's outbound firewall/NAT rules do not block the subnet. |
+| Task container can reach something it shouldn't be able to | It should only ever be attached to `sandbox`. If it shows up on any other network, whatever launched it overrode `--network` — that is a mistake in the caller, not something this image or network permits by default. |
+| `pull access denied` or "image not found" | This image is built locally and never pulled from a registry. Confirm Step 2 completed and `docker images claude-runner:latest` lists it on this host — pulling it from anywhere else will not work. |
+| Task is killed with an out-of-memory or process-limit error on a legitimate task | The per-task ceilings in Step 5 are too tight for what you are asking it to do. Raise `<memory-limit>` / `<cpu-limit>` / `<pids-limit>` for future tasks; these are per-container limits, not a host-wide setting. |
+| Task hangs forever and never completes | Almost always a missing `--dangerously-skip-permissions` — the CLI is waiting on a terminal that does not exist in a headless container. Confirm the flag is present in the invocation. |

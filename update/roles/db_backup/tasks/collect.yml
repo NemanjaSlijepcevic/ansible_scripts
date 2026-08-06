@@ -7,8 +7,6 @@
   delegate_to: localhost
   become: false
 
-# become: false — rsync runs as {{ user.name }}, which the ownership fix in
-# main.yml already granted read access to the dumps.
 - name: Pull dumps to the control node
   ansible.posix.synchronize:
     mode: pull

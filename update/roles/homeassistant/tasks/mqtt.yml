@@ -26,9 +26,6 @@
     path: ./data/mosquitto/config/passwd
   register: mosquitto_passwd_stat
 
-# Regenerate by deleting ./data/mosquitto/config/passwd and re-running the
-# role (mosquitto_passwd salts on every run, so an unconditional run would
-# churn the file). Every MQTT client must use these credentials.
 - name: Generate mosquitto password file
   ansible.builtin.command:
     cmd: >
@@ -68,9 +65,6 @@
       traefik.http.routers.mosquitto.rule: "{{ mqtt.host }}"
       traefik.http.routers.mosquitto.tls: "true"
       traefik.http.services.mosquitto.loadbalancer.server.port: "{{ mqtt.port }}"
-    # No HTTP endpoint - a functional check: publish to a throwaway topic with
-    # the broker credentials, proving it accepts authenticated connections on
-    # 1883 (image ships mosquitto_pub).
     healthcheck:
       test:
         - "CMD"

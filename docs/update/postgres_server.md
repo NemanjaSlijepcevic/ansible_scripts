@@ -1,111 +1,188 @@
-# Role: postgres_server
+# PostgreSQL (public web host instance)
 
-## Purpose
+## What this is
 
-Deploys a **second, host-local PostgreSQL server as a Docker container** (`postgres-db`, image `pgvector/pgvector:pg18`) on the `server` host, with TLS material generated and (optionally) provisions application roles/databases directly. This is a **separate deployment from the `postgres` role** (which runs the shared central database on `primary_postgres`) — see `../CLAUDE.md` "Per-Machine Baseline Stack" (`server` = ... + `sql`/`postgres_server`).
+A PostgreSQL server that belongs to the public-facing web machine alone. It runs as the container
+`postgres-db` from the `pgvector/pgvector:pg18` image (PostgreSQL 18 with the `pgvector` extension
+compiled in) and stores the state of the applications on that same machine — the single sign-on
+portal's sessions, TOTP secrets and identity audit trail, plus any other application you give a
+database to here.
 
-The role runs five task groups in order, via `main.yml`:
+This is **not** the central database server the rest of the homelab shares. It is a second,
+independent instance with its own certificate authority, its own superuser and its own data
+directory. It exists because the public machine sits outside the private network and should not
+reach across it for every session lookup.
 
-1. **`certs.yml`** — generates a private CA plus a server key/certificate for this host's `postgres-db`.
-2. **`client_certs.yml`** — generates a client key/certificate per consuming application (`postgres_tls_clients`) and distributes the CA cert + client cert/key to each host in `postgres_tls_client_hosts` (which, on this host, typically includes the `server` host itself as a local consumer).
-3. **`container.yml`** — renders `pg_hba.conf` and deploys the `postgres-db` container, then waits for it to accept connections.
-4. **`create_service_users.yml`** *(only when `postgres_service_users` is non-empty)* — creates PostgreSQL roles and databases directly via `docker exec … psql`/`createdb`, and grants schema privileges. The `postgres` role has no equivalent step; it relies on the separate `prepare_postgres` role instead.
-5. **`verify.yml`** *(always runs)* — lists databases and per-database tables, and asserts that the expected client cert/key files exist under `postgres_tls_client_base_dir`.
+Two consequences follow from being local-only, and they are the main differences from the central
+instance:
 
-> **A host running `postgres_server` owns its own `./data/certs`.** Both this role and the
-> central `postgres` role distribute their CA cert to `postgres_tls_client_base_dir`
-> (`./data/certs`) on the hosts they list. A host that appears in *both* lists gets
-> `./data/certs/ca.crt` overwritten by whichever playbook ran last — and because both CAs
-> carry the same subject (`CN=postgres-ca`), the failure surfaces as a confusing
-> `x509: certificate signed by unknown authority … candidate authority certificate "postgres-ca"`
-> in the consuming client. So a host deploying `postgres_server` must **not** appear in
-> central `primary_postgres`'s `postgres_tls_client_hosts`, nor in any
-> `postgres_tls_clients[].hosts` there.
+- **Nothing is published on the host.** There is no `-p 5432:5432`. Only containers on the shared
+  `proxy` bridge network can reach it, and they address it as `postgres-db` — Docker registers a
+  container's own name as a DNS alias on user-defined bridge networks, so no extra alias is
+  configured.
+- **There is no password-only exception in the access policy.** Every client on this machine
+  presents a client certificate, so `pg_hba.conf` requires `cert clientcert=verify-full` for every
+  address range except the container's own Unix socket and loopback.
 
-### Key differences from the `postgres` role
+Blog content is not here — the blogs on this machine use MariaDB, a separate pair of containers.
 
-| Aspect | `postgres` (primary_postgres) | `postgres_server` (server host) |
-|---|---|---|
-| Docker network alias | `aliases: [postgres]` — clients use hostname `postgres` | none — clients use Docker's automatic container-name alias `postgres-db` (matches `postgres.ip: "postgres-db"` in defaults) |
-| Host port publish | `-p 5432:5432` (reachable from outside `proxy`) | none — only reachable by containers on the `proxy` network |
-| Server cert SAN | `IP:<ansible_host>,DNS:localhost` | `IP:<ansible_host>,DNS:localhost,DNS:postgres-db` (extra SAN for the alias name clients actually connect to) |
-| `pg_hba.conf` enforcement | `hostssl … cert clientcert=verify-full` mandatory for every `private_ips` CIDR **and** `docker.subnet` | identical structure and coverage — mutual TLS is mandatory here too; see Step 6 |
-| `pg_hba.conf` password exceptions | Two `hostssl … scram-sha-256` lines *above* the cert block, scoped to `pgadmin.static` and `docker.gateway` — pgAdmin is the only client that connects without a client certificate | none — this role's only client (`authelia`) uses a client certificate, so there is no password-auth exception carved out above the cert block |
-| Stop signal | `SIGINT` / 90s timeout (see below) | `SIGINT` / 90s timeout — **same fix, same reasoning** (see below) |
-| Restart mechanism | stop+start (not `docker restart`) — fuse-overlayfs mount-safety, see Handlers section | identical — same two-task stop+start handler |
-| Startup readiness | healthcheck only | healthcheck **plus** a blocking `docker exec … pg_isready` retry loop (30 × 2s = up to 60s) before the role continues |
-| Application provisioning | none (delegated to `prepare_postgres`) | `create_service_users.yml` creates roles/DBs/grants in-role |
-| Post-deploy verification | none (manual, see this doc's Verification section) | `verify.yml` runs automatically every time the role runs |
+## Before you start
 
-## Prerequisites
+**Docker is installed and your account can use it**
 
-- The `common` role must have already run on the target host (creates the `proxy` Docker network and `./data` working directory).
-- `openssl` must be available on the target host.
-- Docker Engine must be installed and running.
-- Variables: `postgres.static` / `postgres.ip` / `postgres.port` / `postgres.adm_user` / `postgres.adm_pass`, `pgid`, `postgres_tls_clients`, `postgres_tls_client_hosts`, `postgres_service_users`, `user.name`, `user.group`.
+```bash
+docker --version
+docker compose version 2>/dev/null || true
 
-## Manual Execution Guide
+# your account must be in the docker group, or every command below needs sudo
+id -nG | tr ' ' '\n' | grep -qx docker && echo "docker group: ok" || echo "docker group: MISSING"
+```
+
+If the group is missing, add yourself and start a new login session:
+
+```bash
+sudo usermod -aG docker <username>
+newgrp docker
+```
+
+If Docker itself is absent, install it from Docker's own repository (the distro package is usually
+too old for the compose plugin) and enable the service:
+
+```bash
+curl -fsSL https://get.docker.com | sudo sh
+sudo systemctl enable --now docker
+```
+
+**The `./data` working directory exists and you are in it**
+
+```bash
+cd <deploy-dir>
+mkdir -p ./data
+sudo chown <username>:<pgid> ./data
+sudo chmod 0755 ./data
+```
+
+Every path below is relative to `<deploy-dir>`. Run all commands from there.
+
+**The shared `proxy` bridge network exists**
+
+```bash
+docker network inspect proxy >/dev/null 2>&1 && echo "proxy network: ok" || echo "proxy network: MISSING"
+```
+
+Create it if it is missing:
+
+```bash
+docker network create \
+  --driver bridge \
+  --subnet <docker-subnet> \
+  --gateway <docker-gateway> \
+  --ip-range <docker-ip-range> \
+  proxy
+```
+
+Keep fixed container addresses outside the `--ip-range` auto-assign pool. Note the subnet — it goes
+into `pg_hba.conf` in Step 6:
+
+```bash
+docker network inspect proxy | jq -r '.[0].IPAM.Config'
+```
+
+**`openssl` is available**
+
+```bash
+openssl version
+```
+
+**This machine is not already receiving another server's CA certificate**
+
+```bash
+ls -l ./data/certs/ 2>/dev/null
+[ -f ./data/certs/ca.crt ] && openssl x509 -in ./data/certs/ca.crt -noout -subject -dates
+```
+
+If `ca.crt` already exists here, find out where it came from before you continue. The central
+database server distributes its own `ca.crt` to the machines that connect to it, using the same
+subject `CN=postgres-ca` this instance will use. If both write that file, whichever ran last wins
+and every client on this machine starts failing with `x509: certificate signed by unknown authority
+… candidate authority certificate "postgres-ca"` — a message that looks like corruption and is
+actually a collision. A machine that runs its own database server must not also be on the central
+server's distribution list.
+
+## Setup
 
 ### Overview
 
-1. Create `./data/postgres/certs/` and `./data/postgres/certs/clients/`.
-2. Generate a CA key + self-signed CA certificate.
-3. Generate the server key, CSR (SAN = host IP, `localhost`, and `postgres-db`), and sign the server certificate with the CA.
-4. Set ownership/permissions (server key owned by uid/gid `999`, the image's internal postgres user).
-5. For each consuming application: generate a client key + CSR (CN = DB username) and sign it with the CA.
-6. Distribute the CA cert + each client's cert/key to every host in that client's `hosts` list (commonly including this host itself).
-7. Render `pg_hba.conf` — mutual TLS (`hostssl … cert clientcert=verify-full`) mandatory for every application subnet and the Docker subnet; no password-only exception lines (this host's only client, `authelia`, connects with a client cert).
-8. Deploy the `postgres-db` container (TLS enabled, `SIGINT`/90s stop, no published port, no network alias) and wait for it to accept connections.
-9. If any service users are configured, create their roles/databases/grants.
-10. Verify databases, tables, and that expected cert files landed on disk.
+1. Create the data and certificate directories.
+2. Create the certificate authority.
+3. Issue the server certificate, with `postgres-db` among its names.
+4. Issue one client certificate per application, with the Common Name set to its database login role.
+5. Place the CA certificate and the client material where the applications will read it.
+6. Write `pg_hba.conf`.
+7. Start the container and wait for it to accept connections.
+8. Create the login roles and databases the applications need.
+9. Verify.
 
 ---
 
-### Step-by-Step Instructions
-
-#### Step 1: Create the certificate directories
-
-**Purpose**: Holds the CA, server, and per-client TLS material, plus the rendered `pg_hba.conf` and the container's persistent data.
+#### Step 1: Create the data and certificate directories
 
 ```bash
-mkdir -p ./data/postgres
-mkdir -p ./data/postgres/certs
 mkdir -p ./data/postgres/certs/clients
-chown <username>:docker ./data/postgres ./data/postgres/certs ./data/postgres/certs/clients
-chmod 0750 ./data/postgres/certs ./data/postgres/certs/clients
+sudo chown <username>:<pgid> ./data/postgres ./data/postgres/certs ./data/postgres/certs/clients
+sudo chmod 0750 ./data/postgres ./data/postgres/certs ./data/postgres/certs/clients
 ```
+
+**Explanation**: `./data/postgres` holds the live cluster under `data/`, the access policy
+`pg_hba.conf`, and all certificate material under `certs/`. Mode `0750` keeps private keys away from
+other unprivileged accounts while the deploy account's group can still read them. On a machine that
+is exposed to the internet this matters more than it would on the private side.
 
 ---
 
-#### Step 2: Generate the CA key and certificate
-
-**Purpose**: A private Certificate Authority signs both the server certificate and every client certificate issued by this role.
+#### Step 2: Create the certificate authority
 
 ```bash
 openssl genrsa -out ./data/postgres/certs/ca.key 4096
-chmod 0600 ./data/postgres/certs/ca.key
-chown <username>:docker ./data/postgres/certs/ca.key
 
 openssl req -x509 -new -nodes \
   -key ./data/postgres/certs/ca.key \
   -sha256 -days 3650 \
   -subj "/CN=postgres-ca" \
   -out ./data/postgres/certs/ca.crt
+
+sudo chown <username>:<pgid> ./data/postgres/certs/ca.key
+sudo chmod 0600 ./data/postgres/certs/ca.key
 ```
+
+Create the serial file used when signing clients, once:
+
+```bash
+[ -f ./data/postgres/certs/ca.srl ] || printf '01\n' | sudo tee ./data/postgres/certs/ca.srl >/dev/null
+sudo chown root:root ./data/postgres/certs/ca.srl
+sudo chmod 0600 ./data/postgres/certs/ca.srl
+```
+
+**Explanation**: This CA signs the server certificate and every client certificate on this machine.
+Mutual authentication works because both sides chain to it: the server trusts a client whose
+certificate this CA signed, and the client verifies the server the same way. `-nodes` leaves the key
+without a passphrase since signing is unattended — the file mode is the only protection, so `ca.key`
+never leaves this machine. Ten years of validity is deliberate; an expired database CA takes every
+application on the machine down at once and nothing renews it automatically. The serial file keeps
+each issued certificate's serial unique.
 
 ---
 
-#### Step 3: Generate the server key and certificate
-
-**Purpose**: The certificate this host's `postgres-db` presents during the TLS handshake. It carries **three** SAN entries because clients on this host reach it by three different names/addresses.
+#### Step 3: Issue the server certificate
 
 ```bash
 openssl genrsa -out ./data/postgres/certs/server.key 2048
 
-cat > ./data/postgres/certs/server_ext.cnf <<'EOF'
+sudo tee ./data/postgres/certs/server_ext.cnf >/dev/null <<'EOF'
 [v3_req]
 subjectAltName = IP:<ip-address>,DNS:localhost,DNS:postgres-db
 EOF
+sudo chmod 0600 ./data/postgres/certs/server_ext.cnf
 
 openssl req -new \
   -key ./data/postgres/certs/server.key \
@@ -119,31 +196,37 @@ openssl x509 -req \
   -extfile ./data/postgres/certs/server_ext.cnf -extensions v3_req
 ```
 
-**Explanation**: `<ip-address>` is `ansible_host` for the `server` host. Unlike the `postgres` role, `DNS:postgres-db` is included because Docker automatically registers a container's own `name` as a DNS alias on user-defined bridge networks — clients configured with `postgres.ip: "postgres-db"` connect using that hostname, so it must be a valid SAN for TLS hostname verification (`sslmode=verify-full`) to succeed for any client that chooses to use it.
-
-Final permissions — server key owned by uid/gid `999` (the container's internal `postgres` user):
+Set the ownership the container needs:
 
 ```bash
-chown 999:999 ./data/postgres/certs/server.key
-chmod 0600 ./data/postgres/certs/server.key
+sudo chown 999:999 ./data/postgres/certs/server.key
+sudo chmod 0600 ./data/postgres/certs/server.key
 
-chown root:root ./data/postgres/certs/server.crt
-chmod 0644 ./data/postgres/certs/server.crt
+sudo chown root:root ./data/postgres/certs/server.crt
+sudo chmod 0644 ./data/postgres/certs/server.crt
 ```
+
+**Explanation**: `DNS:postgres-db` is the entry that matters on this machine, and it is the one
+difference from the central server's certificate. Clients here dial the container by name over the
+bridge network, and a TLS client validating with `sslmode=verify-full` compares the name it dialled
+against the Subject Alternative Name list — the Common Name is ignored by modern clients. Without
+that entry every local client would have to drop to `verify-ca`, which stops checking *which* server
+answered. `IP:<ip-address>` and `DNS:localhost` are kept as well so a `psql` session from the host
+itself also verifies.
+
+The key is owned by uid/gid `999` — the `postgres` account inside the image — and is unreadable by
+anyone else, because PostgreSQL refuses to start when its private key is group- or world-readable.
 
 ---
 
-#### Step 4: Generate a client certificate per consuming application
+#### Step 4: Issue one client certificate per application
 
-**Purpose**: Every entry in `postgres_tls_clients` gets its own key/cert pair, CN = the PostgreSQL username it will authenticate as (if/when it chooses to connect with a client cert — see the `pg_hba.conf` note in Step 6).
+Repeat for each application. The file name identifies the application; the **Common Name must be the
+exact PostgreSQL login role** it authenticates as.
 
 ```bash
-CLIENT=authelia          # postgres_tls_clients[].name
-DB_USER=<db-username>    # postgres_tls_clients[].db_user
-
-[ -f ./data/postgres/certs/ca.srl ] || printf '01\n' > ./data/postgres/certs/ca.srl
-chown root:root ./data/postgres/certs/ca.srl
-chmod 0600 ./data/postgres/certs/ca.srl
+CLIENT=<service>          # file name
+DB_USER=<db-username>     # the PostgreSQL login role it connects as
 
 openssl genrsa -out ./data/postgres/certs/clients/${CLIENT}.key 2048
 
@@ -158,88 +241,138 @@ openssl x509 -req \
   -CAserial ./data/postgres/certs/ca.srl \
   -out ./data/postgres/certs/clients/${CLIENT}.crt -days 3650 -sha256
 
-chown root:root ./data/postgres/certs/clients/${CLIENT}.key
-chmod 0600 ./data/postgres/certs/clients/${CLIENT}.key
-chown root:root ./data/postgres/certs/clients/${CLIENT}.crt
-chmod 0644 ./data/postgres/certs/clients/${CLIENT}.crt
+sudo chown root:root ./data/postgres/certs/clients/${CLIENT}.key
+sudo chmod 0600 ./data/postgres/certs/clients/${CLIENT}.key
+sudo chown root:root ./data/postgres/certs/clients/${CLIENT}.crt
+sudo chmod 0644 ./data/postgres/certs/clients/${CLIENT}.crt
 ```
+
+Confirm what you produced:
+
+```bash
+openssl x509 -in ./data/postgres/certs/clients/${CLIENT}.crt -noout -subject -dates
+openssl verify -CAfile ./data/postgres/certs/ca.crt ./data/postgres/certs/clients/${CLIENT}.crt
+```
+
+**Explanation**: `clientcert=verify-full` makes the server compare the certificate's Common Name with
+the user name in the connection string and reject the connection when they differ. On this instance
+there is no password-only fallback for any address range, so a client with a wrong CN cannot connect
+at all — there is no degraded path it can quietly slip into. Only run this block for a client that
+has no key yet, or when you are deliberately rotating that one client; re-issuing invalidates the
+copy already in use.
 
 ---
 
-#### Step 5: Distribute the CA cert and client certs
+#### Step 5: Place the CA certificate and client material
 
-**Purpose**: Every host in a client's `hosts` list (in the inventory, `postgres_tls_clients[].hosts`) receives the CA cert plus that client's cert/key under `postgres_tls_client_base_dir` (default `./data/certs`). On this role, that list commonly **includes the `server` host itself** — i.e. certs are frequently copied to the same machine `postgres_server` runs on, for locally-running consumer apps.
+Applications read their certificates from `./data/certs` on the machine they run on, mounted
+read-only into the container (usually at `/postgres-certs`). On this machine that is a local copy,
+not a transfer:
 
 ```bash
-# For each host in postgres_tls_client_hosts (may be this same host):
-ssh <username>@<target-host> "mkdir -p ./data/certs && chmod 0755 ./data/certs"
+mkdir -p ./data/certs
+sudo chmod 0755 ./data/certs
 
-scp ./data/postgres/certs/ca.crt              <username>@<target-host>:./data/certs/ca.crt
+sudo install -m 0644 ./data/postgres/certs/ca.crt                ./data/certs/ca.crt
+sudo install -m 0644 ./data/postgres/certs/clients/${CLIENT}.crt ./data/certs/${CLIENT}.crt
+sudo install -o root -g <pgid> -m 0640 \
+  ./data/postgres/certs/clients/${CLIENT}.key ./data/certs/${CLIENT}.key
+```
+
+If a client of this server runs on a different machine, copy the same three files there instead:
+
+```bash
+ssh <username>@<target-host> "mkdir -p ./data/certs && chmod 0755 ./data/certs"
+scp ./data/postgres/certs/ca.crt                <username>@<target-host>:./data/certs/ca.crt
 scp ./data/postgres/certs/clients/${CLIENT}.crt <username>@<target-host>:./data/certs/${CLIENT}.crt
 scp ./data/postgres/certs/clients/${CLIENT}.key <username>@<target-host>:./data/certs/${CLIENT}.key
-
-ssh <username>@<target-host> "chmod 0644 ./data/certs/ca.crt ./data/certs/${CLIENT}.crt && \
-  chown root:<pgid> ./data/certs/${CLIENT}.key && chmod 0640 ./data/certs/${CLIENT}.key"
+ssh <username>@<target-host> "sudo chown root:<pgid> ./data/certs/${CLIENT}.key && \
+  sudo chmod 0640 ./data/certs/${CLIENT}.key"
 ```
 
-If the target is the same host `postgres_server` runs on, this is a local file copy rather than `scp`/`ssh`.
+**Explanation**: One shared `./data/certs` directory per machine means a single read-only bind mount
+serves every container that needs database credentials. The key is `root:<pgid>` mode `0640` because
+`<pgid>` is the group the database image — and most consuming containers — run as, so group-read is
+exactly enough and nothing is world-readable. The certificate itself is public material and stays
+`0644`.
 
 ---
 
-#### Step 6: Render `pg_hba.conf`
-
-**Purpose**: Host-based authentication rules for this instance.
+#### Step 6: Write `pg_hba.conf`
 
 ```bash
-mkdir -p ./data/postgres
-cat > ./data/postgres/pg_hba.conf <<'EOF'
+sudo tee ./data/postgres/pg_hba.conf >/dev/null <<'EOF'
 # TYPE  DATABASE  USER  ADDRESS              METHOD
 local   all       all                         trust
 host    all       all   127.0.0.1/32          scram-sha-256
 # All docker/LAN clients: SSL + client certificate required. pg_hba is
 # first-match-wins top to bottom, so no broad password line may sit above
 # these (that would make the client-cert requirement unreachable).
-hostssl all       all   <private-subnet-1>    cert clientcert=verify-full
-hostssl all       all   <private-subnet-2>    cert clientcert=verify-full
-hostssl all       all   <private-subnet-3>    cert clientcert=verify-full
+hostssl all       all   <lan-subnet>   cert clientcert=verify-full
+hostssl all       all   <other-private-subnet>   cert clientcert=verify-full
 hostssl all       all   <single-host-ip>/32   cert clientcert=verify-full
-hostssl all       all   <docker-subnet>       cert clientcert=verify-full
+hostssl all       all   <docker-subnet>   cert clientcert=verify-full
 EOF
-chown <username>:docker ./data/postgres/pg_hba.conf
-chmod 0644 ./data/postgres/pg_hba.conf
+sudo chown <username>:<pgid> ./data/postgres/pg_hba.conf
+sudo chmod 0644 ./data/postgres/pg_hba.conf
 ```
 
-**Explanation**: Mutual TLS is **mandatory** here, identically to the `postgres` role — every line matching an application subnet (`private_ips`) or the Docker bridge (`docker.subnet`) is `hostssl … cert clientcert=verify-full`. Only `local` (Unix socket) and loopback (`127.0.0.1/32`) connections skip the client-cert requirement, and those never leave the container/host.
+Write one `hostssl … cert clientcert=verify-full` line per private range that may hold a client, then
+one final line for the `proxy` subnet — which, on this machine, is where every real client comes
+from.
 
-`pg_hba.conf` is evaluated **first-match-wins, top to bottom** — the first line whose TYPE/DATABASE/USER/ADDRESS all match a connection attempt decides how it's authenticated, and no further lines are checked. That's why the broad `hostssl … cert clientcert=verify-full` lines are written last in the file: if a permissive password-based line were placed above them (or covered a broader address range), it would shadow the cert requirement and silently make it unreachable for any connection matching both.
+**Explanation**: PostgreSQL walks this file **top to bottom and stops at the first line whose
+connection type, database, user and address all match**. It never looks for a better match further
+down, and a failed authentication on the matched line ends the connection rather than falling
+through. So:
 
-> **Every ADDRESS needs a prefix length.** PostgreSQL parses the ADDRESS field three ways: containing `/` → CIDR, and the next token is the METHOD; a **bare** numeric IP → the next token is required to be a separate netmask (the legacy `address netmask method` form); non-numeric (`all`, `samenet`, a hostname) → the next token is the METHOD. So a single host written without `/32` makes the parser read the following `cert` as a netmask and the server refuses to start:
+- `local … trust` is the container's own Unix socket. It never leaves the container's namespace, so
+  there is nothing to authenticate; this is also what makes `docker exec postgres-db psql` and the
+  nightly dump work without a certificate.
+- `127.0.0.1/32` is loopback inside the container, password only, same reasoning.
+- Everything else is mutual TLS, with no exceptions. Unlike the central server, this instance has no
+  browser-based client that cannot hold a key, so nothing needs a password-only line — and because
+  a wide password line above the certificate lines would shadow them completely, not having one is
+  the safest state to stay in.
+
+> **Every address needs a prefix length.** PostgreSQL reads the address field three ways: with a `/`
+> it is CIDR and the next token is the method; a **bare** numeric address means the next token must
+> be a netmask (the legacy `address netmask method` form); a non-numeric token means the next token
+> is the method. A single host written without `/32` therefore makes the parser read the following
+> `cert` as a netmask and the server refuses to start:
 >
 > ```
 > LOG:  invalid IP mask "cert": Name or service not known
 > FATAL:  could not load /etc/postgresql/pg_hba.conf
 > ```
 >
-> This matters because `private_ips` is shared with the Traefik/CrowdSec whitelist templates, which accept bare IPs happily — a single host added there for whitelisting breaks only pg_hba. The template therefore appends `/32` to any entry lacking a prefix; when writing the file by hand, do the same.
+> The same list of private addresses is also used for the reverse proxy's and the intrusion
+> detector's whitelists, which accept bare addresses happily — so a single host added there for
+> whitelisting breaks only this file. Always append `/32`.
 
-The `postgres` role's template carries the same structure but adds two `hostssl … scram-sha-256` lines *above* the cert block, scoped narrowly to `pgadmin.static/32` and `docker.gateway/32` — pgAdmin is that instance's one client without an issued certificate, so it authenticates with TLS + password instead. `postgres_server` has no equivalent lines because its only configured client, `authelia`, always connects with a client certificate — there's no cert-less consumer to carve an exception for.
+> **Overwrite this file in place.** The container bind-mounts it as a single file, and a single-file
+> bind mount follows the *inode* that existed when the container started. Replacing the file with an
+> editor or `mv` creates a new inode and silently detaches the mount — the running server keeps
+> serving the old rules however often you reload. `sudo tee` truncates and rewrites in place, which
+> preserves the inode.
+
+There is **no `postgresql.conf` to write**: every setting this deployment changes is passed on the
+command line in the next step.
 
 ---
 
-#### Step 7: Deploy the PostgreSQL container
-
-**Purpose**: Runs PostgreSQL with the certs and `pg_hba.conf` from the previous steps wired in via `-c` flags.
+#### Step 7: Start the container and wait for it
 
 ```bash
-sudo docker run -d \
+docker run -d \
   --name postgres-db \
   --restart unless-stopped \
   --stop-signal SIGINT \
   --stop-timeout 90 \
   --network proxy \
   --ip <docker-ip> \
-  -e POSTGRES_USER='<db-username>' \
-  -e POSTGRES_PASSWORD='changeme' \
+  -e POSTGRES_USER='<admin-user>' \
+  -e POSTGRES_PASSWORD='<secret>' \
   -e POSTGRES_DB=postgres \
   -e PGDATA=/var/lib/postgresql/data \
   -v "$(pwd)/data/postgres/data:/var/lib/postgresql/data" \
@@ -247,7 +380,7 @@ sudo docker run -d \
   -v "$(pwd)/data/postgres/certs/server.crt:/certs/server.crt:ro" \
   -v "$(pwd)/data/postgres/certs/server.key:/certs/server.key:ro" \
   -v "$(pwd)/data/postgres/certs/ca.crt:/certs/ca.crt:ro" \
-  --health-cmd "pg_isready -U <db-username>" \
+  --health-cmd "pg_isready -U <admin-user>" \
   --health-interval 1m \
   --health-timeout 10s \
   --health-retries 3 \
@@ -261,199 +394,330 @@ sudo docker run -d \
     -c hba_file=/etc/postgresql/pg_hba.conf
 ```
 
-**Explanation**:
-- No `--network-alias` flag and no `-p 5432:5432`: this container is deliberately reachable only from other containers on the `proxy` network, addressed by Docker's automatic container-name alias `postgres-db` (which is exactly the value configured in `postgres.ip`) — it is never exposed on the host's own network interface.
-- **`--stop-signal SIGINT --stop-timeout 90`**: identical fix and identical reasoning to the `postgres` role. Docker's default `SIGTERM` is interpreted by PostgreSQL as a "smart" shutdown that waits indefinitely for every connected client to disconnect on its own; long-lived pooled connections from application containers never do, so the default 10-second stop timeout used to force a `SIGKILL` — an unclean crash that triggers WAL crash recovery and wipes `pg_stat_*` counters on every stop/restart. `SIGINT` requests PostgreSQL's "fast" shutdown instead: in-flight transactions are rolled back, a clean checkpoint is forced, and clients are disconnected by the server itself — normally finishing in a few seconds. `--stop-timeout 90` is a generous ceiling for a checkpoint under load, not the expected duration.
-
-Then wait for the database to actually accept connections before treating the deploy as complete (the role does this automatically; `docker run` alone does not):
+Then block until it actually answers, before doing anything else:
 
 ```bash
 for i in $(seq 1 30); do
-  docker exec postgres-db pg_isready -U <db-username> && break
+  docker exec postgres-db pg_isready -U <admin-user> && break
   sleep 2
 done
 ```
 
+**Explanation**:
+
+- **No published port and no extra network alias.** The container is reachable only from the `proxy`
+  network, by the name `postgres-db` that Docker registers automatically. On a machine with a public
+  address that is the point: there is no way to reach the database from the internet even if a
+  firewall rule is wrong, because nothing is bound on the host at all.
+- `--stop-signal SIGINT --stop-timeout 90` is the flag pair that matters most. Docker's default
+  `SIGTERM` is interpreted by PostgreSQL as a **"smart" shutdown** that waits indefinitely for every
+  connected client to disconnect by itself. Application containers hold idle pooled connections open
+  forever, so that never completes, and with Docker's ten-second default grace period every stop
+  ended in a `SIGKILL` — an unclean crash, which means WAL recovery on the next start and the
+  `pg_stat_*` counters wiped each time. `SIGINT` requests the **"fast" shutdown**: in-flight
+  transactions rolled back, a clean checkpoint forced, clients disconnected by the server, normally
+  within seconds. The 90-second timeout is a ceiling for a checkpoint under load, not the expected
+  duration.
+- The five `-c` flags enable TLS, point at the certificate material and move the access-policy file.
+  `ssl_ca_file` is what makes client-certificate verification possible at all — without it the server
+  has nothing to check an offered certificate against and `cert` authentication fails for everyone.
+- All mounted configuration and certificate files are read-only; the server never writes to them.
+- `POSTGRES_USER`/`POSTGRES_PASSWORD`/`POSTGRES_DB` are read **only on the first start**, when the
+  data directory is empty. Changing them later does nothing; use `ALTER ROLE` to change the password.
+- The wait loop exists because the first start runs the whole `initdb` sequence. Anything that
+  creates roles or databases straight afterwards — Step 8 — races the initialisation if it does not
+  wait for `pg_isready`.
+
 ---
 
-#### Step 8: Provision service users and databases (conditional)
+#### Step 8: Create the login roles and databases
 
-**Purpose**: For every entry in `postgres_service_users`, create the PostgreSQL role (if it doesn't already exist), create its database, and grant it schema privileges. Only runs when `postgres_service_users` is non-empty.
+For each application that needs one:
 
 ```bash
-DB_USER=<service-db-username>
-DB_PASS='changeme'
-DB_NAME=<service-db-name>
+DB_USER=<db-username>
+DB_PASS='<secret>'
+DB_NAME=<database>
 
-# Create the role only if it doesn't already exist
-exists=$(docker exec postgres-db psql -U <db-username> -tAc \
+exists=$(docker exec postgres-db psql -U <admin-user> -tAc \
   "SELECT 1 FROM pg_roles WHERE rolname = '${DB_USER}'")
 if [ "$(echo "$exists" | tr -d '[:space:]')" != "1" ]; then
-  docker exec postgres-db psql -U <db-username> -c \
+  docker exec postgres-db psql -U <admin-user> -c \
     "CREATE ROLE ${DB_USER} WITH LOGIN PASSWORD '${DB_PASS}'"
 fi
 
-# Create the database (ignore "already exists")
-docker exec postgres-db createdb -U <db-username> -O "${DB_USER}" "${DB_NAME}" || true
+docker exec postgres-db createdb -U <admin-user> -O "${DB_USER}" "${DB_NAME}" || true
 
-# Grant schema privileges
-docker exec postgres-db psql -U <db-username> -d "${DB_NAME}" -c \
+docker exec postgres-db psql -U <admin-user> -d "${DB_NAME}" -c \
   "GRANT ALL ON SCHEMA public TO ${DB_USER}"
 ```
 
-**Explanation**: This is functionally equivalent to what the separate `prepare_postgres` role does for the central `postgres` instance, but folded into `postgres_server` itself so this host's local databases are provisioned in the same run that deploys the container.
+**Explanation**: The existence check before `CREATE ROLE` is what makes this safe to run again —
+re-creating a role is an error, and worse, blindly running `CREATE ROLE … PASSWORD` on an existing
+account would be a silent password reset that breaks a working application. `createdb` failing with
+"already exists" is likewise expected on a second run and is ignored.
+
+The explicit `GRANT ALL ON SCHEMA public` is not redundant with database ownership: since PostgreSQL
+15 the `public` schema no longer grants `CREATE` to everyone, so an owner that never received the
+grant can connect and then fail its first migration with `permission denied for schema public`.
+
+The password set here must match the one the application uses, and the application must *also*
+present the client certificate from Step 4 whose Common Name equals this role — the certificate
+proves who it is, the password is checked on top of it only where the policy asks for one. On this
+instance every real connection matches a `cert` line, so the certificate is the authenticator.
 
 ---
 
 #### Step 9: Verify
 
-**Purpose**: Confirms the deploy actually produced usable databases and that every expected cert file landed on disk. The role runs this every time, not just on first deploy.
+```bash
+docker exec postgres-db psql -U <admin-user> -c '\l'
+docker exec postgres-db psql -U <admin-user> -d <database> -c '\dt'
+
+ls -l ./data/certs
+```
+
+**Explanation**: Listing the tables of each application database is the check that distinguishes "a
+database exists" from "the application actually migrated into it" — an empty database and a healthy
+container look identical from the outside. The `./data/certs` listing must show `ca.crt` plus one
+`.crt` and one `.key` for every application; a missing pair is the most common reason a service comes
+up and then cannot authenticate.
+
+---
+
+## What lives where
+
+| Path | Contents |
+|---|---|
+| `./data/postgres/data` | The live cluster. The only irreplaceable thing here. |
+| `./data/postgres/pg_hba.conf` | Access policy, bind-mounted read-only into the container. |
+| `./data/postgres/certs/ca.key`, `ca.crt`, `ca.srl` | This machine's certificate authority. |
+| `./data/postgres/certs/server.key`, `server.crt`, `server_ext.cnf` | The server's identity. Key owned by uid/gid `999`. |
+| `./data/postgres/certs/clients/` | Archive of every issued client key and certificate. |
+| `./data/certs/` | The working copies the containers read: `ca.crt` plus a pair per application. |
+
+## Restoring
+
+The nightly dumps for this instance are one `pg_postgres-db_globals.sql.gz` (login roles, passwords,
+tablespaces — these live outside any database) and one `pg_postgres-db_<database>.dump` per database
+in PostgreSQL's custom format.
+
+**Restore one database.** Stop the application that owns it first so nothing writes during the
+restore:
 
 ```bash
-# List databases
-docker exec postgres-db psql -U <db-username> -c "\l"
+docker stop <service>
 
-# List tables in each service database
-docker exec postgres-db psql -U <db-username> -d <service-db-name> -c "\dt"
+docker exec postgres-db createdb -U <admin-user> -O <db-username> <database> 2>/dev/null || true
 
-# Confirm expected client cert files are present
-ls ./data/certs
-# expected: ca.crt, plus <client-name>.crt and <client-name>.key for every
-# entry in postgres_tls_clients (matched against postgres_tls_client_base_dir)
+docker exec -i postgres-db pg_restore -U <admin-user> -d <database> \
+  --clean --if-exists --no-owner --role=<db-username> \
+  < pg_postgres-db_<database>.dump
+
+docker start <service>
 ```
 
----
+**Restore the whole instance** after losing the machine:
 
-## Configuration Reference
-
-### Variables
-
-| Variable | Example | Description |
-|----------|---------|-------------|
-| `postgres.static` | `172.20.0.8` | Static IP for `postgres-db` on the `proxy` network |
-| `postgres.ip` | `postgres-db` | Hostname consumers connect to (Docker's automatic container-name alias — there is no explicit `--network-alias`) |
-| `postgres.port` | `5432` | Port consumers connect to (not published to the host) |
-| `postgres.adm_user` / `postgres.adm_pass` | `<db-username>` / `changeme` | Postgres superuser name/password (`POSTGRES_USER`/`POSTGRES_PASSWORD`) |
-| `pgid` | `999` | GID the `postgres-db` container runs as; owns distributed client key files |
-| `postgres_service_users` | `[]` | List of `{ user, password, db }` — roles/databases this role provisions directly |
-| `postgres_tls_clients` | `[]` | List of `{ name, db_user, hosts: [...] }` — one entry per application needing a client cert |
-| `postgres_tls_client_hosts` | `[]` | Fallback/global list of hosts to receive distributed client certs |
-| `postgres_tls_client_base_dir` | `./data/certs` | Destination directory for CA cert + client cert/key on consumer hosts (also what `verify.yml` checks) |
-| `postgres_tls_dir` | `./data/postgres/certs` | CA + server cert/key directory on this host |
-| `postgres_tls_client_dir` | `./data/postgres/certs/clients` | Per-client cert/key directory on this host |
-| `postgres_tls_ca_key` / `postgres_tls_ca_cert` / `postgres_tls_ca_serial` | `.../ca.key` / `.../ca.crt` / `.../ca.srl` | CA material paths |
-| `postgres_tls_server_key` / `postgres_tls_server_cert` | `.../server.key` / `.../server.crt` | Server cert material paths |
-| `user.name` / `user.group` | `<username>` / `docker` | Owner of created directories and `pg_hba.conf` |
-
-### Templates & Configuration Files
-
-**`templates/pg_hba.conf.j2` → `./data/postgres/pg_hba.conf`**
-
-```
-# TYPE  DATABASE  USER  ADDRESS              METHOD
-local   all       all                         trust
-host    all       all   127.0.0.1/32          scram-sha-256
-# All docker/LAN clients: SSL + client certificate required. pg_hba is
-# first-match-wins top to bottom, so no broad password line may sit above
-# these (that would make the client-cert requirement unreachable).
-{% for cidr in private_ips %}
-hostssl all       all   {{ cidr if '/' in cidr else cidr ~ '/32' }}   cert clientcert=verify-full
-{% endfor %}
-hostssl all       all   {{ docker.subnet }}   cert clientcert=verify-full
+```bash
+docker stop postgres-db && docker rm postgres-db
+sudo rm -rf ./data/postgres/data
 ```
 
-Same loop-over-`private_ips` pattern as the `postgres` role's template, plus one extra fixed line for `docker.subnet`. The only structural difference is the absence of a password-auth exception block — see Step 6 and the differences table above.
+Start the container again exactly as in Step 7, wait for `pg_isready`, then load globals first and
+databases after:
 
-The `'/' in cidr` guard is what keeps a prefix-less `private_ips` entry from producing `invalid IP mask "cert"` at server startup — see the ADDRESS-parsing note in Step 6. `private_ips` is shared with the Traefik/CrowdSec whitelists (which accept bare IPs) and is appended to at runtime with a bare public IP by `roles/traefik/tasks/environment.yml`, so the normalisation lives here rather than in the inventory.
+```bash
+zcat pg_postgres-db_globals.sql.gz | docker exec -i postgres-db psql -U <admin-user> -d postgres
 
-> **Single-file bind-mount gotcha**: `container.yml` bind-mounts this file directly (`./data/postgres/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro`), and Ansible's `template` module rewrites a file by writing a new temp file and renaming it over the old path — a new inode, not an in-place edit. A single-file bind mount is attached to the inode that existed at container-start time, so after `pg_hba.conf` is re-templated, the *running* container keeps serving the **old** rules from its now-detached mount until the container itself is restarted (or the file is overwritten in place, preserving the inode — the template module doesn't do this by default). This is exactly why `container.yml` sets `notify: Restart PostgreSQL` on the template task: without that restart, a `pg_hba.conf` change (e.g. tightening or loosening an enforcement rule) silently has no effect on the live container. Reproducing this by hand: after editing `pg_hba.conf`, always follow with the stop+start sequence in the Handlers section below — never assume the edit alone is enough.
+for f in pg_postgres-db_*.dump; do
+  db=$(basename "$f" .dump); db=${db#pg_postgres-db_}
+  docker exec postgres-db createdb -U <admin-user> "$db" 2>/dev/null || true
+  docker exec -i postgres-db pg_restore -U <admin-user> -d "$db" --clean --if-exists < "$f"
+done
+```
 
----
+**Explanation**: Globals go first because every database dump refers to an owner role that must
+already exist; without them everything ends up owned by the superuser and the applications fail with
+`permission denied for schema public`. The restore goes through `docker exec`, so it arrives on the
+container's Unix socket and matches the `local … trust` line — no client certificate is needed, which
+is what lets you restore even when the certificates are part of what you lost. `--clean --if-exists`
+makes a restore into a non-empty database repeatable.
 
-## Handlers & Service Management
+Certificates are not in the dumps. After a full rebuild, redo Steps 2–5: the CA is new, so every
+client certificate must be re-issued and the applications restarted.
 
-| Handler | Trigger | Manual equivalent |
-|---------|---------|-------------------|
-| `Restart PostgreSQL` (`Stop PostgreSQL` + `Start PostgreSQL`, both `listen: Restart PostgreSQL`) | `pg_hba.conf` re-templated with different content | `sudo docker stop postgres-db && sudo docker start postgres-db` |
+## Values to fill in
 
-Identical handler shape to the `postgres` role: two separate tasks (`state: stopped` then `state: started`) rather than a single `docker restart`. The inline comment in `handlers/main.yml` explains why: on fuse-overlayfs hosts, `docker restart` races the stale graphdriver state and can leave the container with a broken rootfs mount — permanently unhealthy, `docker exec` failing with `setns`-style errors (the same mount-safety class of issue documented for `common`'s `docker-sock-rebind.service`, see `docs/update/common.md`). A plain stop followed by a separate start avoids that race and is safe on every host, not just fuse-overlayfs ones.
-
-Because `stop_signal` is `SIGINT` (Step 7), the `Stop PostgreSQL` task performs a fast/clean shutdown rather than a smart one — it won't hang waiting on idle client connections. This handler is also what actually applies a `pg_hba.conf` change to the running container — see the single-file bind-mount gotcha under Templates & Configuration Files above.
-
----
+| Placeholder | What it is | How to choose it |
+|---|---|---|
+| `<deploy-dir>` | Working directory holding `./data` | The deploy account's home directory; all paths are relative to it |
+| `<username>` | Account that owns `./data` | The unprivileged account you administer the host with |
+| `<pgid>` | Group id the database image runs as | `999` for this image; owns the distributed key files |
+| `<ip-address>` | This machine's own address | Goes into the server certificate's CN and SAN |
+| `<docker-ip>` | Fixed address for `postgres-db` on the `proxy` network | Inside `<docker-subnet>`, outside the auto-assign pool |
+| `<docker-subnet>` / `<docker-gateway>` / `<docker-ip-range>` | Addressing of the `proxy` network | From `docker network inspect proxy`; the subnet appears in `pg_hba.conf` |
+| `<lan-subnet>`, `<other-private-subnet>`, `<single-host-ip>` | Private ranges that may hold a client | One `hostssl … cert` line each; single hosts need `/32` |
+| `<admin-user>` | PostgreSQL superuser name | Conventionally `postgres`; fixed at first start |
+| `<secret>` | Superuser password, and each application role's password | Long random strings, one per account |
+| `<service>` | An application's short name | Used as the client certificate's file name, and as its container name when stopping it |
+| `<db-username>` | Login role an application connects as | Must equal its certificate's Common Name |
+| `<database>` | Database name for an application | Usually the same word as the application |
+| `<target-host>` | A machine outside this one that runs a client | Only needed if a client is not local |
 
 ## Verification
 
 ```bash
-# Container is running and healthy
-sudo docker ps --filter name=postgres-db
-sudo docker inspect --format '{{.State.Health.Status}}' postgres-db
+docker ps --filter 'name=^postgres-db$'
+docker inspect --format '{{.State.Health.Status}}' postgres-db
 
-# Healthcheck manually
-docker exec postgres-db pg_isready -U <db-username>
+# stop behaviour — the setting that silently regresses on a manual recreate
+docker inspect --format '{{.Config.StopSignal}} {{.Config.StopTimeout}}' postgres-db   # expect: SIGINT 90
 
-# TLS is enabled and enforced
-docker exec postgres-db psql -U <db-username> -c "SHOW ssl;"
+# nothing must be published on the host
+docker inspect --format '{{.NetworkSettings.Ports}}' postgres-db   # expect: map[] / no 5432
 
-# Confirm the effective stop signal/timeout
-docker inspect --format '{{.Config.StopSignal}} {{.Config.StopTimeout}}' postgres-db
-# expect: SIGINT 90
-
-# Confirm no host port is published
-docker inspect --format '{{.NetworkSettings.Ports}}' postgres-db
-# expect: empty/no 5432 mapping
-
-# List databases / tables (mirrors verify.yml)
-docker exec postgres-db psql -U <db-username> -c "\l"
-docker exec postgres-db psql -U <db-username> -d <service-db-name> -c "\dt"
-
-# From a client host on the proxy network, confirm mutual TLS is enforced
-# (should be rejected — no client certificate presented)
-psql "host=postgres-db port=5432 user=<db-username> dbname=postgres sslmode=require"
-
-# ...and succeed with a valid client certificate
-psql "host=postgres-db port=5432 user=<db-username> dbname=postgres sslmode=verify-full \
-  sslcert=./data/certs/<client-name>.crt \
-  sslkey=./data/certs/<client-name>.key \
-  sslrootcert=./data/certs/ca.crt"
+docker exec postgres-db pg_isready -U <admin-user>
+docker exec postgres-db psql -U <admin-user> -c "SHOW ssl;"
+docker exec postgres-db psql -U <admin-user> -c "SHOW hba_file;"
+docker exec postgres-db psql -U <admin-user> -c '\l'
+docker exec postgres-db psql -U <admin-user> -c '\du'
+docker exec postgres-db psql -U <admin-user> -d <database> -c '\dt'
 ```
 
----
+Confirm the rules the server actually parsed, which catches a detached bind mount:
+
+```bash
+docker exec postgres-db psql -U <admin-user> \
+  -c "SELECT line_number, type, address, auth_method FROM pg_hba_file_rules ORDER BY line_number;"
+```
+
+Prove mutual TLS is enforced. From a container on the `proxy` network, the first must fail and the
+second must succeed:
+
+```bash
+psql "host=postgres-db port=5432 user=<db-username> dbname=<database> sslmode=require"
+
+psql "host=postgres-db port=5432 user=<db-username> dbname=<database> sslmode=verify-full \
+  sslrootcert=/postgres-certs/ca.crt \
+  sslcert=/postgres-certs/<service>.crt \
+  sslkey=/postgres-certs/<service>.key"
+```
+
+Check the certificate names and expiry dates:
+
+```bash
+openssl x509 -in ./data/postgres/certs/server.crt -noout -text | grep -A1 'Subject Alternative Name'
+for f in ./data/postgres/certs/ca.crt ./data/postgres/certs/clients/*.crt; do
+  printf '%s: ' "$f"; openssl x509 -in "$f" -noout -subject -enddate
+done
+```
+
+## Updating & day-to-day
+
+**Pull a new image and recreate.** The tag pins the major version, so a pull brings minor releases
+only and the existing data directory stays compatible. A major version jump is not — that needs a
+dump from the old version and a restore into a fresh cluster.
+
+```bash
+docker pull pgvector/pgvector:pg18
+docker stop postgres-db && docker rm postgres-db
+# re-run the docker run command from Step 7 verbatim
+```
+
+**Apply an access-policy change.** Rewrite `pg_hba.conf` in place with `sudo tee`, then:
+
+```bash
+docker exec postgres-db psql -U <admin-user> -c "SELECT pg_reload_conf();"
+docker exec postgres-db psql -U <admin-user> -c "SELECT * FROM pg_hba_file_rules WHERE error IS NOT NULL;"
+```
+
+Rows in the second query mean the file did not parse and the old rules are still in force.
+
+**Restart properly** — stop and start as two commands, never `docker restart`:
+
+```bash
+docker stop postgres-db
+docker start postgres-db
+```
+
+`docker restart` races the container's storage layer on hosts using `fuse-overlayfs` and can leave a
+broken root filesystem mount behind: the container stays unhealthy and `docker exec` fails in
+confusing ways. A separate stop and start avoids that and is safe everywhere. With `SIGINT` as the
+stop signal the stop is a clean fast shutdown and will not hang on idle connections.
+
+**Logs**: `docker logs -f postgres-db`.
+
+**Adding an application**: issue its certificate (Step 4), place it (Step 5), create its role and
+database (Step 8). No server restart is needed unless its machine sits in a range `pg_hba.conf` does
+not already cover.
+
+**Rotating a client key**: delete that client's `.key`, `.csr` and `.crt` under
+`./data/postgres/certs/clients/`, redo Steps 4 and 5, restart the application.
 
 ## Rollback / Uninstall
 
 ```bash
-# Stop and remove the container (SIGINT/90s stop still applies — no data corruption on removal)
-sudo docker stop postgres-db
-sudo docker rm postgres-db
-
-# WARNING: destroys all databases on this host — only if you intend to lose the data
-rm -rf ./data/postgres
+docker stop postgres-db
+docker rm postgres-db
 ```
 
----
+The cluster survives in `./data/postgres/data` and re-running Step 7 brings it back.
+
+To remove it completely — **this destroys every database on this machine**:
+
+```bash
+sudo rm -rf ./data/postgres
+sudo rm -f ./data/certs/ca.crt ./data/certs/<service>.crt ./data/certs/<service>.key
+```
 
 ## Troubleshooting
 
-**Container exits/restarts and `pg_stat_*` counters reset unexpectedly**
-Check `docker inspect --format '{{.Config.StopSignal}} {{.Config.StopTimeout}}' postgres-db` — if it does not read `SIGINT 90`, the container was started without the flags from Step 7 and falls back to Docker's default `SIGTERM`/10s. Recreate with `--stop-signal SIGINT --stop-timeout 90`.
+**`connection requires a valid client certificate` (SQLSTATE 28000)**
+The client presented no certificate, or one this CA did not sign. There is no password fallback on
+this instance, so this is fatal until fixed. Check `ls -l ./data/certs/` and
+`openssl verify -CAfile ./data/certs/ca.crt ./data/certs/<service>.crt`.
 
-**A client certificate is rejected even though the cert/CA look correct**
-Check whether the client is actually hitting the `hostssl … cert clientcert=verify-full` line at all — remember `pg_hba.conf` is first-match-wins (Step 6). If any earlier line in the file matches the same TYPE/DATABASE/USER/ADDRESS combination first (e.g. a mistakenly-broadened address range), the cert requirement on the later line is never reached and the connection is evaluated against the wrong rule instead.
+**`certificate authentication failed for user "<db-username>"`**
+The certificate is valid but its Common Name is not the user name in the connection string. Check
+with `openssl x509 -in ./data/certs/<service>.crt -noout -subject` and re-issue with the right CN.
 
-**Edited `pg_hba.conf` but the container's behavior didn't change**
-This is the single-file bind-mount gotcha (see Templates & Configuration Files above): editing the file on disk doesn't affect a container that already has it bind-mounted, because `template`/most editors replace the file via a new inode. Restart the container (`docker stop postgres-db && docker start postgres-db`, or trigger the `Restart PostgreSQL` handler) after every `pg_hba.conf` change.
+**`x509: certificate signed by unknown authority … candidate authority certificate "postgres-ca"`**
+`./data/certs/ca.crt` on this machine belongs to a different database server. Both CAs use the
+subject `CN=postgres-ca`, so the message names the right subject and the wrong key. Restore this
+instance's own `ca.crt` (Step 5) and stop the other server from distributing here.
 
-**New client added to `postgres_tls_clients` can't connect over TLS**
-Since every non-loopback line in `pg_hba.conf` now requires `clientcert=verify-full` (no password fallback like `postgres`'s pgAdmin exception), a client that hasn't yet received its cert/key (Steps 4–5) or whose `sslmode` isn't at least `require` cannot connect at all — there's no degraded password-only path to fall back to. Confirm the cert was generated and distributed, and that the client's connection string actually presents it.
+**A client certificate is rejected even though the certificate and CA look correct**
+Check which line the connection actually matched. The file is first-match-wins, so an earlier line
+covering the same address range decides the outcome and the `cert` line below it is never consulted.
+`SELECT * FROM pg_hba_file_rules ORDER BY line_number;` shows the order the server sees.
 
-**"role ... already exists" / "database ... already exists" during Step 8**
-`create_service_users.yml` already guards against this (checks `pg_roles` before creating, and treats `createdb`'s "already exists" stderr as non-fatal) — running it again is safe. Manually, just skip the `CREATE ROLE`/`createdb` step for that entry.
+**Edited `pg_hba.conf`, reloaded, nothing changed**
+The single-file bind mount is detached because the file was replaced with a new inode. Compare
+`pg_hba_file_rules` with the file on disk; if they differ, rewrite with `sudo tee` and restart the
+container with a stop and a start.
 
-**Verify step fails: "Missing client cert files in ./data/certs"**
-A client listed in `postgres_tls_clients` is missing its cert/key (or `ca.crt`) under `postgres_tls_client_base_dir`. Confirm that host is actually present in that client's `hosts` list (or in the global `postgres_tls_client_hosts`), then re-run Steps 4–5 for that client.
+**Server will not start; log shows `invalid IP mask "cert"`**
+An address in `pg_hba.conf` is missing its prefix length. Append `/32` — see Step 6.
 
-**"SSL SYSCALL error: EOF detected" / certificate verification errors**
-Same causes as the `postgres` role: client not requesting TLS at all when it should, or a `CN`/SAN mismatch. Verify with `openssl verify -CAfile ca.crt <client>.crt` and `openssl x509 -in server.crt -noout -text | grep -A1 'Subject Alternative Name'` (expect the host IP, `localhost`, and `postgres-db`).
+**`role … already exists` or `database … already exists` in Step 8**
+Expected on a re-run. The existence check skips the role; `createdb` is allowed to fail. Do not
+re-issue `CREATE ROLE … PASSWORD` for an existing account — that resets a working password.
 
-> Related: the `postgres` role documents the shared central database on `primary_postgres` — same mutual-TLS enforcement structure, but with a published port, a network alias (`postgres`), and a password-auth exception carved out for its pgAdmin client. See that manual for the counterpart deployment.
+**`permission denied for schema public` on an application's first migration**
+The `GRANT ALL ON SCHEMA public` from Step 8 was not run for that database. Ownership alone is not
+enough on PostgreSQL 15 and later.
+
+**Hostname mismatch under `sslmode=verify-full`**
+The name the client dialled is not in the server certificate's SAN. Inspect it with
+`openssl x509 -in ./data/postgres/certs/server.crt -noout -text | grep -A1 'Subject Alternative Name'`
+— it must contain `DNS:postgres-db` for local clients — then re-issue (Step 3) and restart.
+
+**`pg_stat_*` counters reset and crash recovery runs after every restart**
+The container lost its stop settings. Check
+`docker inspect --format '{{.Config.StopSignal}} {{.Config.StopTimeout}}' postgres-db` and recreate
+with `--stop-signal SIGINT --stop-timeout 90` if it is not `SIGINT 90`.
+
+**A newly issued client certificate does not work while an older one still does**
+The serial file was missing and `-CAcreateserial` restarted numbering, so two certificates share a
+serial. Compare with `openssl x509 -noout -serial`, recreate `ca.srl`, re-issue the newer one.

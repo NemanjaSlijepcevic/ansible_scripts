@@ -10,9 +10,6 @@
     - ./data/openbao
     - ./data/openbao/config
     - ./data/openbao/data
-    # Audit log lives outside the Raft dir: OpenBao refuses to serve requests
-    # when every enabled audit device fails to write, so it must never compete
-    # with the storage backend for space or permissions.
     - ./data/openbao/audit
 
 - name: Render OpenBao config
@@ -24,9 +21,6 @@
     mode: "0640"
   register: openbao_config
 
-# The file audit device opens the log with O_APPEND and never rotates it, so
-# copytruncate is safe and the log cannot grow until the disk fills (which
-# would take OpenBao down with it — a failing audit device blocks all requests).
 - name: Create logrotate config for openbao audit log
   ansible.builtin.template:
     src: "{{ playbook_dir }}/templates/logrotate.j2"

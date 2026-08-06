@@ -18,7 +18,6 @@
       IMMICH_MACHINE_LEARNING_URL: "http://immich-machine-learning:3003"
     volumes:
       - ./data/immich/upload:{{ immich.upload_location }}
-      # Proxmox bind mount required: mp0: /podaci/Slike,mp=/mnt/Slike
       - /mnt/Slike:{{ immich.external_path }}:ro
       - /etc/localtime:/etc/localtime:ro
     labels:

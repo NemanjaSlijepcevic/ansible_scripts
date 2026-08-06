@@ -1,7 +1,4 @@
 ---
-# Called once per entry of openbao_setup_approles, with the entry in
-# `openbao_setup_approle`. Each AppRole gets its own policy set and its own
-# credential files under .secrets/ on the control node.
 - name: Read the current definition of AppRole '{{ openbao_setup_approle.name }}'
   ansible.builtin.uri:
     url: "{{ openbao_setup_addr }}/v1/auth/approle/role/{{ openbao_setup_approle.name }}"
@@ -58,7 +55,6 @@
 - name: Issue and store the credentials of '{{ openbao_setup_approle.name }}'
   when: openbao_setup_need_creds | bool
   block:
-    # The RoleID is stable — reading it again is harmless and idempotent.
     - name: Read the RoleID
       ansible.builtin.uri:
         url: "{{ openbao_setup_addr }}/v1/auth/approle/role/{{ openbao_setup_approle.name }}/role-id"
@@ -69,9 +65,6 @@
       changed_when: false
       no_log: true
 
-    # A SecretID, by contrast, is minted fresh each time — which is exactly why
-    # this whole block is skipped once the files exist. Old SecretIDs stay
-    # valid until revoked, so rotating leaves the previous one usable.
     - name: Generate a SecretID
       ansible.builtin.uri:
         url: "{{ openbao_setup_addr }}/v1/auth/approle/role/{{ openbao_setup_approle.name }}/secret-id"

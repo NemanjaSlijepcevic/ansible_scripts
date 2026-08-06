@@ -1,50 +1,144 @@
-# Role: openbao
+# OpenBao
 
-## Purpose
+## What this is
 
-This role deploys **OpenBao** — the open-source, community-driven fork of HashiCorp Vault — as a dedicated secrets-management server. It provides an API and web UI for storing and issuing secrets (KV, dynamic database credentials, PKI, transit encryption, etc.).
+OpenBao is the central secrets store for this homelab — an open-source, community-governed fork of
+HashiCorp Vault. One container, named `openbao`, runs on a dedicated machine alongside the same
+baseline stack every other host carries (reverse proxy, single sign-on, intrusion detection, a
+metrics/log agent). Its job is to be the one place credentials, API keys and tokens live, so that
+other machines and automated jobs can fetch a secret at the moment they need it instead of holding a
+permanent copy of it in a file.
 
-OpenBao runs on the dedicated `primary_openbao` host with the standard baseline stack in front of it (`common` → `authelia` → `traefik` → `crowdsec` → `openbao` → `alloy`). TLS is terminated at **Traefik**; OpenBao itself listens on plain HTTP on the internal `proxy` network. Because OpenBao has its own strong authentication and UI, its Traefik router uses `chain-no-auth@file` — it is **not** fronted by Authelia forward-auth (same pattern as Grafana and pgAdmin).
+Storage is OpenBao's **integrated Raft** backend — a self-contained, replicated log written straight
+to disk under `./data/openbao/data`, with no external database behind it. That is also what makes a
+consistent live backup possible: `bao operator raft snapshot save` takes a point-in-time copy without
+stopping the server. Every request against the vault is additionally written to a file audit log
+(`./data/openbao/audit/audit.log`), because a store whose entire purpose is holding secrets is also
+the one place you most want a record of who asked for what.
 
-Storage uses the **integrated Raft** backend (`/openbao/data`), which supports consistent live backups via `bao operator raft snapshot save` and can grow to an HA cluster later.
+The container sits on the shared `proxy` bridge network at a fixed address and is reachable from the
+internet at `https://openbao.your-domain.com` through the reverse proxy — but, unlike most services
+behind that proxy, it is **not** put behind the single sign-on portal's login page. OpenBao does its
+own strong authentication (tokens, a human login method, machine credentials), and API/CLI clients
+have no way to complete an SSO browser redirect, so its router uses the reverse proxy's no-auth
+middleware chain instead — the same pattern used for any service that authenticates itself. The
+container also publishes port `8200` bound to `127.0.0.1` only, so that operator commands run
+directly on this host (unsealing, the very first login) never have to leave it, while everyone else
+reaches the vault only through the TLS-terminating reverse proxy.
 
-## Prerequisites
+This guide covers deploying and unsealing the vault itself. Turning the empty vault into something
+useful — enabling its key-value store, writing access policies, creating a human account and issuing
+machine credentials — is a separate, later procedure against the same running container.
 
-- `common` and `traefik` roles must have run (the `proxy` network and Traefik must exist).
-- The `openbao.*` and `ip.*` variable blocks must be defined in `host_vars/primary_openbao.yml`.
-- The `host.openbao` key must be defined in the vaulted `group_vars/all.yml` so the inventory `ansible_host: "{{ host.openbao }}"` resolves.
-- A DNS record for the OpenBao FQDN pointing at Traefik.
+## Before you start
 
-> **Not idempotent past deploy**: Ansible deploys and configures the container, but **initialization and unsealing are one-time manual operations** (see below). OpenBao seals itself on every restart and must be unsealed by hand (or via an external auto-unseal mechanism, not configured here).
+**Docker is installed and your account can use it**
 
-## Manual Execution Guide
+```bash
+docker --version
+docker compose version 2>/dev/null || true
+
+id -nG | tr ' ' '\n' | grep -qx docker && echo "docker group: ok" || echo "docker group: MISSING"
+```
+
+If the group is missing:
+
+```bash
+sudo usermod -aG docker <username>
+newgrp docker
+```
+
+If Docker itself is absent:
+
+```bash
+curl -fsSL https://get.docker.com | sudo sh
+sudo systemctl enable --now docker
+```
+
+**The `./data` working directory exists and you are in it**
+
+```bash
+cd <deploy-dir>
+mkdir -p ./data
+sudo chown <username>:<pgid> ./data
+sudo chmod 0755 ./data
+```
+
+Every path below is relative to `<deploy-dir>`.
+
+**The shared `proxy` bridge network exists**
+
+```bash
+docker network inspect proxy >/dev/null 2>&1 && echo "proxy network: ok" || echo "proxy network: MISSING"
+```
+
+Create it if missing:
+
+```bash
+docker network create \
+  --driver bridge \
+  --subnet <docker-subnet> \
+  --gateway <docker-gateway> \
+  --ip-range <docker-ip-range> \
+  proxy
+```
+
+Note the fixed address of the reverse proxy's own container on this network — you need it below to
+tell OpenBao whose forwarded-for header to trust:
+
+```bash
+docker network inspect proxy | jq -r '.[0].Containers'
+```
+
+**The reverse proxy is already running, with its no-auth chain available**
+
+```bash
+docker ps --filter 'name=^traefik$'
+test -f ./data/traefik/rules/chain-no-auth.yml && echo "no-auth chain: ok" || echo "no-auth chain: MISSING"
+```
+
+If the second check fails, the reverse proxy has not been deployed with that piece yet — OpenBao's
+own router will exist but match no usable middleware chain, and every request to it will 404 or hang
+depending on how the proxy is otherwise configured. Get that file in place before Step 4 below.
+
+**DNS for the domain you intend to use already points at the reverse proxy.** You will confirm the
+actual routing once the container exists (see Verification); nothing here checks it in advance.
+
+## Setup
 
 ### Overview
 
-1. Create the config + data directories.
-2. Render `config.hcl` (Raft storage, plain-HTTP listener behind Traefik).
-3. Start the OpenBao container.
-4. **Initialize** OpenBao once, save the unseal keys + root token.
-5. **Unseal** OpenBao (after every restart).
+1. Create the config, data and audit directories.
+2. Write the server configuration file.
+3. Install log rotation for the audit log.
+4. Start the container.
+5. Initialize the vault — once, ever.
+6. Unseal it.
 
 ---
 
-### Step 1: Create directories
+#### Step 1: Create the directories
 
 ```bash
-sudo mkdir -p ./data/openbao/config ./data/openbao/data ./data/openbao/audit
-sudo chown -R <uid>:<gid> ./data/openbao
+mkdir -p ./data/openbao/config ./data/openbao/data ./data/openbao/audit
+sudo chown <puid>:<pgid> ./data/openbao ./data/openbao/config ./data/openbao/data ./data/openbao/audit
 sudo chmod 0750 ./data/openbao ./data/openbao/config ./data/openbao/data ./data/openbao/audit
 ```
 
-Replace `<uid>:<gid>` with `openbao_uid:openbao_gid` (default `1000:1000`) — the uid the container runs as, which must own the Raft data dir.
+**Explanation**: `<puid>:<pgid>` must be the account the container itself runs as (`--user` in Step
+4), because the Raft store under `./data/openbao/data` is written directly by that process — a
+mismatch here means the container starts and then fails the moment it tries to write its first log
+entry. Mode `0750` keeps the directory, which will shortly hold both the server's configuration and
+its complete secret store, unreadable to any other unprivileged account on this machine.
 
-### Step 2: Render `config.hcl`
+---
 
-Write `./data/openbao/config/config.hcl`:
+#### Step 2: Write the server configuration
 
-```hcl
+```bash
+sudo tee ./data/openbao/config/config.hcl >/dev/null <<'EOF'
 ui = true
+
 disable_mlock = true
 
 storage "raft" {
@@ -57,7 +151,10 @@ listener "tcp" {
   cluster_address                  = "0.0.0.0:8201"
   tls_disable                      = "true"
   x_forwarded_for_authorized_addrs = "<traefik-docker-ip>/32"
-  telemetry { unauthenticated_metrics_access = true }
+
+  telemetry {
+    unauthenticated_metrics_access = true
+  }
 }
 
 api_addr     = "https://openbao.your-domain.com"
@@ -69,30 +166,94 @@ telemetry {
 }
 
 audit "file" "file" {
-  description = "Managed by Ansible (update/roles/openbao)"
+  description = "audit device"
 
   options {
     file_path = "/openbao/audit/audit.log"
   }
 }
+EOF
+sudo chown <puid>:<pgid> ./data/openbao/config/config.hcl
+sudo chmod 0640 ./data/openbao/config/config.hcl
 ```
 
-`disable_mlock = true` is the recommended setting with the Raft backend (Raft memory-maps its DB). TLS is disabled on the listener because Traefik terminates TLS; only Traefik's IP is trusted for `X-Forwarded-For`.
+**Explanation**: `disable_mlock = true` is the recommended setting for the Raft backend specifically
+— Raft memory-maps its on-disk database, which is incompatible with locking the process's memory
+against being swapped. `tls_disable = "true"` is safe here only because the reverse proxy terminates
+TLS in front of this container and nothing reaches port `8200` except through that proxy or through
+the loopback bind; `x_forwarded_for_authorized_addrs` then names the *one* address allowed to claim a
+forwarded-for header, so a request that arrives any other way cannot spoof its way past that check.
 
-### Step 3: Start the container
+`node_id` identifies this server within its own Raft log. Pick it once and never change or reuse it
+while data exists — Raft treats the id as a peer identity, and changing it after the fact does not
+rename the existing peer, it introduces what looks like a different one.
+
+The audit device is declared here, in the configuration file, rather than turned on later with a
+command against the running server. Current OpenBao releases refuse to enable a file or socket audit
+device over the API at all (`400 … cannot enable audit device via API; use declarative, config-based
+audit device management instead`) — a file device can be pointed at any path on the filesystem and a
+socket device at any socket, which is operator-level power, not something a mere API token should be
+able to grant itself. Declaring it here, in a file only an operator with shell access can edit, is the
+supported way to enable it; it takes effect on every restart and can also be re-applied without a
+restart by signalling the process (see Updating & day-to-day).
+
+`api_addr` is the external HTTPS address exactly as clients dial it — it is embedded in redirects the
+UI issues, so getting it wrong here manifests as a redirect loop rather than a connection failure.
+`cluster_addr` is unrelated to the public address: it is where this node's own container-network
+address expects other Raft peers to reach it for replication traffic. A single-node deployment still
+requires the field to be set, even though nothing currently connects to it.
+
+---
+
+#### Step 3: Install log rotation for the audit log
 
 ```bash
-sudo docker run -d \
+sudo tee /etc/logrotate.d/openbao >/dev/null <<EOF
+$(pwd)/data/openbao/audit/audit.log {
+    size 50M
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}
+EOF
+```
+
+**Explanation**: If every enabled audit device fails to write, OpenBao stops answering requests
+entirely — that is intentional (an audited system that silently stopped recording would be worse than
+one that stops serving), but it also means an audit log left to grow forever until the disk fills is a
+self-inflicted outage waiting to happen. `copytruncate` is required rather than the usual rename-and-
+reopen rotation: the file is open continuously inside the container for the life of the process, and
+nothing inside the container is told to reopen it after a rotation, so truncating the same inode in
+place is the only rotation strategy that does not eventually make the process write into a file that
+no longer exists on disk.
+
+---
+
+#### Step 4: Start the container
+
+```bash
+docker run -d \
   --name openbao \
   --restart unless-stopped \
-  --user <uid>:<gid> \
-  --network proxy --ip <openbao-docker-ip> \
-  --stop-signal SIGTERM --stop-timeout 30 \
+  --user <puid>:<pgid> \
+  --stop-signal SIGTERM \
+  --stop-timeout 30 \
+  --network proxy \
+  --ip <openbao-docker-ip> \
+  --network-alias openbao \
   -p 127.0.0.1:8200:8200 \
   -e BAO_ADDR=http://127.0.0.1:8200 \
-  -v ./data/openbao/config:/openbao/config:ro \
-  -v ./data/openbao/data:/openbao/data \
-  -v ./data/openbao/audit:/openbao/audit \
+  -v "$(pwd)/data/openbao/config:/openbao/config:ro" \
+  -v "$(pwd)/data/openbao/data:/openbao/data" \
+  -v "$(pwd)/data/openbao/audit:/openbao/audit" \
+  --health-cmd 'bao status -address=http://127.0.0.1:8200 >/dev/null 2>&1 || test $? -eq 2' \
+  --health-interval 30s \
+  --health-timeout 10s \
+  --health-retries 3 \
+  --health-start-period 20s \
   --label traefik.enable=true \
   --label "traefik.http.routers.openbao.entrypoints=https" \
   --label "traefik.http.routers.openbao.rule=Host(\`openbao.your-domain.com\`)" \
@@ -104,285 +265,290 @@ sudo docker run -d \
   server -config=/openbao/config/config.hcl
 ```
 
-The `-p 127.0.0.1:8200:8200` bind exposes the API to the host only (for local CLI/unseal over SSH); LAN clients reach OpenBao through Traefik. Drop it to keep the API purely internal and use `docker exec` instead.
+**Explanation**: `-p 127.0.0.1:8200:8200` is deliberately narrow — it puts the API on this host's
+loopback interface only, reachable by an operator with a shell on this machine, and unreachable from
+the rest of the LAN even though the port is technically "published". Every other client, on this
+machine's own network or elsewhere, reaches the vault at `https://openbao.your-domain.com` through the
+reverse proxy instead.
 
-### Step 4: Initialize (once, ever)
+The health check treats two outcomes as healthy: `bao status` exits `0` when the vault is unsealed and
+answering normally, and exits `2` when it is sealed — which, immediately after every single restart,
+is the *expected* state, not a failure. Only a genuine error (a crashed process, a corrupted
+configuration) produces anything else, which is the only case that should actually flip the
+container's health state and trigger alerting.
+
+The router's `middlewares` label points at the reverse proxy's no-auth chain instead of the usual
+forward-authentication chain — see "Before you start" for why: OpenBao authenticates its own clients,
+and putting a browser-based single-sign-on login in front of an API endpoint would break every
+non-browser client that talks to it.
+
+`./data/openbao/config` is mounted read-only: the running server never needs to write its own
+configuration, and a read-only mount means a compromised process inside the container cannot rewrite
+the policy that governs it. The other two volumes are read-write because the server owns that data
+directly.
+
+---
+
+#### Step 5: Initialize the vault — once, ever
+
+Skip this step if the vault has already been initialized on this host before (see Verification for
+how to check).
 
 ```bash
 docker exec -it openbao bao operator init -address=http://127.0.0.1:8200
 ```
 
-This prints **5 unseal key shares** and an **initial root token**. Store them in a password manager immediately — they are shown once and cannot be recovered. By default any **3 of 5** shares are required to unseal.
+This prints **five unseal key shares** and an **initial root token**. Any **three of the five** shares
+are enough to unseal the vault later; the full five are never all required at once.
 
-> Losing all unseal keys makes the data permanently unrecoverable. Losing the root token is recoverable (regenerate with a quorum of unseal keys). Never commit these anywhere.
+**Explanation**: Write every one of these six values down in a password manager immediately — they are
+shown exactly once, OpenBao does not store them anywhere retrievable, and there is no "forgot my
+key" recovery path. Losing enough shares that you can no longer reach the three-of-five threshold
+makes every secret in this vault permanently unrecoverable — not merely locked, gone. Losing only the
+root token is, by contrast, recoverable later with a quorum of the unseal shares (`bao operator
+generate-root`), which is exactly why the shares are the ones that must never be lost.
 
-### Step 5: Unseal (after every restart)
+Never paste any of these six values into a file on this host, into a command's argument list, or into
+a chat window — a value on the command line lands in shell history and in this host's process table
+for anyone else with a session here to read. Every command in this guide and the ones that follow it
+reads a secret from an interactive prompt for that reason.
+
+---
+
+#### Step 6: Unseal
 
 ```bash
-# Repeat with 3 different unseal keys:
 docker exec -it openbao bao operator unseal -address=http://127.0.0.1:8200
 ```
 
-Verify:
+Run that command three times, pasting a **different** share each time when prompted. Then confirm:
 
 ```bash
 docker exec openbao bao status -address=http://127.0.0.1:8200
-# Sealed  false
+# Sealed   false
 ```
 
-Then log in:
+**Explanation**: OpenBao seals itself — discards the in-memory key that makes its storage readable —
+on every single restart, by design. The key that protects everything in the Raft store is never held
+whole anywhere; it is reconstructed only in memory, only when enough independently-held shares are
+combined, which is exactly what makes a single leaked share harmless and a stolen disk on its own
+useless. Submitting the same share twice does not advance the count toward the threshold — if the
+reported progress stalls, you pasted a duplicate rather than a third distinct share.
+
+## Restoring
+
+The dumps to restore from here are Raft snapshots — either one you take by hand below, or one
+produced by a separate scheduled job that pulls a snapshot from this vault using a credential scoped
+to read nothing but `sys/storage/raft/snapshot`.
+
+**Take a snapshot** while the vault is unsealed and you hold an authenticated token:
 
 ```bash
-export BAO_ADDR=http://127.0.0.1:8200
-docker exec -it openbao bao login <root-token>
-```
-
----
-
-## Operational setup
-
-> **Automated**: `update/openbao_setup.yml` does everything in this section — unseal, KV v2, policies, auth methods, admin account, AppRole, backup token — prompting for the root token and unseal shares so they never touch the inventory or the host. See [openbao_setup.md](openbao_setup.md). The steps below are the manual equivalent, kept for debugging and for understanding what that playbook does.
->
-> ```bash
-> ansible-playbook update/openbao_setup.yml --vault-password-file pass.file
-> ansible-playbook update/openbao_setup.yml --vault-password-file pass.file --tags unseal   # after a reboot
-> ```
-
-Ansible deploys the container and declares the audit device; everything *else* inside OpenBao is API state that needs a privileged token. Do this once, in this order, after the first unseal.
-
-**Authenticating**: the container runs as a non-root uid with `HOME=/`, so `bao login` cannot persist a token (`Error storing token: open /.vault-token.tmp: permission denied`) and the next `docker exec` gets `403 permission denied`. Pass the token through the environment instead of argv, so it never reaches `ps` or shell history:
-
-```bash
-read -rs BAO_TOKEN        # paste the token, Enter — not echoed, not in history
-export BAO_TOKEN
-docker exec -e BAO_TOKEN openbao bao token lookup     # policies ["root"]
-# ... run the commands below ...
-unset BAO_TOKEN
-```
-
-Every `docker exec … bao` command in this section needs that `-e BAO_TOKEN`.
-
-### 1. Audit device — Ansible-managed, nothing to do by hand
-
-The audit device is **not** enabled with `bao audit enable`. OpenBao ≥ 2.5 rejects that with `400 … cannot enable audit device via API; use declarative, config-based audit device management instead` — a file device can write to any path and a socket device to any socket, so it is treated as operator territory, not token territory.
-
-The role therefore declares it in `config.hcl`:
-
-```hcl
-audit "file" "file" {
-  description = "Managed by Ansible (update/roles/openbao)"
-
-  options {
-    file_path = "/openbao/audit/audit.log"
-  }
-}
-```
-
-Controlled by `openbao_audit_enabled` / `openbao_audit_device_path` / `openbao_audit_file_path`. The role also creates and mounts `./data/openbao/audit` and installs `/etc/logrotate.d/openbao` (copytruncate, `openbao_audit_log_max_size`, `openbao_audit_log_rotate_count`). Declarative devices are (re)applied on restart and on SIGHUP.
-
-```bash
-docker exec -e BAO_TOKEN openbao bao audit list -detailed   # file/ present
-ls -l ./data/openbao/audit/                                 # audit.log growing
-```
-
-> If **every** enabled audit device fails to write, OpenBao stops answering requests — designed behaviour, not a bug. Keep the audit device on its own directory and let logrotate cap it; never point it at the Raft data dir.
-
-### 2. KV v2 engine
-
-```bash
-docker exec -e BAO_TOKEN openbao bao secrets enable -path=kv -version=2 kv
-```
-
-Path layout: `kv/homelab/<host>/<service>`, one key per field.
-
-```bash
-docker exec -e BAO_TOKEN openbao bao kv put kv/homelab/<host>/<service> user=<username> password=<secret>
-docker exec -e BAO_TOKEN openbao bao kv get -field=password kv/homelab/<host>/<service>
-```
-
-### 3. Policies
-
-```hcl
-# admin.hcl — human administrators
-path "kv/*"    { capabilities = ["create","read","update","delete","list"] }
-path "sys/*"   { capabilities = ["create","read","update","delete","list","sudo"] }
-path "auth/*"  { capabilities = ["create","read","update","delete","list","sudo"] }
-
-# ansible-read.hcl — the deploy control node (read-only)
-path "kv/data/homelab/*"     { capabilities = ["read"] }
-path "kv/metadata/homelab/*" { capabilities = ["read","list"] }
-
-# backup.hcl — update/backup.yml, nothing else
-path "sys/storage/raft/snapshot" { capabilities = ["read"] }
-```
-
-```bash
-docker exec -i -e BAO_TOKEN openbao bao policy write admin - < admin.hcl
-docker exec -i -e BAO_TOKEN openbao bao policy write ansible-read - < ansible-read.hcl
-docker exec -i -e BAO_TOKEN openbao bao policy write backup - < backup.hcl
-```
-
-### 4. Human auth (userpass), then stop using root
-
-```bash
-docker exec -e BAO_TOKEN openbao bao auth enable userpass
-docker exec -e BAO_TOKEN openbao bao write auth/userpass/users/<username> password=<secret> policies=admin
-# log in as that user in the UI, confirm it works, then:
-docker exec -e BAO_TOKEN openbao bao token revoke -self          # revokes the root token
-```
-
-A revoked root token is recoverable — `bao operator generate-root` with a quorum of unseal shares. The shares stay offline; that is the break-glass path.
-
-### 5. Ansible auth (AppRole)
-
-```bash
-docker exec -e BAO_TOKEN openbao bao auth enable approle
-docker exec -e BAO_TOKEN openbao bao write auth/approle/role/ansible \
-    token_policies=ansible-read token_ttl=20m token_max_ttl=1h secret_id_ttl=0
-docker exec -e BAO_TOKEN openbao bao read -field=role_id  auth/approle/role/ansible/role-id
-docker exec -e BAO_TOKEN openbao bao write -f -field=secret_id auth/approle/role/ansible/secret-id
-```
-
-Store the two values on the control node in `.secrets/bao_role_id` and `.secrets/bao_secret_id` (`.secrets/` is gitignored). Then a playbook reads a secret at runtime instead of carrying it in `host_vars`:
-
-```yaml
-- name: Read a secret from OpenBao
-  ansible.builtin.set_fact:
-    some_password: "{{ lookup('community.hashi_vault.vault_kv2_get',
-                       'homelab/<host>/<service>',
-                       url='https://openbao.your-domain.com',
-                       auth_method='approle',
-                       role_id=lookup('file', '.secrets/bao_role_id'),
-                       secret_id=lookup('file', '.secrets/bao_secret_id')).secret.password }}"
-  no_log: true
-```
-
-Requires `community.hashi_vault` (in `requirements.yml`) and `hvac` importable by Ansible's own interpreter: `pipx inject ansible hvac` (or `pip install hvac` if Ansible is not pipx-installed — a pipx venv is isolated from user site-packages).
-
-> Migrate one secret at a time and keep the vaulted value until the lookup is proven. OpenBao is sealed after every reboot — a deploy of an unrelated host must never depend on it being unsealed.
-
-### 6. Backup credentials
-
-`update/backup.yml` uses the **`backup` AppRole**, not a stored token. `openbao_setup` creates it and writes `.secrets/backup_role_id` / `.secrets/backup_secret_id`; the `db_backup` role exchanges them for a short-lived token at the start of every run.
-
-An earlier design used a periodic token pasted into `host_vars` as `openbao.backup_token`. That is gone: a long-lived credential in the inventory had to be renewed inside each 768h window or backups silently began failing with 403, and the inventory is mirrored into KV, so the token ended up inside the store it was meant to back up. If you still have one, revoke it:
-
-```bash
-docker exec -e BAO_TOKEN openbao bao token revoke <old-token>
-```
-
----
-
-## Configuration Reference
-
-### Variables
-
-| Variable | Example | Description |
-|----------|---------|-------------|
-| `openbao.static` | `172.20.0.x` | Container static IP on the `proxy` network |
-| `openbao.host` | `Host(\`openbao.your-domain.com\`)` | Traefik router rule |
-| `openbao.domain` | `openbao.your-domain.com` | Bare FQDN |
-| `openbao.url` | `https://openbao.your-domain.com` | External `api_addr` / UI URL |
-| `openbao.port` | `8200` | API + UI listener port |
-| `openbao.node_id` | `openbao-1` | Raft node id — stable, never reuse across nodes |
-
-| `openbao_uid` / `openbao_gid` | `1000` | uid:gid the container runs as; owns the data dir |
-| `openbao_image` | `ghcr.io/openbao/openbao:latest` | Container image |
-| `openbao_audit_log_max_size` | `50M` | Rotate the audit log at this size |
-| `openbao_audit_log_rotate_count` | `7` | Rotated audit logs kept |
-| `openbao_verify_expect_unsealed` | `true` | `--tags verify` fails on a sealed node; set `false` to allow sealed |
-| `openbao_verify_expect_audit_device` | `true` | `--tags verify` fails when no audit log is being written |
-| `ip.traefik` | `172.20.0.x` | Traefik IP — trusted `X-Forwarded-For` source |
-| `ip.openbao` | `172.20.0.x` | OpenBao container IP (used for `cluster_addr`) |
-
-### Volumes
-
-| Host path | Container path | Purpose |
-|-----------|---------------|---------|
-| `./data/openbao/config` | `/openbao/config` (ro) | Rendered `config.hcl` |
-| `./data/openbao/data` | `/openbao/data` | Raft integrated storage (encrypted at rest) |
-| `./data/openbao/audit` | `/openbao/audit` | File audit device target, rotated by `/etc/logrotate.d/openbao` |
-
----
-
-## Backup & Restore (Raft snapshots)
-
-Automated: `update/backup.yml` includes an OpenBao play. The `db_backup` role's `raft` source type (`update/roles/db_backup/tasks/raft.yml`) pulls a snapshot from `http://127.0.0.1:8200/v1/sys/storage/raft/snapshot` with a per-run token from the `backup` AppRole, gzips it into `./data/backups/<timestamp>/raft_openbao.snap.gz`, checksums it and ships it to the NAS like every other dump (3 days local, 90 on the NAS).
-
-```bash
-ansible-playbook update/backup.yml --vault-password-file pass.file --limit primary_openbao
-```
-
-A **sealed node cannot be snapshotted** — the play reports it and then fails the assert, because a sealed node has had no usable backup since its last reboot. Unseal, re-run.
-
-By hand:
-
-```bash
-# Snapshot (OpenBao must be unsealed and you must be authenticated):
-docker exec openbao bao operator raft snapshot save /openbao/data/backup.snap
+read -rs BAO_TOKEN; echo
+docker exec -e BAO_TOKEN openbao bao operator raft snapshot save /openbao/data/backup.snap
 docker cp openbao:/openbao/data/backup.snap ./openbao-$(date +%F).snap
-
-# Restore into a running, unsealed node:
-docker cp ./openbao-YYYY-MM-DD.snap openbao:/tmp/restore.snap
-docker exec openbao bao operator raft snapshot restore /tmp/restore.snap
+docker exec openbao rm /openbao/data/backup.snap
 ```
 
----
+**Restore a snapshot into the running vault.** Nothing needs to be stopped first — the restore happens
+through the API against a live, unsealed server — but every existing token and lease is invalidated
+the moment it completes, so every client of this vault will need to re-authenticate afterward:
+
+```bash
+read -rs BAO_TOKEN; echo
+docker cp ./openbao-<date>.snap openbao:/tmp/restore.snap
+docker exec -e BAO_TOKEN openbao bao operator raft snapshot restore /tmp/restore.snap
+```
+
+**Restore into a vault that lost its host or its data directory entirely.** This one is subtler,
+because a snapshot restore needs an authenticated connection to *something*, and an empty data
+directory has nothing running in it yet:
+
+```bash
+docker stop openbao && docker rm openbao
+sudo rm -rf ./data/openbao/data/*
+# start the container again, exactly as in Step 4
+docker exec -it openbao bao operator init -address=http://127.0.0.1:8200
+```
+
+That `init` is a throwaway — its only purpose is to get the empty vault answering API calls at all, so
+unseal it with the shares it just printed and log in with the root token it just printed:
+
+```bash
+docker exec -it openbao bao operator unseal -address=http://127.0.0.1:8200   # x3, the fresh shares
+read -rs BAO_TOKEN; echo   # the root token this init just printed
+```
+
+Now restore the real snapshot over that empty storage:
+
+```bash
+docker cp ./openbao-<date>.snap openbao:/tmp/restore.snap
+docker exec -e BAO_TOKEN openbao bao operator raft snapshot restore /tmp/restore.snap
+docker restart openbao
+```
+
+**Explanation**: A restore replaces the entire Raft store — including the encryption keyring — with
+the one captured in the snapshot. That is why the throwaway unseal keys and root token from the
+just-run `init` stop working the instant the restore completes: after the restart, the server is
+sealed with the *original* vault's keyring, the one that produced the snapshot, not the one it was
+just handed. Unseal it again, this time with the **original** vault's shares — the ones saved when
+that vault was first initialized, kept safely outside this host the whole time. The keys from the
+throwaway `init` can be discarded; they never protected anything real.
+
+## Values to fill in
+
+| Placeholder | What it is | How to choose it | Used in |
+| --- | --- | --- | --- |
+| `<deploy-dir>` | Working directory holding `./data` | The account's home directory; every path is relative to it | Before you start |
+| `<username>` | Account that owns `./data` | Your unprivileged administrative account on this host | Before you start |
+| `<puid>` / `<pgid>` | uid:gid the container runs as | Any dedicated pair not shared with another service's data; owns `./data/openbao` | Steps 1, 2, 4 |
+| `<docker-subnet>` / `<docker-gateway>` / `<docker-ip-range>` | Addressing of the `proxy` network | From `docker network inspect proxy` if it already exists | Before you start |
+| `<traefik-docker-ip>` | The reverse proxy's fixed address on `proxy` | From `docker network inspect proxy` | Step 2 (trusted forwarded-for source) |
+| `<openbao-docker-ip>` | This container's own fixed address on `proxy` | Any free address inside `<docker-subnet>`, outside the auto-assign range | Steps 2, 4 |
+| `<node-id>` | This vault's Raft peer identity | A short stable label, e.g. `openbao-1`; never reused or changed | Step 2 |
+| `your-domain.com` | The domain this vault answers on | Whatever DNS record you point at the reverse proxy | Steps 2, 4 |
+| `<unseal-key>` | One of the five shares printed at initialization | Printed once by `bao operator init`; kept in a password manager, never in a file on this host | Steps 5, 6, Restoring |
+| `<root-token>` | The initial root token | Printed once by `bao operator init`; used only until a lesser-privileged account exists | Step 5, Restoring |
+| `<date>` | A snapshot's capture date | Whatever `date +%F` produced when you took it | Restoring |
 
 ## Verification
 
 ```bash
-# Read-only role checks: container running, initialized, unsealed, audit log
-# growing, health endpoint answering through Traefik.
-ansible-playbook update/openbao.yml --vault-password-file pass.file --tags verify
+docker ps --filter 'name=^openbao$'
+docker inspect --format '{{.State.Health.Status}}' openbao
 ```
 
-`verify.yml` is tagged `never` as well as `verify`, so it stays off the deploy path — a fresh node is legitimately uninitialized and a rebooted one is legitimately sealed, and neither should fail a deploy.
+Seal and initialization state:
 
 ```bash
-# Container running
-sudo docker ps | grep openbao
-
-# Seal status (rc 0 unsealed, rc 2 sealed, else error)
 docker exec openbao bao status -address=http://127.0.0.1:8200
+```
 
-# UI reachable through Traefik
-curl -sk https://openbao.your-domain.com/v1/sys/health
+Reachable through the reverse proxy, without authentication in front of it:
 
-# Prometheus metrics (unauthenticated, internal)
+```bash
+curl -s https://openbao.your-domain.com/v1/sys/health?standbyok=true\&sealedcode=200\&uninitcode=200
+```
+
+The audit device is enabled and actually writing:
+
+```bash
+docker exec -e BAO_TOKEN openbao bao audit list -detailed
+ls -l ./data/openbao/audit/audit.log
+```
+
+Metrics are being produced (unauthenticated by design, reachable only from inside the container
+network):
+
+```bash
 docker exec openbao wget -qO- http://127.0.0.1:8200/v1/sys/metrics?format=prometheus | head
 ```
 
-The container healthcheck reports **healthy** while unsealed *or* sealed (sealed = up but awaiting unseal); it only goes unhealthy on a real error.
+A metrics agent on this host normally scrapes that same endpoint continuously; expect it to report
+this target **down** while the vault is sealed (the endpoint answers `503` until the first unseal
+after a restart) and up again the moment you unseal it — that is expected behaviour, not a fault to
+chase.
 
-Alloy on this host scrapes `http://openbao:8200/v1/sys/metrics?format=prometheus` as job `openbao` (see `update/roles/alloy/templates/config.alloy.j2`, `current_host == 'openbao'` block) and remote-writes it to Prometheus. That endpoint returns **503 while the node is sealed**, so the scrape stays down until the first unseal — liveness is tracked by the blackbox `http_check` in `alloy.http_checks`, which forces 200 on sealed/uninitialized.
+## Updating & day-to-day
 
----
+**Pull a newer image and recreate the container.** The Raft store lives outside the container, so a
+minor-version pull is a routine stop/rm/run:
+
+```bash
+docker pull ghcr.io/openbao/openbao:latest
+docker stop openbao && docker rm openbao
+# re-run the docker run command from Step 4, unchanged
+```
+
+The vault comes back **sealed** every time — see the next item.
+
+**Unseal after every restart.** This is the single most common thing you will do to this vault: a
+reboot of the host, an image update, a crash, anything that stops and starts the container, seals it
+again. Repeat Step 6:
+
+```bash
+docker exec openbao bao status -address=http://127.0.0.1:8200   # Sealed true?
+docker exec -it openbao bao operator unseal -address=http://127.0.0.1:8200   # x3, different shares
+```
+
+There is no automated unseal configured here (that requires an external key-management service acting
+as an auto-unseal backend, which this deployment does not use) — budget for a human with the shares to
+be reachable, or accept that anything depending on this vault stays down until someone runs the
+commands above.
+
+**Editing `config.hcl`.** Rewrite it in place with `sudo tee` (Step 2), the same way `pg_hba.conf` is
+handled for the database server — replacing the file with an editor or `mv` detaches the container's
+bind mount from a new inode and the running server keeps the old configuration regardless of what is
+on disk now. Some settings (the listener, the storage backend) only take effect on a full restart;
+recreate the container for those. A change to the audit device alone can be picked up without dropping
+existing connections by signalling the process instead:
+
+```bash
+docker kill -s HUP openbao
+```
+
+**Logs**: `docker logs -f openbao`. Seal/unseal events, listener errors and audit-device failures all
+land there.
+
+**The audit log**: rotated nightly by the `logrotate` entry from Step 3. Confirm it is actually being
+picked up:
+
+```bash
+sudo logrotate -d /etc/logrotate.d/openbao
+```
 
 ## Rollback / Uninstall
 
 ```bash
-sudo docker stop openbao
-sudo docker rm openbao
-sudo rm -rf ./data/openbao   # DESTROYS all secrets — snapshot first
+docker stop openbao
+docker rm openbao
 ```
 
-Removing `./data/openbao` deletes the Raft store and every stored secret irreversibly. Take a snapshot first.
+The data survives in `./data/openbao/data`; re-running Step 4 brings the same vault back, still
+sealed.
 
----
+To remove it completely — **this destroys every secret this vault ever held, irreversibly**:
+
+```bash
+docker rm -f openbao
+sudo rm -rf ./data/openbao
+```
+
+Take a Raft snapshot first (see Restoring) if there is anything worth keeping.
 
 ## Troubleshooting
 
-**Sealed after reboot** — expected. OpenBao seals on every restart; unseal with 3 shares (Step 5). Automate only with a real auto-unseal backend (transit/KMS), never by storing keys on the host.
+**Sealed after a reboot**
+Expected — see Updating & day-to-day. Unseal with three shares.
 
-**`missing client token` / permission denied** — you are unauthenticated. `bao login <token>` first; the root token comes from init.
+**`missing client token` / `permission denied` on every command**
+You are not authenticated. `docker exec openbao bao login` needs a token; the root token from
+initialization works for the very first session, everything after that should use a lesser-privileged
+account.
 
-**UI redirect loop / wrong scheme** — `api_addr` must be the external `https://` URL and Traefik must forward `X-Forwarded-Proto: https`. Confirm `ip.traefik` matches Traefik's real IP so `x_forwarded_for_authorized_addrs` trusts it.
+**Redirect loop, or the UI keeps switching between `http://` and `https://`**
+`api_addr` in `config.hcl` does not match the external URL exactly, or the reverse proxy is not
+forwarding `X-Forwarded-Proto: https`. Confirm `<traefik-docker-ip>` in the listener's
+`x_forwarded_for_authorized_addrs` really is the reverse proxy's current address — it changes if that
+container is ever recreated with a different fixed address.
 
-**`failed to lock memory` on start** — ensure `disable_mlock = true` is in `config.hcl` (it is, by default, for the Raft backend).
+**`failed to lock memory` on startup**
+`disable_mlock = true` is missing from `config.hcl`. It must be present for the Raft backend, which
+memory-maps its database and is incompatible with memory locking.
 
-**Permission denied writing to `/openbao/data`** — the data dir must be owned by `openbao_uid:openbao_gid`; re-run `chown` (Step 1).
+**Permission denied writing to `/openbao/data`**
+`./data/openbao/data` is not owned by the uid:gid the container runs as. Re-run Step 1's `chown`.
 
-**Every request returns 500 / "no audit devices could be reached"** — the audit device cannot write (disk full, `./data/openbao/audit` not owned by `openbao_uid`, or the mount missing). Fix the directory and, if the log was rotated out from under the device, reload it: `docker kill -s HUP openbao`.
+**Every request returns 500, log shows no audit devices could be reached**
+The audit device cannot write — disk full, `./data/openbao/audit` not owned by the container's uid,
+or the volume mount missing. This is deliberate fail-closed behaviour: a vault that cannot record what
+it did refuses to do anything. Fix the directory, then `docker kill -s HUP openbao` to reload the
+device without a full restart.
 
-**Backup play fails with 403 on `sys/storage/raft/snapshot`** — the `backup` AppRole lost its policy or its SecretID was revoked. Re-run `openbao_setup.yml`.
+**A newly issued client certificate or token stops working right after a snapshot restore**
+Expected — see the "Explanation" under Restoring. The restore replaced the keyring; anything
+authenticated against the pre-restore state is now invalid and must re-authenticate.
+
+**A scheduled snapshot job starts failing with `403` on `sys/storage/raft/snapshot`**
+The credential that job uses lost its read permission on that one path, or was revoked. Re-issue it
+against the policy that grants exactly that path.

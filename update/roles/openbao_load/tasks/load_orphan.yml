@@ -1,14 +1,4 @@
 ---
-# A host_vars file with no matching host in hosts.yml. It is still written, but
-# raw: with no host to render against, `{{ base_domain }}` and the `_service`
-# composition anchors cannot be resolved. Nothing reads these variables at
-# deploy time either — treat the warning as an inventory cleanup hint.
-# Read through the `file` lookup rather than include_vars: lookup results are
-# marked unsafe, so the values are never templated. include_vars would defer
-# templating to first use, and then `{{ immich.url }}` fails with "'immich' is
-# undefined" — the file's own keys are not top-level variables here, and with
-# no host there is nothing to resolve them against anyway. The lookup decrypts
-# a vaulted file the same way include_vars does.
 - name: Read {{ openbao_load_orphan_file | basename }} without rendering it
   ansible.builtin.set_fact:
     openbao_load_orphan_vars: "{{ lookup('ansible.builtin.file', openbao_load_orphan_file) | from_yaml }}"

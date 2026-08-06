@@ -36,9 +36,6 @@
   when: not (openbao_setup_seal.sealed | bool)
   tags: ['unseal']
 
-# Everything below needs a privileged identity: the admin userpass account, or
-# the root token on a first bootstrap. With neither, the play is still useful
-# as an unseal-only run, which is the common case after a reboot.
 - name: Bootstrap OpenBao configuration
   when: openbao_setup_can_authenticate | bool
   block:

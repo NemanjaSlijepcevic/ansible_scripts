@@ -1,11 +1,4 @@
 ---
-# Filtered Docker API for Kestra's sandbox orchestration. Kestra never sees
-# /var/run/docker.sock; its Docker task runner talks to this proxy over the
-# internal `docker-api` network. Scope below allows `docker run --rm`
-# (create, start, wait, logs, remove, image pull, task-runner volumes) and
-# nothing else — no exec into running containers, no secret listing, no
-# swarm. Container-create is still host-root-equivalent, so the proxy must
-# stay off the `proxy` network and unreachable from anything but Kestra.
 - name: Create internal docker-api network
   community.docker.docker_network:
     name: docker-api
@@ -44,13 +37,24 @@
       SESSION: "0"
       DISTRIBUTION: "0"
       AUTH: "0"
+    command:
+      - /bin/sh
+      - -c
+      - >-
+        sed -i '/^backend dockerbackend$/a\    timeout server 0' /tmp/haproxy.cfg
+        && exec haproxy -W -db -f /tmp/haproxy.cfg
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-    # PING is enabled above, so /_ping proxies through to the docker daemon and
-    # returns 200 - verifies both haproxy and the socket behind it are alive.
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2375/_ping"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 10s
+
+- name: Verify the deployment
+  ansible.builtin.include_tasks:
+    file: verify.yml
+    apply:
+      tags: ['verify']
+  tags: ['verify']

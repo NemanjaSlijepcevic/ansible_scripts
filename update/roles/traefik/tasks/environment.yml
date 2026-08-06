@@ -63,7 +63,6 @@
     - traefik
   register: traefik_static_config
 
-
 - name: "Generate rules"
   ansible.builtin.template:
     src: "{{ item }}.yml.j2"

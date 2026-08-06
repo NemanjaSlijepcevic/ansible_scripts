@@ -1,6 +1,4 @@
 ---
-# Runs on the OpenBao host: preflight, login, and the scopes that belong to no
-# single host — group_vars/all.yml and any orphaned host_vars file.
 - name: Read seal status
   ansible.builtin.uri:
     url: "{{ openbao_load_addr }}/v1/sys/seal-status"
@@ -20,9 +18,6 @@
       ansible-playbook openbao_setup.yml --vault-password-file ../pass.file --tags unseal
     success_msg: "OpenBao is unsealed."
 
-# 400 is accepted here so the assert below can explain the failure. Left to the
-# uri module, a bad password fails with a censored result (no_log hides the
-# body), which says nothing about which account was tried.
 - name: Log in with the admin userpass account
   ansible.builtin.uri:
     url: "{{ openbao_load_addr }}/v1/auth/userpass/login/{{ openbao_load_admin_user }}"
@@ -46,8 +41,6 @@
       trip OpenBao's user lockout — wait it out rather than retrying.
     success_msg: "Logged in as '{{ openbao_load_admin_user }}'."
 
-# Kept as a fact on this host so the second play can read it back through
-# hostvars instead of logging in once per host.
 - name: Keep the token for the rest of the run
   ansible.builtin.set_fact:
     openbao_load_token: "{{ openbao_load_login.json.auth.client_token }}"
@@ -78,13 +71,6 @@
       bootstrap first: ansible-playbook openbao_setup.yml --vault-password-file ../pass.file
     success_msg: "KV mounted at {{ openbao_load_kv_path }}/."
 
-# group_vars/all.yml is the base layer: it contains no Jinja, and rendering it
-# through a host would silently capture that host's overrides (ufw_rules,
-# prometheus, …). So it is read straight off disk and written as written.
-# Read through the `file` lookup, not include_vars: lookup results are marked
-# unsafe, so nothing here is ever templated. include_vars defers templating to
-# first use, which would resolve any Jinja against *this* host and silently
-# capture its overrides. The lookup decrypts the vaulted file the same way.
 - name: Read group_vars/all.yml without rendering it
   ansible.builtin.set_fact:
     openbao_load_group_vars: "{{ lookup('ansible.builtin.file', inventory_dir ~ '/group_vars/all.yml') | from_yaml }}"

@@ -3,7 +3,6 @@
   ansible.builtin.file:
     path: "{{ item }}"
     state: directory
-    # nobody:nogroup — prom/prometheus runs as uid 65534.
     owner: "65534"
     group: "65534"
     mode: "0755"

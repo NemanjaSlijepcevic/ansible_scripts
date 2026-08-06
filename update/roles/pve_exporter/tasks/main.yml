@@ -1,7 +1,4 @@
 ---
-# No config file: the exporter is fully env-configured, so this role needs no
-# environment.yml. Prometheus scrapes it internally over the proxy network
-# (no Traefik router).
 - name: Deploy pve-exporter container
   community.docker.docker_container:
     name: pve-exporter

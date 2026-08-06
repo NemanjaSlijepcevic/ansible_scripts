@@ -68,7 +68,6 @@
       start_period: 60s
       start_interval: 10s
 
-
 - name: Update
   community.docker.docker_container_exec:
     container: crowdsec
@@ -97,4 +96,8 @@
   when: crowdsec_cloudflare_bouncer_enabled | default(false)
 
 - name: Verify LAPI and bouncer registration
-  ansible.builtin.include_tasks: verify.yml
+  ansible.builtin.include_tasks:
+    file: verify.yml
+    apply:
+      tags: ['verify']
+  tags: ['verify']

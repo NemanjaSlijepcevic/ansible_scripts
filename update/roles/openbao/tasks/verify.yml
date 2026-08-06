@@ -1,5 +1,4 @@
 ---
-# Read-only. Run alone with: ansible-playbook update/openbao.yml --tags verify
 - name: Get OpenBao container state
   community.docker.docker_container_info:
     name: openbao
@@ -15,7 +14,6 @@
       (exists={{ openbao_container.exists }}).
     success_msg: "OpenBao container running, health={{ openbao_container.container.State.Health.Status | default('n/a') }}."
 
-# rc 0 = unsealed, rc 2 = sealed (up, awaiting unseal), anything else = broken.
 - name: Read OpenBao seal status
   ansible.builtin.command:
     cmd: "docker exec openbao bao status -address=http://127.0.0.1:8200 -format=json"
@@ -45,9 +43,6 @@
       and root token offline (see docs/update/openbao.md).
     success_msg: "OpenBao is initialized (Raft node {{ openbao.node_id }})."
 
-# Sealed is a legitimate state right after a reboot, so this is opt-out: set
-# openbao_verify_expect_unsealed=false when checking a node you have not
-# unsealed yet.
 - name: Assert OpenBao is unsealed
   ansible.builtin.assert:
     that:
@@ -64,10 +59,6 @@
     path: ./data/openbao/audit/audit.log
   register: openbao_audit_log
 
-# Checking the file rather than `bao audit list` on purpose: listing audit
-# devices needs a root/sudo token, and no automation on this host should hold
-# one. A growing log proves the device is enabled *and* able to write — and a
-# device that cannot write makes OpenBao reject every request.
 - name: Assert the file audit device is enabled and writing
   ansible.builtin.assert:
     that:
@@ -83,9 +74,6 @@
 
 - name: Check the health endpoint through Traefik
   ansible.builtin.uri:
-    # standbyok/sealedcode/uninitcode force 200 for states that are not errors,
-    # so a non-200 here means the route itself is broken, not that OpenBao is
-    # sealed. Same query the Alloy http_check uses.
     url: "{{ openbao.url }}/v1/sys/health?standbyok=true&sealedcode=200&uninitcode=200"
     method: GET
     status_code: 200

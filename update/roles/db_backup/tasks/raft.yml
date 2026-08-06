@@ -1,16 +1,8 @@
 ---
-# OpenBao Raft snapshots. Taken over the local API rather than
-# `bao operator raft snapshot save` inside the container: the CLI wants the
-# token in argv or an env var, both of which are readable in `ps` on the host,
-# while the API takes it in a header that no_log keeps out of the logs too.
 - name: Resolve OpenBao snapshot sources
   ansible.builtin.set_fact:
     db_backup_raft_all: "{{ db_backup_source.raft | default([]) }}"
 
-# A short-lived token minted per run from the `backup` AppRole, whose policy
-# grants read on sys/storage/raft/snapshot and nothing else. This replaces a
-# periodic token stored in host_vars: the inventory now carries no credential,
-# and a leaked snapshot token expires on its own.
 - name: Log in to OpenBao with the backup AppRole
   ansible.builtin.uri:
     url: "{{ item.url }}/v1/auth/approle/login"
@@ -38,10 +30,6 @@
   register: db_backup_raft_health
   changed_when: false
 
-# A sealed node cannot produce a snapshot — it has no root key to decrypt the
-# store. Say so explicitly here; if it was the only source on this host the
-# "Fail when nothing was dumped" assert in main.yml then aborts the play, which
-# is correct: a sealed node has had no usable backup since the last reboot.
 - name: Warn about sealed or uninitialized OpenBao nodes
   ansible.builtin.debug:
     msg: >-
@@ -68,7 +56,6 @@
   when:
     - not (item.json.sealed | default(true))
     - item.json.initialized | default(false)
-  # The token is a header, but uri echoes the whole task args on failure.
   no_log: "{{ db_backup_no_log }}"
   changed_when: true
 

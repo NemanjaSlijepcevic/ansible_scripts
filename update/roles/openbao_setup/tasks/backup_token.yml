@@ -9,9 +9,6 @@
 - name: Issue and store the backup token
   when: openbao_setup_rotate_credentials | bool or not openbao_setup_backup_file.stat.exists
   block:
-    # Periodic, so it never hits a max TTL — but it still has to be renewed
-    # inside each period. `bao token renew` or a re-run with
-    # openbao_setup_rotate_credentials=true does that.
     - name: Create the backup token
       ansible.builtin.uri:
         url: "{{ openbao_setup_addr }}/v1/auth/token/create"
@@ -37,9 +34,6 @@
       become: false
       no_log: true
 
-    # Deliberately not written into host_vars: that file is meant to be
-    # vault-encrypted, and editing an encrypted file from a play would either
-    # decrypt it on disk or rewrite it wholesale. Copy it across by hand once.
     - name: Explain where the backup token has to go
       ansible.builtin.debug:
         msg: >-

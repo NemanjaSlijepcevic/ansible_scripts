@@ -24,8 +24,6 @@
         group: "{{ user.group }}"
         mode: "0750"
 
-    # No --delete: the NAS keeps its own (longer) retention window, pruned
-    # below, and must not lose history just because staging was cleaned.
     - name: Push staged dumps to the NAS
       ansible.posix.synchronize:
         src: "{{ db_backup_local_dir }}/"
@@ -35,8 +33,6 @@
           - "--chown={{ user.name }}:{{ user.group }}"
       become: false
 
-    # Only the <host>/<timestamp> directories pushed by this run are verified —
-    # re-hashing the whole NAS archive would grow with every backup ever taken.
     - name: Resolve the backup directories staged for this run
       ansible.builtin.set_fact:
         db_backup_sync_dirs: >-

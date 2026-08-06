@@ -1,0 +1,132 @@
+---
+- name: Check the socket proxy container is running
+  ansible.builtin.command:
+    cmd: "docker inspect socket-proxy --format '{{ '{{' }} .State.Running {{ '}}' }}'"
+  register: socket_proxy_running
+  changed_when: false
+  check_mode: false
+  failed_when: false
+  retries: 6
+  delay: 5
+  until: socket_proxy_running.rc == 0 and socket_proxy_running.stdout | trim == "true"
+
+- name: Assert the socket proxy container is running
+  ansible.builtin.assert:
+    that:
+      - socket_proxy_running.rc == 0
+      - socket_proxy_running.stdout | trim == "true"
+    fail_msg: >-
+      socket-proxy is not running on {{ inventory_hostname }} — every Kestra task
+      that needs the Docker API will fail immediately. Check `docker logs socket-proxy`;
+      a config error in the startup command leaves the container in a restart loop.
+    success_msg: "socket-proxy is running."
+
+- name: Copy the running HAProxy config out of the container
+  ansible.builtin.command:
+    cmd: "docker cp socket-proxy:/tmp/haproxy.cfg {{ socket_proxy_config_probe }}"
+  register: socket_proxy_config_copy
+  changed_when: false
+  check_mode: false
+  failed_when: false
+
+- name: Assert the running HAProxy config could be read
+  ansible.builtin.assert:
+    that:
+      - socket_proxy_config_copy.rc == 0
+    fail_msg: >-
+      Could not read /tmp/haproxy.cfg out of the socket-proxy container on
+      {{ inventory_hostname }} ({{ socket_proxy_config_copy.stderr | default('no stderr') }}).
+      The image writes its generated config there and the startup patch edits it in
+      place, so a missing file means the entrypoint changed and the patch in
+      socket_proxy/tasks/main.yml no longer has anything to edit. Inspect the
+      container with `docker cp socket-proxy:/tmp/ -` and re-target it.
+    success_msg: "Read the running HAProxy config."
+
+- name: Read the dockerbackend stanza
+  ansible.builtin.command:
+    cmd: "sed -n '/^backend dockerbackend$/,/^$/p' {{ socket_proxy_config_probe }}"
+  register: socket_proxy_backend
+  changed_when: false
+  check_mode: false
+
+- name: Remove the config probe
+  ansible.builtin.file:
+    path: "{{ socket_proxy_config_probe }}"
+    state: absent
+  changed_when: false
+  check_mode: false
+
+- name: Assert the dockerbackend server timeout is disabled
+  ansible.builtin.assert:
+    that:
+      - socket_proxy_backend.stdout is search('timeout server 0')
+    fail_msg: >-
+      socket-proxy is running with the image's default `timeout server 10m` on the
+      dockerbackend. Every Kestra task container that lives longer than ten minutes
+      will have its /containers/*/wait and /logs streams cut, and Kestra will kill a
+      container that is still working. The startup patch did not apply — the image
+      has most likely renamed the `backend dockerbackend` stanza. Read
+      `docker cp socket-proxy:/tmp/haproxy.cfg -` and re-target the sed in
+      socket_proxy/tasks/main.yml.
+      Stanza found: {{ socket_proxy_backend.stdout_lines }}
+    success_msg: "dockerbackend has `timeout server 0` — long-running tasks will not be cut."
+
+- name: Check the proxy answers on the docker-api network
+  ansible.builtin.command:
+    cmd: >-
+      docker run --rm --network docker-api curlimages/curl:latest
+      -s -o /dev/null -w '%{{ '{' }}http_code{{ '}' }}' --max-time 10
+      http://socket-proxy:2375/_ping
+  register: socket_proxy_ping
+  changed_when: false
+  check_mode: false
+  failed_when: false
+  retries: 3
+  delay: 5
+  until: socket_proxy_ping.stdout | trim == "200"
+
+- name: Assert the proxy answers _ping
+  ansible.builtin.assert:
+    that:
+      - socket_proxy_ping.stdout | trim == "200"
+    fail_msg: >-
+      socket-proxy did not answer /_ping with 200 on the docker-api network
+      (got '{{ socket_proxy_ping.stdout | default('') | trim }}'). Kestra cannot
+      reach the Docker API. Confirm the container is on docker-api and that HAProxy
+      parsed its config: `docker logs socket-proxy`.
+    success_msg: "socket-proxy answers /_ping with 200."
+
+- name: Check the docker-api network is internal
+  ansible.builtin.command:
+    cmd: "docker network inspect docker-api --format '{{ '{{' }} .Internal {{ '}}' }}'"
+  register: socket_proxy_network_internal
+  changed_when: false
+  check_mode: false
+
+- name: Check which networks the proxy is attached to
+  ansible.builtin.command:
+    cmd: "docker inspect socket-proxy --format '{{ '{{' }} json .NetworkSettings.Networks {{ '}}' }}'"
+  register: socket_proxy_networks
+  changed_when: false
+  check_mode: false
+
+- name: Assert the proxy is reachable only from the internal network
+  ansible.builtin.assert:
+    that:
+      - socket_proxy_network_internal.stdout | trim == "true"
+      - (socket_proxy_networks.stdout | from_json).keys() | list | sort == ['docker-api']
+    fail_msg: >-
+      socket-proxy is exposed beyond the internal docker-api network on
+      {{ inventory_hostname }}. docker-api internal={{ socket_proxy_network_internal.stdout | trim }},
+      attached networks={{ (socket_proxy_networks.stdout | from_json).keys() | list }}.
+      Anything that can reach this proxy holds host-root-equivalent access to the
+      Docker daemon — it must never join `proxy` or publish a port.
+    success_msg: "socket-proxy is on docker-api only, and that network is internal."
+
+- name: Show the verified socket proxy state
+  ansible.builtin.debug:
+    msg:
+      - "running: {{ socket_proxy_running.stdout | trim }}"
+      - "ping: {{ socket_proxy_ping.stdout | trim }}"
+      - "networks: {{ (socket_proxy_networks.stdout | from_json).keys() | list }}"
+      - "dockerbackend: {{ socket_proxy_backend.stdout_lines | reject('equalto', '') | list }}"
