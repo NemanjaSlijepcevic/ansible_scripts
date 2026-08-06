@@ -47,8 +47,6 @@
   register: db_backup_pg_dbs
   changed_when: false
 
-# -Fc (custom format) is already compressed and restores with pg_restore,
-# which can pick single tables out of the archive.
 - name: Dump each database
   ansible.builtin.shell:
     cmd: >-

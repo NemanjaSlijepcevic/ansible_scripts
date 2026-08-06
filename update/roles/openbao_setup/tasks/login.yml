@@ -1,12 +1,4 @@
 ---
-# Two ways in, in order of preference:
-#
-#   1. the admin `userpass` account — the normal case, and the reason the root
-#      token can stay revoked;
-#   2. the root token — only on a first bootstrap, when no admin account
-#      exists yet and there is nothing else to authenticate as.
-#
-# Whichever is used, the resulting token lives only for this run.
 - name: Log in with the admin userpass account
   ansible.builtin.uri:
     url: "{{ openbao_setup_addr }}/v1/auth/userpass/login/{{ openbao_setup_admin_user }}"
@@ -20,8 +12,6 @@
   no_log: true
   changed_when: false
 
-# A 400 here on a *first* run is expected: the account is created later in
-# auth.yml. It is only fatal when there is no root token to fall back on.
 - name: Assert the userpass login worked
   ansible.builtin.assert:
     that:

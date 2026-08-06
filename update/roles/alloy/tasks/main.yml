@@ -14,10 +14,6 @@
       - ./data/traefik/logs:/srv/traefik-logs:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /var/lib/alloy/textfiles:/textfiles:ro
-      # cadvisor resolves each container through containerd, not just the docker
-      # API. Without this socket every per-container handler fails with "cannot
-      # unix dial containerd api service" and only the root cgroup ("/") is
-      # exported — no container_* series at all. /dev/disk backs its diskstats.
       - /run/containerd/containerd.sock:/run/containerd/containerd.sock:ro
       - /dev/disk:/dev/disk:ro
 
@@ -26,11 +22,6 @@
     alloy_volumes: "{{ alloy_volumes + ['./data/certs:/postgres-certs:ro'] }}"
   when: current_host == 'postgres'
 
-# Only hosts with alloy.syslog defined (the monitor) publish syslog ports -
-# one entry per device x protocol (default udp); other hosts leave ports unset.
-# On hosts whose public domains are Cloudflare-proxied (the server), Cloudflare
-# 403-challenges probes from the VPS's own IP. Pin each domain check to the
-# local Traefik so blackbox hits the origin directly, past Cloudflare.
 - name: Build origin overrides for domain probes
   ansible.builtin.set_fact:
     alloy_extra_hosts: >-

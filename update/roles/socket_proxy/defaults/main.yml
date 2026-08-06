@@ -6,3 +6,8 @@
 user:
   name: "deploy"
   group: "docker"
+
+# Scratch path verify.yml copies the running HAProxy config to, so it can
+# assert the startup timeout patch actually applied. Read and deleted in the
+# same run; nothing else uses it.
+socket_proxy_config_probe: "/tmp/socket-proxy-haproxy.cfg"

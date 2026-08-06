@@ -1,64 +1,316 @@
-# Role: kestra
+# Kestra
 
-## Purpose
+## What this is
 
-Deploys [Kestra](https://kestra.io/) (open-source edition), a declarative workflow-orchestration platform, as a Docker container on the automation host. It replaces the earlier n8n deployment.
+Kestra is the workflow orchestrator for this stack — a declarative, trigger-driven automation platform
+that runs as one Docker container in "standalone" mode (UI, API, scheduler and worker all in the same
+process). It sits behind the reverse proxy with single-sign-on forward-auth in front of the UI; webhook
+trigger paths are the one exception, bypassed at both the proxy and inside Kestra's own login, because
+they are called by external systems that cannot complete an interactive login.
 
-Unlike n8n, **no custom image is built**: Kestra's built-in Docker task runner speaks the Docker API natively, and the role points it at the filtered `socket-proxy:2375` endpoint (the `socket_proxy` role) via global plugin defaults — Kestra never sees `/var/run/docker.sock`. Flow tasks (Ansible runs, Claude Code sandbox runs, any script task) execute in **ephemeral containers** spawned through that proxy:
+Two design decisions shape almost everything else in this guide:
 
-- The `ansible_runner` image is consumed by Kestra's `io.kestra.plugin.ansible.cli.AnsibleCLI` task as its `containerImage` (the plugin's default `cytopia/ansible` image lacks this repo's collections).
-- The `claude_runner` image is launched via a plain Docker task runner task — Kestra's Anthropic plugin (`io.kestra.plugin.anthropic.ChatCompletion`) is API-key chat only and is *not* a replacement for agentic Claude Code runs.
+**Kestra never touches the host's raw Docker socket.** Its built-in Docker task runner — the mechanism a
+flow uses to execute a script or a command inside its own throwaway container — is pointed at a filtered
+Docker API endpoint instead. A container that can reach the real Docker socket is root on the host in
+every way that matters: it can start a privileged container, mount the host filesystem into it, and read
+every secret on the machine. Kestra legitimately needs to launch and reap short-lived task containers, so
+it is instead given an HTTP endpoint that permits exactly that lifecycle — create, start, wait, read logs,
+remove — and refuses everything else, including the calls that would grant an interactive shell inside a
+container. That endpoint is a separate, narrowly-scoped service in its own right; this guide only covers
+what Kestra itself needs from it.
 
-Kestra sits behind Traefik with Authelia forward-auth protecting the UI; webhook trigger paths (`/api/v1/main/executions/webhook/…`) are bypassed both in Authelia and in Kestra's own basic auth (`open-urls`). Its repository/queue live in the shared PostgreSQL server, reached over mutual TLS via JDBC.
+**Kestra's repository and queue live in the central PostgreSQL server, reached over mutual TLS.** Flow
+definitions, execution history, triggers and users are rows in that database, not files on this host —
+which is also why there is no "flows" directory anywhere in this deployment: flows are authored in the
+Kestra UI and their only home is that database.
 
-## Prerequisites
+One more thing worth knowing before you start: Kestra's own built-in plugin for calling an AI provider is
+a single request/response chat completion — it sends a prompt, gets an answer, and that is the whole
+interaction. It has no tool use, no file access, no ability to run commands or iterate. Any flow that
+needs an actual agentic coding run — read a repository, make edits, run tests — cannot use that plugin at
+all. Those flows instead launch a plain Docker task against a separate, purpose-built sandbox image that
+runs the real Claude Code CLI inside a throwaway, unprivileged container; that image and its network are
+built as their own thing, not by Kestra, and Kestra only needs to know its name. The same pattern is used
+for flows that run Ansible playbooks: they call a dedicated task type with a purpose-built image supplied
+as its container image, rather than whatever generic image that task type ships with by default.
 
-- `common`, `traefik`, `authelia` roles must have run on the automation host.
-- `socket_proxy` role must have run — Kestra joins the `docker-api` network and expects a reachable `socket-proxy:2375` endpoint.
-- `claude_runner` / `ansible_runner` roles must have run if flows reference those images — they build `claude-runner:latest` / `ansible-runner:latest` and the `sandbox` network task containers attach to.
-- Central PostgreSQL server (`update/postgres.yml`) must have a `postgres_tls_clients` entry named `kestra`, which generates and distributes the client certificate/key to `./data/certs/{ca.crt,kestra.crt,kestra.key}` on the automation host.
-- `update/postgres.yml`'s "Prepare PostgreSQL for Automation" play (the `prepare_postgres` role with `current_host: automation`) must have run — it creates the `kestra` database and database user.
-- `openssl` on the automation host (used to convert the client key for JDBC).
-- Variables: `kestra.*`, `kestra_db.*`, `postgres.ip`/`postgres.port`, `log_notification.chat_id`/`log_notification.telegram_bot`, `default.dns`, shared `user.*`.
+Runs on: the automation host, alongside the filtered Docker API endpoint and the two sandbox images.
+Talks to: the reverse proxy (inbound), the central PostgreSQL server (mutual TLS), the filtered Docker API
+endpoint (task containers), an SMTP server (through flows, not directly), and — for flows that need
+credentials at run time — OpenBao, over its HTTP API.
 
-## Manual Execution Guide
+## Before you start
+
+**Docker is installed and your account can use it**
+
+```bash
+docker --version
+id -nG | tr ' ' '\n' | grep -qx docker && echo "docker group: ok" || echo "docker group: MISSING"
+```
+
+**The `./data` working directory exists and you are in it**
+
+```bash
+cd <deploy-dir>
+mkdir -p ./data
+sudo chown <username>:<pgid> ./data
+```
+
+All paths below are relative to `<deploy-dir>`.
+
+**The shared `proxy` bridge network exists**
+
+```bash
+docker network inspect proxy >/dev/null 2>&1 && echo "proxy network: ok" || echo "proxy network: MISSING"
+```
+
+**The reverse proxy and the single sign-on portal are running on this host**
+
+```bash
+docker ps --filter 'name=^traefik$'
+docker ps --filter 'name=^authelia$'
+docker run --rm --network proxy curlimages/curl -s -o /dev/null -w '%{http_code}\n' \
+  http://authelia:9091/api/authz/forward-auth
+```
+
+**A filtered Docker API endpoint answers on an isolated network**
+
+Kestra's task runner talks to it, never to the host socket. Confirm it is up and reachable from the
+network Kestra will join:
+
+```bash
+docker network inspect docker-api --format '{{.Internal}}'
+# expect: true
+
+docker run --rm --network docker-api curlimages/curl -sf http://socket-proxy:2375/_ping
+# expect: OK
+```
+
+If this is missing, it needs to be stood up as its own deployment before Kestra can start — Kestra's
+container creation will succeed even without it, but every task that launches a container will then fail
+to reach the daemon.
+
+**The central PostgreSQL server has a database and login role for Kestra**
+
+Run on the database host:
+
+```bash
+docker exec -it postgres-db psql -U postgres -c '\l' | grep kestra
+docker exec -it postgres-db psql -U postgres -c '\du' | grep kestra
+```
+
+**The PostgreSQL mutual-TLS client certificate is present on this host**
+
+The database requires `clientcert=verify-full`, so a password alone is refused.
+
+```bash
+ls -l ./data/certs/
+sudo openssl x509 -in ./data/certs/kestra.crt -noout -subject -dates
+```
+
+You need `./data/certs/kestra.crt`, `./data/certs/kestra.key`, and the issuing `./data/certs/ca.crt`.
+They are signed centrally and copied here; Kestra never generates its own. The `-subject` output must
+show `CN = <db-username>`, matching the database role above.
+
+**`openssl` is available on this host**
+
+Used below to convert the private key into the format the JDBC driver expects.
+
+```bash
+openssl version
+```
+
+**OpenBao is reachable, if flows will fetch their own secrets from it**
+
+Kestra's open-source edition has no live secrets-manager integration — that is a paid-tier feature — so
+every value a flow reads through its secrets function has to already be sitting in this container's own
+environment when it starts. A handful of those values, though, are fetched by *flows themselves* at run
+time by calling OpenBao's own HTTP API directly from inside a script task, using a set of
+API credentials Kestra is handed once at start time and never sees expire on its own. If you plan to use
+that pattern (Step 4 below), you need:
+
+```bash
+curl -sf -o /dev/null -w '%{http_code}\n' https://openbao.your-domain.com/v1/sys/health
+```
+
+If you don't have anything like that, skip Step 4 and pass whatever flow secrets you need directly as
+`SECRET_*` values in Step 6 instead — the mechanism works the same either way, only the source of the
+value differs.
+
+**You have decided the sandbox images and their network exist, if flows will use them**
+
+Only needed if any flow you plan to write launches a Claude Code or Ansible sandbox task:
+
+```bash
+docker images claude-runner:latest --format '{{.Repository}}:{{.Tag}}'
+docker images ansible-runner:latest --format '{{.Repository}}:{{.Tag}}'
+docker network inspect sandbox --format '{{.IPAM.Config}}'
+```
+
+**You have SMTP credentials**, if any flow will send mail directly (rather than through a task written to
+call a mail API on its own) — an application password for the sending mailbox.
+
+**DNS for Kestra's domain resolves to this host**
+
+```bash
+dig +short kestra.your-domain.com
+```
+
+## Setup
 
 ### Overview
 
-1. Create the Kestra data/storage directories.
-2. Render the `application.yml` configuration (Postgres backend, socket-proxy task runner defaults, basic auth, encryption key).
-3. Convert the PostgreSQL client key to PKCS#8 DER (the JDBC driver cannot read PEM keys) and fix ownership.
-4. Start the container on both the `proxy` network (static IP, Traefik-routed) and the `docker-api` network (to reach `socket-proxy`).
-
-### Step-by-Step Instructions
-
-#### Step 1: Create data directories
-
-**Purpose**: Kestra's local storage backend (execution artifacts, namespace files) needs a directory owned by the in-container `kestra` user (uid `1000` — see `kestra.uid`).
-
-**Commands**:
-```bash
-sudo mkdir -p ./data/kestra/storage
-sudo chown -R 1000:docker ./data/kestra
-sudo chmod 0755 ./data/kestra ./data/kestra/storage
-```
-
-**Explanation**: `./data/kestra/storage` maps to `/app/storage` inside the container. Workflow definitions, users, and execution state live in PostgreSQL, not here — this holds only internal storage objects (task outputs, namespace files).
+1. Create the storage directory.
+2. Confirm the PostgreSQL client certificate and convert its key for the JDBC driver.
+3. Decide the values only you can choose: the encryption key, the admin login, the time zone.
+4. Fetch or prepare the secrets flows will need, as base64-encoded environment values.
+5. Write `application.yml`.
+6. Start the container on both networks.
+7. Confirm it came up clean.
 
 ---
 
-#### Step 2: Render the configuration file
+#### Step 1: Create the storage directory
 
-**Purpose**: Kestra takes a single YAML config file; the role templates it from `application.yml.j2` with the Postgres JDBC URL (mTLS), basic auth, encryption key, and Docker task runner defaults pointing at the socket proxy.
-
-**Commands**:
 ```bash
-sudo tee ./data/kestra/application.yml > /dev/null <<'EOF'
+cd <deploy-dir>
+sudo mkdir -p ./data/kestra/storage
+sudo chown -R <puid>:<pgid> ./data/kestra
+sudo chmod 0755 ./data/kestra ./data/kestra/storage
+```
+
+**Explanation**: `./data/kestra/storage` is mounted at `/app/storage` inside the container and holds
+Kestra's internal storage objects — task outputs, staged files, namespace files. Flow definitions, users
+and execution history are **not** here; those live entirely in PostgreSQL, reached in Step 5. `<puid>` is
+the in-container `kestra` user Kestra's own image runs as; get it wrong and the container starts but
+cannot write its own storage.
+
+---
+
+#### Step 2: Confirm the client certificate and convert the key
+
+```bash
+cd <deploy-dir>
+sudo openssl x509 -in ./data/certs/kestra.crt -noout -subject
+sudo openssl x509 -in ./data/certs/ca.crt -noout -subject -dates
+
+sudo openssl pkcs8 -topk8 -inform PEM -outform DER -nocrypt \
+  -in ./data/certs/kestra.key -out ./data/certs/kestra.key.pk8
+
+sudo chown <puid>:<pgid> ./data/certs/kestra.crt ./data/certs/kestra.key ./data/certs/kestra.key.pk8
+sudo chmod 0600 ./data/certs/kestra.crt ./data/certs/kestra.key ./data/certs/kestra.key.pk8
+```
+
+**Explanation**: The certificate and key you already have are PEM, which is what most TLS tooling expects
+— but the PostgreSQL **JDBC** driver Kestra uses only reads private keys in PKCS#8 **DER** format, so the
+PEM key has to be converted before it is usable. This conversion is deterministic, so re-running it after
+a certificate rotation is always safe and always produces the same output for the same input key —
+re-run it whenever the certificate is reissued, since the `.pk8` file does not update itself.
+
+---
+
+#### Step 3: Decide the values only you can choose
+
+```bash
+openssl rand -base64 32          # kestra.encryption.secret-key
+```
+
+Pick an admin login (must be an email address — Kestra's basic-auth validates the format), a password for
+it, and confirm the host's time zone, which controls when schedule triggers fire:
+
+```bash
+timedatectl show --property=Timezone --value
+```
+
+**Explanation**: The encryption key encrypts values typed as `SECRET` at rest inside stored executions —
+losing it or changing it makes every previously stored secret-typed value unreadable, so generate it once
+and keep a copy somewhere durable. The admin login is HTTP basic auth in front of the whole UI and API,
+in addition to whatever the reverse proxy's own single sign-on already requires in front of it — it exists
+so the API remains usable by something (a flow, a script) that cannot complete an interactive login.
+
+---
+
+#### Step 4: Fetch or prepare the secrets flows will need
+
+Skip this step entirely if you decided in "Before you start" not to use OpenBao, and instead pick
+your own values for the `SECRET_*` flags directly in Step 6.
+
+Two credentials let Kestra hand OpenBao access to flows *without* Kestra itself holding a
+standing integration: an identity issued once, ahead of time, scoped to read only what flows are allowed
+to read. Have that identity's role and secret IDs ready:
+
+```bash
+KESTRA_ROLE_ID=<secret>
+KESTRA_SECRET_ID=<secret>
+```
+
+A handful of other values, though, cannot be fetched by a flow at run time at all, and have to be baked
+into the container's own environment instead — anywhere a value is consumed as a fixed property of a task
+(a message-sending task's token, a remote-command task's private key) rather than by a script you write
+yourself, that property only accepts a literal or an expression resolved when the flow is parsed, never
+the output of a preceding task. Feeding it from a preceding task would mean the secret gets written into
+the stored execution record in plaintext — exactly what a masked, environment-backed secret exists to
+avoid. Fetch those few values now, using a **separate**, more broadly scoped identity you use only for
+this one-time read — never the identity you just prepared for Kestra above:
+
+```bash
+READ_ROLE_ID=<secret>
+READ_SECRET_ID=<secret>
+
+BAO_TOKEN=$(curl -sf -X POST https://openbao.your-domain.com/v1/auth/approle/login \
+  -d "{\"role_id\":\"$READ_ROLE_ID\",\"secret_id\":\"$READ_SECRET_ID\"}" | jq -r '.auth.client_token')
+
+BRIDGE_BOT_TOKEN=$(curl -sf -H "X-Vault-Token: $BAO_TOKEN" \
+  https://openbao.your-domain.com/v1/<kv-mount>/data/kestra/telegram-bridge \
+  | jq -r '.data.data.bot_token')
+
+RSYNC_SSH_KEY=$(curl -sf -H "X-Vault-Token: $BAO_TOKEN" \
+  https://openbao.your-domain.com/v1/<kv-mount>/data/kestra/ssh-bridge \
+  | jq -r '.data.data.private_key')
+```
+
+If any flow has a webhook trigger, its key is the **only** authentication on that trigger's URL — the
+webhook path bypasses the reverse proxy's login and Kestra's own basic auth, since it exists to be called
+by systems that cannot log in. Generate one key per webhook flow, store them together, and pull the whole
+set back as one set of environment flags:
+
+```bash
+openssl rand -base64 48 | tr -d '/+=' | cut -c1-64   # one per webhook flow, store under the same path
+
+WEBHOOK_ENV_ARGS=()
+while IFS=$'\t' read -r name value; do
+  var="SECRET_WH_$(printf '%s' "$name" | tr '[:lower:]' '[:upper:]')"
+  WEBHOOK_ENV_ARGS+=(-e "${var}=$(printf '%s' "$value" | base64 -w0)")
+done < <(curl -sf -H "X-Vault-Token: $BAO_TOKEN" \
+  "https://openbao.your-domain.com/v1/<kv-mount>/data/kestra/webhooks" | jq -r '.data.data | to_entries[] | "\(.key)\t\(.value)"')
+
+unset BAO_TOKEN
+```
+
+**Explanation**: Kestra decodes any container environment variable named `SECRET_<NAME>` from base64 once
+at start, keeps it in memory, and masks it wherever it would otherwise appear in a log or the UI — a flow
+reads it back with a secrets-lookup expression naming `<NAME>`. That is the entire secrets mechanism this
+edition has; there is no live backend a flow calls into automatically. `WEBHOOK_ENV_ARGS` is built as a
+shell array precisely so Step 6 can splice in one `-e` flag per webhook flow without hand-editing the
+`docker run` command every time a webhook flow is added — add a field to the stored set, rerun this step
+and Step 6, and the new flag appears automatically. Naming a field `<namespace>_<flow-id>` when you store
+it, and reading it back as `SECRET_WH_<NAMESPACE>_<FLOW-ID>` inside that flow's own webhook trigger
+definition, keeps the mapping obvious later; nothing enforces that convention, so pick one and stay
+consistent.
+
+---
+
+#### Step 5: Write `application.yml`
+
+```bash
+cd <deploy-dir>
+sudo tee ./data/kestra/application.yml >/dev/null <<'EOF'
 datasources:
   postgres:
-    url: "jdbc:postgresql://<postgres-host>:5432/kestra?ssl=true&sslmode=verify-ca&sslrootcert=/app/certs/ca.crt&sslcert=/app/certs/kestra.crt&sslkey=/app/certs/kestra.key.pk8"
+    url: "jdbc:postgresql://<postgres-ip>:<postgres-port>/kestra?ssl=true&sslmode=verify-ca&sslrootcert=/app/certs/ca.crt&sslcert=/app/certs/kestra.crt&sslkey=/app/certs/kestra.key.pk8"
     driverClassName: org.postgresql.Driver
-    username: <db-user>
+    username: <db-username>
     password: <secret>
 
 kestra:
@@ -72,15 +324,16 @@ kestra:
       base-path: /app/storage
   url: "https://kestra.your-domain.com/"
   encryption:
-    secret-key: <secret>          # base64 of 32 random bytes: openssl rand -base64 32
+    secret-key: <secret>
   anonymous-usage-report:
     enabled: false
   server:
     basic-auth:
-      username: admin@your-domain.com   # must be an email address
+      username: <admin-user>
       password: <secret>
       open-urls:
         - "/api/v1/main/executions/webhook/"
+        - "/api/v1/executions/webhook/"
   plugins:
     configurations:
       - type: io.kestra.plugin.scripts.runner.docker.Docker
@@ -92,54 +345,65 @@ kestra:
           host: "tcp://socket-proxy:2375"
           fileHandlingStrategy: VOLUME
 EOF
-sudo chown 1000:docker ./data/kestra/application.yml
+sudo chown <puid>:<pgid> ./data/kestra/application.yml
 sudo chmod 0600 ./data/kestra/application.yml
 ```
 
-**Explanation**:
-- `plugins.defaults` makes **every** Docker task runner go through the filtered socket proxy — flows don't need to repeat `host:`.
-- `fileHandlingStrategy: VOLUME` exchanges task files through named Docker volumes, so no shared host tmp-dir mount is needed even though the daemon behind the proxy is the host's.
-- `volume-enabled: true` additionally lets flows declare explicit bind mounts; those paths are **host** paths (the proxy talks to the host daemon), e.g. `<deploy-dir>/data/claude-runner/workspace`. The key is **kebab-case**; `volumeEnabled` is accepted by the YAML parser but never read, and flows then run with every declared bind silently missing.
-- `encryption.secret-key` encrypts `SECRET`-typed inputs/outputs at rest; changing it makes previously stored values unreadable.
+**Explanation**: This file carries only what a container environment variable cannot express — the
+database connection with its mutual-TLS material, and the Docker task runner's plugin-level defaults.
+Everything else that can be an environment variable is one, set in Step 6, so this file stays small and
+does not need to be rewritten for values that change per deployment. `sslmode=verify-ca` validates the
+database server's own certificate chain against the mounted CA, not just that a certificate was
+presented. `plugins.defaults` for the Docker task runner is what makes **every** Docker task in every flow
+go through the filtered endpoint without that flow ever mentioning it — a flow author never writes
+`host:` themselves and so can never accidentally point a task at the raw socket even if they wanted to.
+`fileHandlingStrategy: VOLUME` exchanges a task's input and output files through named Docker volumes
+rather than a shared host temp directory, which matters because the daemon behind the filtered endpoint
+is the **host's** daemon — a bind-mounted host tmp-dir would need to already exist there and be
+predictable, whereas a named volume the daemon creates and cleans up on its own needs neither.
+`volume-enabled: true` is a separate, additional switch: it lets a flow declare its own explicit bind
+mounts on top of that (host paths, again, because the task runner talks to the host daemon) — leave it
+off and any flow's `volumes:` list under a Docker task runner is silently ignored, with no error, and
+whatever the task expected to find mounted simply is not there. That key is **kebab-case**
+(`volume-enabled`); the camelCase spelling parses as valid YAML but is never read by the runner, so a
+flow relying on a mount fails downstream with a missing-file error that gives no hint the mount itself was
+the problem. The webhook `open-urls` entries must match, character for character, whatever bypass rule
+you configure at the reverse proxy for the same path — Kestra's own basic auth and the proxy's login are
+two independent layers, and a webhook URL only actually bypasses authentication if both agree.
 
 ---
 
-#### Step 3: Convert the PostgreSQL client key for JDBC
+#### Step 6: Start the container
 
-**Purpose**: `update/postgres.yml` drops `./data/certs/kestra.{crt,key}` (PEM) on this host, but the PostgreSQL **JDBC** driver only reads private keys in PKCS#8 **DER** format.
-
-**Commands**:
 ```bash
-sudo openssl pkcs8 -topk8 -inform PEM -outform DER -nocrypt \
-  -in ./data/certs/kestra.key -out ./data/certs/kestra.key.pk8
-sudo chown 1000:docker ./data/certs/kestra.crt ./data/certs/kestra.key ./data/certs/kestra.key.pk8
-sudo chmod 0600 ./data/certs/kestra.crt ./data/certs/kestra.key ./data/certs/kestra.key.pk8
-```
-
-**Explanation**: Re-run the conversion whenever the client cert is rotated by `update/postgres.yml` (the role does this automatically on every run — DER output is deterministic, so it is idempotent).
-
----
-
-#### Step 4: Start the Kestra container
-
-**Purpose**: Launch Kestra (`server standalone`) with its Postgres backend, Traefik routing, Authelia forward-auth, and both the `proxy` and `docker-api` networks.
-
-**Commands**:
-```bash
+cd <deploy-dir>
 sudo docker run -d \
   --name kestra \
   --restart unless-stopped \
   --network proxy \
   --ip <docker-ip> \
-  --dns <local-dns-ip> \
-  -e TZ=Europe/Belgrade \
-  -e SECRET_TELEGRAM_BOT_TOKEN="$(echo -n '<secret>' | base64 -w0)" \
-  -e SECRET_TELEGRAM_CHAT_ID="$(echo -n '<secret>' | base64 -w0)" \
-  -v $(pwd)/data/kestra/application.yml:/etc/config/application.yaml:ro \
-  -v $(pwd)/data/kestra/storage:/app/storage \
-  -v $(pwd)/data/certs/ca.crt:/app/certs/ca.crt:ro \
-  -v $(pwd)/data/certs/kestra.crt:/app/certs/kestra.crt:ro \
-  -v $(pwd)/data/certs/kestra.key.pk8:/app/certs/kestra.key.pk8:ro \
+  --dns <internal-dns-ip> \
+  -e TZ=<timezone> \
+  -e SECRET_TELEGRAM_BOT_TOKEN="$(printf '%s' '<secret>' | base64 -w0)" \
+  -e SECRET_TELEGRAM_CHAT_ID="$(printf '%s' '<secret>' | base64 -w0)" \
+  -e SECRET_SMTP_USERNAME="$(printf '%s' '<secret>' | base64 -w0)" \
+  -e SECRET_SMTP_PASSWORD="$(printf '%s' '<secret>' | base64 -w0)" \
+  -e SECRET_OPENBAO_ROLE_ID="$(printf '%s' "$KESTRA_ROLE_ID" | base64 -w0)" \
+  -e SECRET_OPENBAO_SECRET_ID="$(printf '%s' "$KESTRA_SECRET_ID" | base64 -w0)" \
+  -e SECRET_TELEGRAM_BRIDGE_BOT_TOKEN="$(printf '%s' "$BRIDGE_BOT_TOKEN" | base64 -w0)" \
+  -e SECRET_RSYNC_SSH_KEY="$(printf '%s' "$RSYNC_SSH_KEY" | base64 -w0)" \
+  -e ENV_OPENBAO_URL="https://openbao.your-domain.com" \
+  "${WEBHOOK_ENV_ARGS[@]}" \
+  -v "$(pwd)/data/kestra/application.yml:/etc/config/application.yaml:ro" \
+  -v "$(pwd)/data/kestra/storage:/app/storage" \
+  -v "$(pwd)/data/certs/ca.crt:/app/certs/ca.crt:ro" \
+  -v "$(pwd)/data/certs/kestra.crt:/app/certs/kestra.crt:ro" \
+  -v "$(pwd)/data/certs/kestra.key.pk8:/app/certs/kestra.key.pk8:ro" \
+  --health-cmd 'curl -fsS -o /dev/null http://127.0.0.1:8081/health' \
+  --health-interval 30s \
+  --health-timeout 6s \
+  --health-retries 4 \
+  --health-start-period 120s \
   --label 'traefik.enable=true' \
   --label 'traefik.docker.network=proxy' \
   --label 'traefik.http.routers.kestra.entrypoints=https' \
@@ -152,167 +416,78 @@ sudo docker run -d \
 sudo docker network connect docker-api kestra
 ```
 
-**Note**: the `--config` flag is required — a bind-mounted config file is *not* auto-detected, and without it the server exits at startup with `Server configuration requires the 'kestra.repository.type' property`.
-
-**Explanation**:
-- Two networks: `proxy` (static IP, Traefik-routable) and `docker-api` (reaches `socket-proxy` and nothing else). `docker run --network` accepts one network at creation, hence the follow-up `docker network connect`.
-- `SECRET_*` env vars are Kestra OSS's secrets backend: **base64-encoded** values readable in flows via `{{ secret('TELEGRAM_BOT_TOKEN') }}` — same Telegram bot as the `log_notification` role.
-- The UI/API listen on `8080`; the Micronaut management endpoints listen on `8081` (unauthenticated, reachable only from inside the Docker network — *not* routed by Traefik). Alloy uses both: `/health` for its blackbox probe and `/prometheus` for the metrics scrape.
-- No `--user` override and no docker socket mount: the container runs as the image's unprivileged `kestra` user, and all Docker access goes through the socket proxy configured in `application.yml`.
+**Explanation**: The `--config` flag is not optional — a bind-mounted configuration file is not
+auto-detected, and without it the server exits immediately at start with a missing-property error. Two
+networks are needed and a plain container start only accepts one at creation, hence the separate
+`docker network connect` afterward: `proxy` gives Kestra its static, Traefik-routable address, and the
+isolated Docker API network is what lets its task runner reach the filtered endpoint by name.
+`SECRET_*` values are base64-encoded on the command line rather than written in plain text, because that
+is the literal format Kestra decodes them from; `printf` rather than `echo` avoids a trailing newline
+becoming part of the decoded secret. `ENV_OPENBAO_URL` follows a different convention on purpose: only
+container variables prefixed `ENV_` are exposed to a flow (as a lower-cased, unprefixed field), which
+matters for a value like this one that a flow's own script needs to read back but that is not itself
+secret. Do **not** reach for a `KESTRA_`-prefixed name to expose something to flows — Kestra's own
+configuration system claims that entire prefix for itself, silently treats the variable as a configuration
+override instead of application data, and the flow that tries to read it back fails with an
+unable-to-find-variable error that gives no hint the prefix was the problem. The `--dns` flag points the
+container at your internal DNS resolver rather than whatever the Docker daemon would otherwise hand it, so
+that names under `your-domain.com` this container needs to reach — like OpenBao's own domain —
+resolve consistently regardless of how the host itself is configured. The health check probes the
+management port (`8081`), not the UI/API port (`8080`) that Traefik routes to — Kestra is a JVM
+application built on a framework that exposes operational endpoints on a separate port by convention, and
+`/health` is the cheapest one that proves the process actually finished starting up, including its
+database migrations, which is also why the start period is a full two minutes rather than the usual few
+seconds.
 
 ---
 
-## Configuration Reference
-
-### Default Variables
-
-| Variable | Default Value | Description |
-|----------|--------------|-------------|
-| `kestra.domain` | `kestra.example.com` | Bare domain, used in Authelia's access-control rules |
-| `kestra.host` | `` Host(`kestra.example.com`) `` | Traefik router rule |
-| `kestra.url` | `https://kestra.example.com` | Base URL (webhook/link generation) |
-| `kestra.port` | `8080` | Internal UI/API port |
-| `ip.kestra` | `172.20.0.13` | Static IP on the `proxy` network (read from the host's `ip` dict, not from a `kestra.*` key) |
-| `kestra.encryption_key` | `changeme` | Base64 of 32 random bytes; encrypts SECRET values at rest |
-| `kestra.admin_user` | `admin@example.com` | Kestra basic-auth login (must be an email) |
-| `kestra.admin_password` | `changeme` | Kestra basic-auth password |
-| `kestra.uid` | `1000` | In-container `kestra` user; owns storage + Postgres client key |
-| `kestra_db.user` | `kestra` | PostgreSQL user (provisioned by `prepare_postgres`) |
-| `kestra_db.password` | `changeme` | PostgreSQL user password |
-| `postgres.ip` | `192.0.2.10` | Central PostgreSQL server address |
-| `postgres.port` | `5432` | PostgreSQL port |
-| `log_notification.chat_id` | `changeme` | Telegram chat ID exposed to flows as a Kestra secret |
-| `log_notification.telegram_bot` | `changeme` | Telegram bot token exposed to flows as a Kestra secret |
-| `default.dns` | `192.0.2.1` | DNS server handed to the container |
-| `user.name` / `user.group` | `deploy` / `docker` | Ownership for role-managed files not owned by the container uid |
-
-### Templates & Configuration Files
-
-| Template | Destination | Purpose |
-|----------|-------------|---------|
-| `application.yml.j2` | `./data/kestra/application.yml` (mode 0600, `kestra.uid`:docker) | Full Kestra config: Postgres JDBC mTLS, basic auth, encryption, socket-proxy task runner defaults |
-
-## Flows are not in this repo
-
-The role deploys the **platform** — container, config, secrets, sandbox images, the socket-proxy task-runner defaults. It deploys **no flow YAML**: there is no `templates/flows/`, no `/flows` bind mount, and no `flow namespace update` step. Flows are authored in the Kestra UI and live in the central Postgres `kestra` database.
-
-That is a deliberate choice, not an omission. There is no render step, no delimiter juggling between Ansible's Jinja and Kestra's Pebble, and no deploy that can silently overwrite something edited in the UI.
-
-Consequences to respect:
-
-- **Backups cover flows.** Flow source, revisions, executions and users are rows in the `kestra` Postgres database, dumped by `update/backup.yml` along with every other database. Restoring that database restores every flow at its last revision.
-- **Re-running `automation.yml` never touches a flow.** Editing in the UI is safe; nothing overwrites it on the next deploy.
-
-### Webhook keys live in OpenBao, not in the flow
-
-A Webhook trigger's `key` is the **only** authentication on its URL — the webhook path bypasses both Traefik/Authelia and Kestra's basic auth, so the key is effectively a password for whatever the flow does.
-
-`key` **is a dynamic property**, so it never holds a literal:
-
-```yaml
-triggers:
-  - id: github_webhook
-    type: io.kestra.plugin.core.trigger.Webhook
-    key: "{{ secret('WH_<NAMESPACE>_<FLOW_ID>') }}"
-```
-
-The chain: `kv/homelab/kestra/webhooks` holds one field per webhook flow, named `<namespace>_<flow_id>` → the role reads the whole path in `environment.yml` and hands each field to the container as `SECRET_WH_<NAME|upper>` (base64) → the flow reads it back with `secret()`. Adding a webhook flow means adding one KV field and re-running `automation.yml --tags kestra`; nothing in this repo lists the flows.
-
-Verified behaviour, since the docs do not state it plainly: a flow whose key rendered to `abcdef` answers on `…/webhook/<ns>/<flow>/abcdef` (HTTP 200) and the unrendered literal 404s/500s. Non-dynamic properties are the ones the plugin docs explicitly label *Non-dynamic*; `key` carries no such label.
-
-### Exporting flows by hand
-
-To take a copy outside the database backup — one ZIP per namespace, written inside the container, then copied out:
+#### Step 7: Confirm it came up clean
 
 ```bash
-# on the automation host
-sudo docker exec kestra sh /app/kestra flow export \
-  --namespace <namespace> \
-  --server http://localhost:8080 \
-  --user <admin-user>:<admin-password> \
-  /tmp
-sudo docker cp kestra:/tmp/flows.zip ./flows-<namespace>.zip
+sudo docker logs -f kestra | grep -iE 'listening|migrat|error'
 ```
 
-Two things that bite:
+Watch for a line confirming the database schema migrated and the server is listening, then stop
+following. Confirm the health check itself is passing:
 
-- The launcher is a self-executing JAR with a batch header — `docker exec kestra /app/kestra …` fails with `exec format error`. Always invoke it through a shell: **`sh /app/kestra`**.
-- `--user` puts the admin password in the container's argv, visible to anything that can read `/proc` on the automation host. Acceptable only because reading it needs root there — and root on that host already holds every secret on it.
-
-The export carries no credentials — webhook keys are `secret()` expressions and every other secret is fetched at runtime — but it does map every flow, trigger and target, so keep it out of the repo anyway.
-
-### Live flows
-
-Five namespaces, authored in the UI — `homestation` for the homelab itself, `shared` for cross-site subflows, and one per site/client (`<org-a>`, `<org-b>`, `<org-c>` below). Webhook URLs follow `https://<kestra-domain>/api/v1/main/executions/webhook/<namespace>/<flow-id>/<webhook-key>`.
-
-| Namespace / flow | Trigger | What it does |
-|---|---|---|
-| `homestation.run_ansible` | — (subflow) | Clones this repo and runs one playbook in the `ansible-runner` sandbox. Inputs: `playbook`, `tags`, `limit`, `branch`, `extra_args`. The single copy of the clone + `AnsibleCLI` body every deploy flow used to duplicate |
-| `homestation.clone_update_ansible_scripts` | Schedule (weekly) + Webhook | `site.yml` via `run_ansible` |
-| `homestation.backup_dbs` | Schedule (weekly) | `backup.yml` via `run_ansible` |
-| `homestation.update_public_ip_tracker` | Webhook (GitHub push) | `monitor.yml --tags public_ip_tracker` via `run_ansible` |
-| `homestation.update_public_ip_whitelist_updater` | Webhook (GitHub push) | `server.yml --tags public_ip_whitelist_updater` via `run_ansible` |
-| `<org-a>.update_bibliography` | Webhook (GitHub push) | `server.yml --tags bibliography` via `run_ansible` |
-| `<org-a>.update_kaleidoscope` | Webhook (GitHub push) | `server.yml --tags kaleidoscope` via `run_ansible` |
-| `shared.ghost_subscriber_email` | — (subflow) | On a Ghost "post published" payload, mails every subscribed member one message each over Gmail SMTP. Inputs: `body`, `site_url`, `ghost_kv_path`, `mail_site_name`, `sender_email`, `sender_name`, optional `brand_name` / `send_delay_seconds` |
-| `<org-a>.ghost_cms_subscriber_email` | Webhook (Ghost) | Per-site values → `shared.ghost_subscriber_email` |
-| `<org-b>.ghost_cms_subscriber_email` | Webhook (Ghost) | Per-site values → `shared.ghost_subscriber_email` |
-| `homestation.telegram_claude_bridge` | Webhook (Telegram bot) | Relays a Telegram message to a Claude Code run in the `claude-runner` sandbox and answers in the chat |
-| `homestation.weekly_rsync_data` | Schedule (weekly) | `rsync` between directories on a remote host over SSH (`ssh.Command`, key from OpenBao) |
-| `<org-c>.zoho_desk_caller`, `<org-c>.zoho_ticket_ack` | Webhook (Zoho Desk) | Zoho Desk ticket automation |
-
-**Subflow pattern.** The deploy and Ghost-mail flows are thin callers: a trigger plus one `io.kestra.plugin.core.flow.Subflow` task with `wait: true` and `transmitFailed: true`. The caller owns its webhook key (one URL per producer, so no shared key can fire every deploy) and its `finally:` Telegram notification (the message names the flow that actually ran, not the shared worker). The subflow owns the logic and has **no triggers at all**.
-
-A subflow cannot read `trigger.body`, so a webhook caller forwards the payload as an input:
-
-```yaml
-tasks:
-  - id: mail_subscribers
-    type: io.kestra.plugin.core.flow.Subflow
-    namespace: shared
-    flowId: ghost_subscriber_email
-    wait: true
-    transmitFailed: true
-    inputs:
-      body: "{{ trigger.body | toJson }}"
-      site_url: "https://your-domain.com"
-      ghost_kv_path: "homelab/kestra/<site>"
-      mail_site_name: "<ghost_sites entry name>"
-      sender_email: "<address>"
-      sender_name: "<display name>"
+```bash
+sudo docker inspect kestra --format '{{.State.Health.Status}}'
 ```
 
-### Wiring a producer to a webhook flow
+**Explanation**: The first start of a new Kestra deployment always runs its database schema migrations,
+and that is the single most likely place for a mutual-TLS misconfiguration to surface — a certificate
+issue fails the connection before any migration can run, and the container exits rather than starting
+degraded. Watching this now, rather than discovering it later, is the entire reason this step exists on
+its own instead of folding into general verification below.
 
-**GitHub** (deploy on push): repo → Settings → Webhooks → Add webhook. Payload URL `https://<kestra-domain>/api/v1/main/executions/webhook/<namespace>/<flow-id>/<webhook-key>`, content type `application/json`, just the push event. Needs the Kestra domain reachable **from GitHub**.
+## Where flows get their secrets
 
-**Ghost** (mail subscribers on publish): Ghost admin → Settings → Integrations → Add custom integration → Add webhook, event **Post published**, same URL shape. Ghost POSTs `{ "post": { "current": {…}, "previous": {…} } }`; the flow mails only when `current.status == published` and `previous.status != published`, so an edit to an already-published post sends nothing.
+Flows hold no credentials of their own, by design. A value reaches a flow one of two ways, chosen by
+**where the value is consumed**:
 
-Both need their site's Ghost Admin API key in OpenBao (see [KV paths the flows use](#kv-paths-the-flows-use)) — the flow mints a short-lived JWT from it and reads the member list over the Admin API. Gmail's sending limits apply (~500 recipients/day on a normal account).
+| Route | Used when | Exposure |
+| --- | --- | --- |
+| Fetched from OpenBao inside the flow's own script | the value is used by code you write yourself (Python, shell) | Never leaves the task process |
+| Read back with a secrets-lookup expression | the value is a fixed property of a plugin task (a token, a private key field) | Masked wherever Kestra would otherwise log or display it |
 
-To read a key back for rebuilding a URL, open the flow in the UI — the `key:` is in its source. Rotating one means editing the flow and re-registering the URL with the producer.
+The split exists because a plugin's property field only accepts a literal or an expression resolved when
+the flow is parsed — never the output of a task that ran before it, since that output is written into the
+stored execution record. A script task has no such restriction: code you write can call an HTTP API
+directly and keep whatever it fetches entirely inside its own process, using the two credentials
+(`SECRET_OPENBAO_ROLE_ID` / `SECRET_OPENBAO_SECRET_ID`) and the URL (`ENV_OPENBAO_URL`) that Step 6 handed
+the container specifically so flows can do exactly that, without ever going through Kestra's own control
+plane.
+
+Rotating a value fetched inside a script takes effect on the very next execution — nothing to redeploy.
+Rotating a value baked in as `SECRET_*` means updating it wherever it is stored, then repeating Step 4 and
+Step 6 to restart the container with the new value. Rotating a webhook key is that plus one more step:
+whatever external system calls it still has the old URL, so update the field, restart the container, then
+re-register the new URL with that system.
 
 ## Using the sandbox images from flows
 
-**Ansible run** (uses the `ansible_runner` image — the repo's collections are baked in):
-
-```yaml
-tasks:
-  - id: playbook
-    type: io.kestra.plugin.ansible.cli.AnsibleCLI
-    containerImage: ansible-runner:latest
-    taskRunner:
-      type: io.kestra.plugin.scripts.runner.docker.Docker
-      networkMode: sandbox
-      volumes:
-        - <deploy-dir>/data/ansible-runner/workspace:/workspace
-        - <deploy-dir>/data/ansible-runner/secrets/<key>.ppk:/root/.ssh/<key>.ppk:ro
-        - <deploy-dir>/data/ansible-runner/secrets/pass.file:/secrets/pass.file:ro
-    commands:
-      - cd /workspace/ansible_scripts/update && ansible-playbook nas.yml --vault-password-file /secrets/pass.file
-```
-
-**Claude Code run** (uses the `claude_runner` image; OAuth persists in the home volume):
+A flow that needs to run a real agentic Claude Code task, rather than a single chat completion, launches
+a plain script task against the Claude Code sandbox image on the isolated sandbox network:
 
 ```yaml
 tasks:
@@ -331,210 +506,161 @@ tasks:
       - cd /workspace && claude -p "<task>" --output-format json --dangerously-skip-permissions
 ```
 
-Volume sources are **host** paths — the socket proxy forwards to the host daemon. `host: tcp://socket-proxy:2375` and `fileHandlingStrategy: VOLUME` come from the global plugin defaults, so tasks don't repeat them.
-
-## Monitoring (metrics & logs)
-
-Kestra needs **no configuration** to expose metrics. It is a Micronaut application, and the stock `endpoints.all.port: 8081` / `enabled: true` puts a micrometer Prometheus endpoint at `/prometheus` on the management port — the role's `application.yml.j2` contains nothing about metrics, deliberately.
-
-Two collectors pick it up, both from the `alloy` role on the same host:
-
-| Signal | How | Where it lands |
-|--------|-----|----------------|
-| Metrics | `prometheus.scrape "kestra"` → `kestra:8081/prometheus`, `job="kestra"`, gated on `current_host == 'automation'` | remote-written to Prometheus on the monitor host |
-| Liveness | blackbox probe of `http://kestra:8081/health` (`alloy.http_checks`) | `probe_success{service="kestra"}` |
-| Logs | generic Docker discovery, plus a kestra-specific `stage.match` block in `loki.process "drop_noise"` | Loki, as `{node="automation", container="kestra"}` |
-
-The log block exists because Kestra is a JVM/logback service: `stage.replace` strips the ANSI colour codes wrapping the level/thread/logger fields, `stage.multiline` joins stack-trace continuation lines into one entry, `stage.regex` + `stage.labels` promote the log level to a **`level`** label, and the 8KB `stage.drop` is scoped to `{container!="kestra"}` so joined traces are not discarded.
-
-The line format is **time-only** — `HH:mm:ss.SSS`, no date — so the multiline `firstline` anchors on that, not on an ISO timestamp. A stripped line looks like:
-
-```
-22:55:09.961 INFO  scheduled-executor-thread-1 i.k.jdbc.runner.JdbcQueueCleaner Purged 0 records from queues
-```
-
-Level (`%5p`) and thread are space-padded, hence the `\s+` separators in the regex.
-
-**Gotcha, learned the hard way:** Alloy's `stage.replace` substitutes **capture groups**, not the whole match. The ANSI regex must therefore be wrapped in a group — `"(\x1b\[[0-9;]*m)"`, not `"\x1b\[[0-9;]*m"`. A group-less regex is a silent no-op: the stage reports healthy, nothing is logged, the escapes stay in the line, and the level regex downstream then fails to match, so no `level` label ever appears.
-
-Verify the parsing after a deploy:
-
-```bash
-# One entry per stack trace, and a level label present
-sudo docker logs kestra --tail 20
-# In Grafana Explore (Loki): {container="kestra"} | level="ERROR"
-```
-
-Metric families exported (`kestra_` prefix): `kestra_executor_*` (executions, task runs, durations), `kestra_worker_*` (running/pending/thread counts, queue wait), `kestra_scheduler_*` (loop + trigger evaluation), `kestra_queue_*` (poll size, produce/receive throughput), `kestra_jdbc_query_duration_seconds_*`, `kestra_indexer_*`, plus the standard `jvm_*`, `process_*` and `hikaricp_*` series. Metric tags are snake_case: `namespace_id`, `flow_id`, `state`, `task_type`, `tenant_id` on the execution/worker metrics; `queue_type` / `class_name` on the queue metrics; `trigger_type` on the scheduler ones.
-
-Two traps when writing a query against these, both hit while building the dashboard:
-
-- There is **no** `kestra_queue_message_lag_count` on this build, despite what the upstream metric reference implies — per-queue backlog is `kestra_queue_poll_size{queue_type=...}`.
-- `kestra_scheduler_loop_count_total` counts scheduler *starts* over the process lifetime (it sits at `3`), so `rate()` of it is permanently 0. The per-tick counter is `kestra_scheduler_evaluation_loop_duration_seconds_count`.
-
-Dump the live endpoint to confirm names against the running image before editing dashboards or alerts:
-
-```bash
-sudo docker run --rm --network proxy curlimages/curl -sf \
-  http://kestra:8081/prometheus | grep -E '^kestra_' | sort -u
-```
-
-Visualised by the `Homelab — Kestra` dashboard (`grafana/files/kestra.json`, uid `homelab-kestra`) and alerted on by the `homelab-kestra` rule group (`hl-kestra-down`, `-failed`, `-worker-backlog`, `-log-errors`), whose thresholds live in the `alerts` dict of the grafana role's `defaults/main.yml`.
-
-## Secrets in flows (OpenBao)
-
-Flows hold no credentials. Kestra OSS has no Vault/OpenBao plugin — external secret managers are an EE feature — so secrets arrive by one of two routes, chosen by *where the value is consumed*:
-
-| Route | Used when | Exposure |
-|-------|-----------|----------|
-| **Fetched from OpenBao inside the script** | the value is used by Python/shell task code | none — the secret stays in the task process |
-| **`{{ secret('NAME') }}`** | the value is a *plugin property* (`TelegramSend.token`, `ssh.Command.privateKey`) | masked by Kestra in logs and UI |
-
-The split exists because a plugin property only accepts an expression, and an expression must come from a preceding task whose **output Kestra persists** — the secret would land in the execution record and the UI. So plugin properties use the masked `secret()` backend instead.
-
-### Runtime reads
-
-Script tasks carry three env entries and a small helper:
+A flow that needs to run an Ansible playbook uses the dedicated playbook-running task type, with the
+purpose-built image supplied explicitly so it carries the collections your project needs instead of
+whatever the plugin's own default image ships with:
 
 ```yaml
-env:
-  BAO_URL: "{{ envs.openbao_url }}"        # from ENV_OPENBAO_URL
-  BAO_ROLE_ID: "{{ secret('OPENBAO_ROLE_ID') }}"
-  BAO_SECRET_ID: "{{ secret('OPENBAO_SECRET_ID') }}"
-script: |
-  import os
-  # ... helper _bao(path) : AppRole login -> GET kv/data/<path> -> dict
-  api_key = _bao("homelab/kestra/<service>")["api_key"]
+tasks:
+  - id: playbook
+    type: io.kestra.plugin.ansible.cli.AnsibleCLI
+    containerImage: ansible-runner:latest
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      networkMode: sandbox
+      volumes:
+        - <deploy-dir>/data/ansible-runner/workspace:/workspace
+        - <deploy-dir>/data/ansible-runner/secrets/<ssh-key-file>:/root/.ssh/<ssh-key-file>:ro
+        - <deploy-dir>/data/ansible-runner/secrets/<vault-password-file>:/secrets/<vault-password-file>:ro
+    commands:
+      - cd /workspace/project && ansible-playbook <playbook>.yml --vault-password-file /secrets/<vault-password-file>
 ```
 
-Only **`ENV_`**-prefixed container variables reach flows: the prefix is stripped and the remainder lowercased, so `ENV_OPENBAO_URL` is read as `{{ envs.openbao_url }}`. The prefix is `kestra.variables.env-vars-prefix` (default `ENV_`), left at its default here.
+Every volume source above is a **host** path, not a path inside Kestra's own container — the task runner's
+calls go out through the filtered Docker API endpoint, which forwards to the host's daemon, and the host
+daemon always resolves a bind-mount source against the host filesystem. `host: tcp://socket-proxy:2375`
+and `fileHandlingStrategy: VOLUME` do not need repeating in either task — they come from the plugin
+defaults written in Step 5.
 
-A `KESTRA_` prefix does **not** work — Micronaut consumes those as configuration overrides (`KESTRA_OPENBAO_URL` → config property `kestra.openbao.url`), so the variable never appears in `envs` and every flow reading it dies with `Unable to find 'openbao_url' used in the expression '{{ envs.openbao_url }}'`.
+## Monitoring what is running
 
-Access is the dedicated **`kestra` AppRole** with the **`kestra-read`** policy — read-only, and only on the paths in `openbao_setup_kestra_read_paths`. It deliberately does *not* get `ansible-read`, which can read the whole homelab tree including `vault_password`. Adding a secret to a flow means adding its path to that list and re-running `openbao_setup.yml`.
-
-### KV paths the flows use
-
-| Path | Keys | Source |
-|------|------|--------|
-| `kv/homelab/kestra/ghost_kgb` | `admin_api_key` | flow-only, written by hand |
-| `kv/homelab/kestra/ghost_skup` | `admin_api_key` | flow-only, written by hand |
-| `kv/homelab/kestra/amitylink_caller` | `api_key` | flow-only, written by hand |
-| `kv/homelab/kestra/ssh_bridge` | `private_key`, optional `passphrase` | flow-only, written by hand |
-| `kv/homelab/kestra/webhooks` | one field per webhook flow, named `<namespace>_<flow_id>` | written by hand; read at **deploy** time → `SECRET_WH_<NAME>` |
-| `kv/homelab/primary_server/ghost_sites` | `value[]` → `mail_user`, `mail_pass` | mirrored from the inventory by [`openbao_load`](openbao_load.md) |
-
-The Ghost SMTP credentials are read from the mirrored inventory entry and selected by site name, so they stay defined in exactly one place.
-
-### One-time bootstrap
-
-Write the flow-only secrets with an admin token (never on the command line):
+Kestra needs no extra configuration to expose metrics: it is built on a framework that puts a
+Prometheus-format endpoint on its management port by default, at `http://kestra:8081/prometheus`, and its
+UI/API log lines go to the container's own stdout as usual — point whatever already scrapes metrics and
+collects logs on this host at both. Two naming quirks are worth knowing before you build a dashboard or an
+alert against this endpoint, since they contradict what the metric names alone suggest: the total
+scheduler-loop counter measures scheduler *starts* over the life of the process, not evaluation ticks, so
+a rate of it sits at zero forever — the per-tick counter has a different, longer name — and there is no
+queue-lag metric despite one existing in some documentation for this software; per-queue backlog is a
+poll-size gauge instead. Confirm names against the running container before trusting either:
 
 ```bash
-read -rs BAO_TOKEN; export BAO_TOKEN
-
-docker exec -e BAO_TOKEN openbao bao kv put kv/homelab/kestra/ghost_kgb        admin_api_key=<key>
-docker exec -e BAO_TOKEN openbao bao kv put kv/homelab/kestra/ghost_skup       admin_api_key=<key>
-docker exec -e BAO_TOKEN openbao bao kv put kv/homelab/kestra/amitylink_caller api_key=<key>
-
-# multi-line values come from a file rather than the shell
-docker exec -i -e BAO_TOKEN openbao bao kv put kv/homelab/kestra/ssh_bridge private_key=- < bridge_key.pem
-
-unset BAO_TOKEN
+sudo docker run --rm --network proxy curlimages/curl -sf http://kestra:8081/prometheus | grep -E '^kestra_' | sort -u
 ```
 
-The bridge bot token goes in too — it is read at *deploy* time, not runtime, but OpenBao is still its only home:
+## Values to fill in
 
-```bash
-docker exec -e BAO_TOKEN openbao bao kv put kv/homelab/kestra/telegram_bridge bot_token='<token>'
-```
-
-The webhook keys are one path holding every key — all fields in a single `put`, since `kv put` replaces the whole secret:
-
-```bash
-docker exec -e BAO_TOKEN openbao bao kv put kv/homelab/kestra/webhooks \
-  homestation_update_public_ip_tracker='<key>' \
-  klub_gacana_update_bibliography='<key>' \
-  ...
-```
-
-Generate a key with `openssl rand -base64 48 | tr -d '/+=' | cut -c1-64`. To add one later, re-`put` the full set (read the current one first with `bao kv get`) or use `bao kv patch`.
-
-Nothing else goes on disk. `.secrets/kestra_role_id` and `.secrets/kestra_secret_id` are written by `openbao_setup.yml` and are the only files this role needs — "secret zero", the one credential that cannot live inside the store it unlocks. The role asserts both exist before deploying.
-
-### Deploy-time reads
-
-Some values are consumed as plugin properties and so cannot be fetched at runtime — the task producing them would land in the execution record. Ansible reads them from OpenBao during the deploy and passes them as masked `SECRET_*` env:
-
-| Env | KV path | Key |
-|-----|---------|-----|
-| `SECRET_TELEGRAM_BRIDGE_BOT_TOKEN` | `kv/homelab/kestra/telegram_bridge` | `bot_token` |
-| `SECRET_RSYNC_SSH_KEY` | `kv/homelab/kestra/ssh_bridge` | `private_key` |
-| `SECRET_WH_<NAMESPACE>_<FLOW_ID>` | `kv/homelab/kestra/webhooks` | every field, one per webhook flow |
-
-That read uses the **ansible** AppRole (`.secrets/bao_role_id`), needs `pipx inject ansible hvac` (or `pip install hvac` if Ansible is not pipx-installed — a pipx venv is isolated from user site-packages), and is the one thing that makes this role require an unsealed OpenBao at deploy time. Nothing else in the repo gains that dependency.
-
-### Rotation
-
-A secret fetched at runtime is picked up on the next flow execution — no redeploy. The `secret()`-backed values are baked into the container env, so rotating one means updating it in OpenBao and re-running `automation.yml --tags kestra`.
-
-Rotating a **webhook key** is that plus one more step: the producer holds the old URL. Update the field in `kv/homelab/kestra/webhooks`, re-run the role, then re-register the new URL in GitHub / Ghost / whatever calls it. The flow itself never changes.
-
-## Handlers & Service Management
-
-No handlers. `community.docker.docker_container` recreates the container when its comparable parameters (image id after `pull: true`, env, labels, volumes) change. Config-file changes alone do **not** restart the container (the file is bind-mounted); restart manually after editing:
-
-```bash
-sudo docker restart kestra
-```
+| Placeholder | What it is | How to choose it | Used in |
+| --- | --- | --- | --- |
+| `<deploy-dir>` | Working directory holding `./data` | The deploy account's home directory | Steps 1–6 |
+| `<username>` / `<pgid>` | Owner of the working directory | The deploy account and the `docker` group | Before you start |
+| `<puid>` | In-container `kestra` user | Fixed by the image; owns storage and the Postgres client key | Steps 1, 2, 5 |
+| `<docker-ip>` | Kestra's fixed address on the shared network | Any address in the shared subnet outside the auto-allocation pool | Step 6 |
+| `<internal-dns-ip>` | DNS resolver handed to the container | Your internal resolver's address, so internal domains resolve consistently | Step 6 |
+| `<timezone>` | IANA time zone name | The host's own, so schedule triggers fire when expected | Step 3, 6 |
+| `<db-username>` | Database login role | Must equal the Common Name on `./data/certs/kestra.crt` | Steps 5, 6 |
+| `<postgres-ip>` / `<postgres-port>` | Central PostgreSQL server address | Also used as the TLS server identity | Step 5 |
+| `<admin-user>` | Kestra's own basic-auth login | Must be an email address | Steps 3, 5 |
+| `<secret>` (encryption key) | Encrypts SECRET-typed values at rest | `openssl rand -base64 32`; back it up, it cannot be recovered | Steps 3, 5 |
+| `<secret>` (various) | Admin password, database password, static Telegram/SMTP values | Whatever your own accounts use | Steps 5, 6 |
+| `openbao.your-domain.com` | Where flows fetch their own secrets from | Wherever OpenBao is reachable | Steps 4, 6 |
+| `<kv-mount>` | OpenBao's key-value mount name | Whatever you configured when setting OpenBao up | Step 4 |
+| `your-domain.com` | Base domain | Kestra's own login domain and webhook base URL | Steps 5, 6 |
+| `<ssh-key-file>` / `<vault-password-file>` | Credentials mounted into an Ansible sandbox task | Whatever files you placed for that image | "Using the sandbox images" |
+| `<playbook>.yml` | Playbook an Ansible sandbox task runs | Whatever your project calls it | "Using the sandbox images" |
+| `<task>` | Prompt given to a Claude Code sandbox task | Whatever the flow needs done | "Using the sandbox images" |
 
 ## Verification
 
 ```bash
 sudo docker ps --filter name=kestra
 sudo docker inspect kestra --format '{{json .NetworkSettings.Networks}}' | jq
-# Expect both "proxy" and "docker-api" present.
+# expect both "proxy" and "docker-api"
 
-# Health endpoint (management port, from inside the proxy network)
+sudo docker inspect kestra --format '{{.State.Health.Status}}'
+# expect: healthy
+
 sudo docker run --rm --network proxy curlimages/curl -sf http://kestra:8081/health
 
 sudo docker logs kestra --tail 50 | grep -i -E 'error|ssl|postgres|started'
 
-# Confirm the socket-proxy path is wired up: run any flow with a Docker
-# task runner task, or from the host:
-sudo docker run --rm --network docker-api curlimages/curl -sf http://socket-proxy:2375/_ping
+# through the reverse proxy from outside
+curl -sf -o /dev/null -w '%{http_code}\n' https://kestra.your-domain.com
+
+# the task runner can actually reach the filtered Docker API endpoint
+sudo docker exec kestra wget -qO- http://socket-proxy:2375/_ping 2>/dev/null \
+  || docker run --rm --network docker-api curlimages/curl -sf http://socket-proxy:2375/_ping
 ```
+
+## Updating & day-to-day
+
+**Pull a new image.** The database and storage are on bind mounts and in PostgreSQL, so nothing is lost.
+
+```bash
+cd <deploy-dir>
+sudo docker pull kestra/kestra:latest
+sudo docker stop kestra && sudo docker rm kestra
+# re-run the docker run command from Step 6, then reconnect docker-api
+sudo docker logs -f kestra | grep -iE 'listening|migrat|error'
+```
+
+Schema migrations run automatically on first start of a new version and are not reversible — take a
+database dump before a major version jump.
+
+**Change `application.yml`.** It is read once at start, not watched — edit it, then recreate the
+container:
+
+```bash
+sudo docker stop kestra && sudo docker start kestra
+```
+
+**Add a webhook flow.** Generate a new key, add it to wherever you store the webhook set, repeat Step 4
+to rebuild the environment flags, and repeat Step 6 to restart with them included. Nothing about the
+running container picks up a new webhook key without a restart.
+
+**Export a namespace's flows** as a point-in-time copy, outside of a database backup:
+
+```bash
+sudo docker exec kestra sh /app/kestra flow export \
+  --namespace <namespace> \
+  --server http://localhost:8080 \
+  --user <admin-user>:<secret> \
+  /tmp
+sudo docker cp kestra:/tmp/flows.zip ./flows-<namespace>.zip
+```
+
+The launcher is a self-executing archive with a shell-script header — invoking it directly
+(`docker exec kestra /app/kestra ...`) fails with an exec-format error; always go through a shell
+(`sh /app/kestra ...`). The `--user` flag puts the admin password in the container's own process
+arguments, readable by anything with root on this host — acceptable only because reading it already
+requires root here, and root already holds every other secret on the machine too.
+
+**Where the logs are.** `docker logs kestra` for everything — start-up, migrations, task-runner activity,
+and (once parsed and labelled by whatever collects logs on this host) individual flow execution lines.
+
+**Back up**, in rough order of how badly you would miss it: the `kestra` PostgreSQL database (every flow,
+execution and user), the encryption key (without it, every value stored with type `SECRET` is
+unreadable), and `application.yml`.
 
 ## Rollback / Uninstall
 
 ```bash
 sudo docker stop kestra && sudo docker rm kestra
-# Flow definitions, users, executions live in the central Postgres "kestra"
-# database — drop it there if you want a true wipe.
 sudo rm -rf ./data/kestra
 ```
 
+Flow definitions, users and execution history live in the central PostgreSQL `kestra` database — drop it
+there if you want a true wipe, and understand that doing so is not reversible.
+
 ## Troubleshooting
 
-**`SSL error: …` / `FATAL: connection requires a valid client certificate` at startup**
-The JDBC driver needs the PKCS#8 DER key — confirm `./data/certs/kestra.key.pk8` exists, is readable by uid `1000`, and was regenerated after the last cert rotation (Step 3). `sslmode=verify-ca` validates the server chain against `/app/certs/ca.crt`.
-
-**Webhook calls return an Authelia login redirect**
-The Authelia bypass rule on the automation host matches `^/api/v1/main/executions/webhook/.*` only. Kestra's own basic auth also whitelists that path via `open-urls`. A webhook URL outside that pattern is challenged by both layers.
-
-**Task containers can't reach each other / a task hangs pulling an image**
-Task containers run on the network named in the flow's `networkMode` (e.g. `sandbox`), spawned via `socket-proxy`. Check `docker ps --filter name=socket-proxy`, and that the image referenced by `containerImage` exists locally (`ansible-runner`/`claude-runner` are built by their roles, never pulled).
-
-**Flow declares `volumes:` but the files are missing inside the task container**
-There is no config error and no warning — an unrecognised or absent `volume-enabled` makes the runner drop every bind, so the task fails downstream instead (e.g. `ansible-playbook` reporting `the vault password file /secrets/pass.file was not found`). Check the key really is kebab-case `volume-enabled: true` in `application.yml` under `plugins.configurations`, and that the paths exist on the **host**. To confirm what was actually mounted, catch the short-lived container while it runs:
-
-```bash
-# on the automation host, in one shell, then trigger the flow in another
-while :; do id=$(docker ps -aq --filter ancestor=<runner-image> | head -1); \
-  [ -n "$id" ] && { docker inspect "$id" --format '{{json .HostConfig.Binds}}'; break; }; sleep 0.1; done
-```
-
-`null` means the mounts were dropped; a JSON array means Docker got them and the fault is elsewhere.
-
-**`ansible-playbook` reports `no such identity: <path>: No such file or directory`**
-The SSH key mount target must equal `user.private_key_path` **as it is committed in the branch the runner clones**, not the path a workstation uses — the flow runs against the checkout, so a local-only edit to that var silently desyncs the two. It must also stay absolute (`/root/.ssh/<key>.ppk`); Docker rejects a `~/...` mount target outright, so the flow would fail to start the container at all.
+| Symptom | Cause / fix |
+| --- | --- |
+| `SSL error` or a client-certificate error at start | The JDBC driver needs the PKCS#8 DER key. Confirm `./data/certs/kestra.key.pk8` exists, is readable by the in-container uid, and was regenerated after the last certificate rotation (Step 2). |
+| Container exits immediately with a missing-property error | The `--config /etc/config/application.yaml` flag was dropped from the start command — a bind-mounted config file is never auto-detected. |
+| Webhook calls redirect to a login page | The reverse proxy's bypass rule and Kestra's own `open-urls` entry must match the webhook path exactly; a mismatch in either means one layer still demands a login the caller cannot complete. |
+| A flow's `volumes:` entries are silently missing inside its task container | `volume-enabled: true` under `plugins.configurations` in `application.yml` is missing, misspelled, or written in camelCase. There is no error — the task just runs without the file it expected and fails downstream with whatever error that absence causes. Confirm the key is exactly `volume-enabled` and re-check the paths exist on the **host**, not inside any container. |
+| A flow reading a secret gets an unable-to-find-variable error | Either the value was passed with a `KESTRA_` prefix (claimed by Kestra's own configuration system, never reaches flows) instead of `ENV_` or `SECRET_`, or the container was never restarted after the value was added. |
+| Task containers can't reach each other, or a task hangs pulling an image | Confirm the filtered Docker API endpoint is up, and that the image a task references was actually built locally rather than expected to be pulled — the sandbox images in this stack are never pulled from a registry. |
+| Basic-auth login fails with a validation error on the username | The admin login must be a well-formed email address; anything else is rejected before the password is even checked. |
+| Health check never goes healthy, container keeps restarting | If this happens during the very first start, migrations can legitimately take longer than the default start period on a slow disk — watch `docker logs kestra` for migration progress rather than assuming failure immediately. If it happens on every start, the database connection itself is failing; check the certificate and JDBC URL first. |

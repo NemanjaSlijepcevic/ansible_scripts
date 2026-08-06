@@ -8,8 +8,6 @@
     authelia_oidc_env: "{{ {'AUTHELIA_IDENTITY_PROVIDERS_OIDC_HMAC_SECRET_FILE': '/config/authelia_hmac'} if (authelia_has_oidc | bool) else {} }}"
     authelia_base_env:
       TZ: "Europe/Belgrade"
-      # Enables go-template filters in configuration.yml — needed to load
-      # the postgres client cert/key content (see storage_tls.yml.j2).
       X_AUTHELIA_CONFIG_FILTERS: "template"
       AUTHELIA_SERVER_ADDRESS: "tcp://0.0.0.0:9091/"
       AUTHELIA_THEME: dark
@@ -45,7 +43,6 @@
     name: authelia
     image: authelia/authelia:latest
     pull: true
-    # recreate: true
     restart_policy: unless-stopped
     networks:
       - name: proxy

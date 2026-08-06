@@ -12,8 +12,6 @@
     path: ./data/public_ip_tracker/app.log
   register: file_check
 
-# Owned by the container's appuser (uid 1000) so it can write without a
-# world-writable file; logrotate uses copytruncate to keep this owner/mode.
 - name: Touch app.log file
   ansible.builtin.file:
     path: ./data/public_ip_tracker/app.log
@@ -23,8 +21,6 @@
     group: "{{ public_ip_tracker_app_gid }}"
   when: not file_check.stat.exists
 
-# Enforce ownership/mode every run (idempotent, no mtime change) so an existing
-# app.log — e.g. a legacy world-writable one — is corrected on redeploy.
 - name: Enforce app.log ownership and permissions
   ansible.builtin.file:
     path: ./data/public_ip_tracker/app.log
@@ -70,6 +66,4 @@
     mode: "0644"
   vars:
     log_path: "{{ ansible_facts.env.PWD }}/data/public_ip_tracker/app.log"
-    # copytruncate: appuser holds app.log open and can't write a fresh
-    # root-created file, so rotate in place to preserve owner + mode.
     copytruncate: true

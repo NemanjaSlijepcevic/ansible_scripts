@@ -1,7 +1,4 @@
 ---
-# Writes one KV v2 secret per top-level variable of the current scope.
-# KV v2 secrets must be objects, so a scalar or list value is wrapped as
-# {"value": …}; a mapping is stored as-is.
 - name: Build the desired secrets for '{{ openbao_load_scope }}'
   ansible.builtin.set_fact:
     openbao_load_desired: "{{ openbao_load_desired_json | from_json }}"
@@ -29,8 +26,6 @@
   changed_when: false
   no_log: true
 
-# A missing secret (404) or one whose data differs. Writing an identical value
-# would still cut a new KV version, so an unchanged run must write nothing.
 - name: Work out which secrets differ in '{{ openbao_load_scope }}'
   ansible.builtin.set_fact:
     openbao_load_changed: "{{ openbao_load_changed_json | from_json }}"

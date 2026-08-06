@@ -2,40 +2,18 @@
 - name: Create environment
   ansible.builtin.include_tasks: environment.yml
 
-# No custom image needed (unlike n8n): Kestra's Docker task runner speaks
-# to socket-proxy natively via its `host` property (set globally in
-# application.yml), so no docker CLI has to be baked in. The ansible_runner
-# and claude_runner images are consumed by flows as containerImage /
-# task-runner images, not installed into Kestra itself.
 - name: Add kestra
   vars:
-    # Held in a var so the webhook keys (a dict of unknown size, read from
-    # OpenBao in environment.yml) can be merged in — `env:` takes one mapping.
     kestra_static_env:
       TZ: "Europe/Belgrade"
-      # OSS secrets backend: env vars prefixed SECRET_, base64-encoded,
-      # read in flows via the secret('TELEGRAM_BOT_TOKEN') function.
       SECRET_TELEGRAM_BOT_TOKEN: "{{ log_notification.telegram_bot | b64encode }}"
       SECRET_TELEGRAM_CHAT_ID: "{{ log_notification.chat_id | b64encode }}"
-      # same Gmail account Authelia's notifier uses (smtp.gmail.com:465)
       SECRET_SMTP_USERNAME: "{{ authelia.mail.user | b64encode }}"
       SECRET_SMTP_PASSWORD: "{{ authelia.mail.password | b64encode }}"
-      # OpenBao AppRole for flows that read secrets at runtime. These two are
-      # the only credentials Kestra holds; everything else is fetched from
-      # kv/homelab/kestra/* with the least-privilege `kestra-read` policy.
-      # Issued by openbao_setup into .secrets/ on the control node.
       SECRET_OPENBAO_ROLE_ID: "{{ lookup('ansible.builtin.file', kestra_openbao_role_id_path) | trim | b64encode }}"
       SECRET_OPENBAO_SECRET_ID: "{{ lookup('ansible.builtin.file', kestra_openbao_secret_id_path) | trim | b64encode }}"
-      # Consumed as plugin properties, which only take expressions — so these
-      # two are read from OpenBao here and handed over as masked secrets rather
-      # than fetched at runtime (a runtime fetch would persist them in the
-      # execution record). See kestra_bridge_bot_token_kv in defaults.
       SECRET_TELEGRAM_BRIDGE_BOT_TOKEN: "{{ kestra_bridge_bot_token | trim | b64encode }}"
       SECRET_RSYNC_SSH_KEY: "{{ kestra_rsync_ssh_key | b64encode }}"
-      # Not a secret — flows read it as {{ envs.openbao_url }}. Only ENV_-prefixed
-      # variables reach flows (kestra.variables.env-vars-prefix, default "ENV_");
-      # the prefix is stripped and the rest lowercased. A KESTRA_ prefix does NOT
-      # work — Micronaut treats those as config overrides, not flow variables.
       ENV_OPENBAO_URL: "{{ kestra_openbao_url }}"
   community.docker.docker_container:
     name: kestra
@@ -43,8 +21,6 @@
     pull: true
     state: started
     restart_policy: unless-stopped
-    # A bind-mounted config is NOT auto-detected — without --config the
-    # server boots configless and dies on missing kestra.repository.type.
     command: server standalone --config /etc/config/application.yaml
     networks:
       - name: proxy
@@ -61,16 +37,12 @@
       - ./data/certs/kestra.key.pk8:/app/certs/kestra.key.pk8:ro
     labels:
       traefik.enable: "true"
-      # kestra sits on two networks (proxy + docker-api); without this
-      # Traefik may dial the docker-api IP it cannot reach → 504.
       traefik.docker.network: "proxy"
       traefik.http.routers.kestra.entrypoints: "https"
       traefik.http.routers.kestra.rule: "{{ kestra.host }}"
       traefik.http.routers.kestra.tls: "true"
       traefik.http.routers.kestra.middlewares: "chain-auth@file"
       traefik.http.services.kestra.loadbalancer.server.port: "{{ kestra.port }}"
-    # Micronaut management health endpoint on 8081 (returns 503 when a
-    # dependency is DOWN). Long start_period covers JVM boot + migrations.
     healthcheck:
       test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8081/health"]
       interval: 30s

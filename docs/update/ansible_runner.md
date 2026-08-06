@@ -1,42 +1,90 @@
-# Role: ansible_runner
+# Ansible Sandbox
 
-## Purpose
+## What this is
 
-Builds the `ansible-runner:latest` Docker image used as an **ephemeral sandbox** for running `ansible-playbook` itself — i.e. this repository's own `client/` and `update/` playbooks — on behalf of Kestra flows (via its `io.kestra.plugin.ansible.cli.AnsibleCLI` task, which takes this image as `containerImage`). Like its sibling `claude_runner`, this role deploys no long-lived container: it only (1) builds the image, (2) prepares the host-path directories Kestra's Docker task runner mounts into each sandbox run, and (3) reuses the `sandbox` bridge network created by the `claude_runner` role.
+This is an **image**, not a running service, and it is the closest sibling to the Claude Code sandbox
+image: `ansible-runner:latest` is a Docker image built once on the automation host, with `ansible-core`
+and a fixed set of Galaxy collections installed on a slim Python base. It has no long-lived container. A
+workflow orchestrator's Docker task runner starts a fresh container from this image whenever a flow needs
+to run `ansible-playbook`, the container checks out a project and runs a playbook against your managed
+hosts over SSH, and the container is removed the instant it exits.
 
-The design intent: a Kestra flow (e.g. "redeploy `nas` on a schedule" or "run a playbook on demand from a webhook") talks to the host Docker daemon through the filtered `socket_proxy`, and launches a brand-new `ansible-runner` container per run. The container clones/updates this repo into a shared workspace, runs `ansible-playbook` against the production inventory over SSH, and disappears. There is no standing Ansible control node to compromise, and infrastructure-wide SSH access (the deploy key + vault password) is confined to a root-only directory that only the automation host's Docker daemon — invoked only by Kestra behind Authelia 2FA — can mount.
+The reasoning is the same as for the Claude Code sandbox, and worth restating because it changes what
+"is this working" means: there is nothing to keep running, so there is nothing to restart, and a healthy
+steady state looks like **no** `ansible-runner` container existing at all. The only things that persist
+between runs are the image, a shared workspace directory (so a project does not have to be re-cloned on
+every single run), and a directory holding the one thing this image is never allowed to bake in: your
+infrastructure's own SSH credentials.
 
-## Prerequisites
+Why a purpose-built image instead of a stock one: an orchestrator's own Ansible plugin typically ships a
+generic default image, which has `ansible-core` but not the specific collections a given automation
+project's playbooks import (`community.docker`, `community.postgresql`, and so on). Building your own
+image once, with exactly the collections your project needs, means every run gets a consistent, complete
+environment instead of failing partway through on a missing module.
 
-- `common` role must have run (Docker Engine installed).
-- `claude_runner` role must have run first — it creates the `sandbox` bridge network this role's containers attach to. `ansible_runner` itself does not create that network.
-- `socket_proxy` role should exist alongside this one — it's what lets Kestra *invoke* the image this role builds; `ansible_runner` itself doesn't depend on it to build.
-- Consumed by: Kestra flows, whose `AnsibleCLI` / Docker task runner tasks reference `ansible-runner:latest` (`containerImage`) and the `sandbox` network (`networkMode`) by name.
-- The target hosts (`primary_nas`, `primary_server`, `primary_monitor`, etc.) must already trust the deploy SSH key referenced by their inventory's `ansible_private_key_file` — this role does not distribute that key, it only provides a place to mount it.
-- A deploy SSH private key and the `pass.file` Ansible Vault password must be copied into `./data/ansible-runner/secrets` **manually** (e.g. via `scp`) — never through git, never through an Ansible task. See Step 2.
-- A one-time `git clone` of this repository into the shared workspace must be performed manually after the image is built — see Step 4 — before any flow can run a playbook.
-- Variables: `ansible_runner.*`, `claude_runner.network` (reused — the runner attaches to the same isolated network the Claude Code sandbox uses), `claude_runner.uid` (reused — the workspace directory is owned by the same in-container uid the Claude Code sandbox uses, so file permissions line up across the two roles' bind mounts), `user.name` / `user.group` (owns the build directory).
+Runs on: the automation host, alongside the workflow orchestrator, its filtered Docker API gateway, and
+the Claude Code sandbox image. Talks to: whatever hosts your Ansible project manages, over SSH — nothing
+else, and nothing it wasn't explicitly handed a key for.
 
-## Manual Execution Guide
+## Before you start
+
+**Docker is installed and your account can use it**
+
+```bash
+docker --version
+id -nG | tr ' ' '\n' | grep -qx docker && echo "docker group: ok" || echo "docker group: MISSING"
+```
+
+**The isolated `sandbox` network already exists**
+
+This image's containers attach to the same isolated bridge network the Claude Code sandbox uses, rather
+than owning one of its own — one throwaway-container network is enough. Confirm it is there:
+
+```bash
+docker network inspect sandbox --format '{{.IPAM.Config}}'
+```
+
+If it is missing, create it the same way it is created for that sandbox — any private range not already
+used by another Docker network on this host:
+
+```bash
+sudo docker network create --driver bridge \
+  --subnet <docker-subnet> \
+  --gateway <docker-gateway-ip> \
+  sandbox
+```
+
+**You have a deploy SSH private key already authorized on every host you intend to manage**
+
+This image never generates or distributes SSH keys — it only provides somewhere to mount one you already
+have. The public half must already be in `~/.ssh/authorized_keys` for the account your playbooks connect
+as, on every target host.
+
+```bash
+ssh -i <ssh-key-file> <username>@<ip-address> true && echo "key works: ok"
+```
+
+**You have a Vault password file**, if your automation project encrypts any of its variables — the file
+that would otherwise be passed with `--vault-password-file` when running a playbook by hand.
+
+## Setup
 
 ### Overview
 
-1. Create the workspace, secrets, and image build directories.
-2. Manually copy in the deploy SSH key and vault `pass.file` (outside Ansible).
-3. Copy the Dockerfile and build the `ansible-runner:latest` image (Python + `ansible-core` + collections, non-root-capable via SSH).
-4. Clone this repository into the shared workspace (one-time).
-5. (Reference only, executed by Kestra at flow run time, not by this role) launch an ephemeral playbook run.
+1. Create the workspace, secrets and build directories.
+2. Copy the SSH key and Vault password file onto the host by hand — never through this image, never
+   committed anywhere.
+3. Write the Dockerfile and build the image.
+4. Clone your automation project into the shared workspace, once.
+5. Confirm a playbook run actually completes, the way the orchestrator will run it.
 
-### Step-by-Step Instructions
+---
 
-#### Step 1: Create data directories
+#### Step 1: Create the host directories
 
-**Purpose**: `/workspace` is where the runner checks out this Git repository and runs `ansible-playbook` from — it must persist across ephemeral container runs (so the repo isn't re-cloned every time) and is bind-mounted from the host. `secrets` holds the deploy SSH private key and the vault password file; it is kept root-only on the host and mounted read-only, one file at a time, into each task container. `build` holds the Dockerfile used to build the image.
-
-**Commands**:
 ```bash
-sudo mkdir -p ./data/ansible-runner ./data/ansible-runner/workspace
-sudo chown -R 1000:docker ./data/ansible-runner ./data/ansible-runner/workspace
+sudo mkdir -p ./data/ansible-runner/workspace
+sudo chown -R <puid>:<pgid> ./data/ansible-runner ./data/ansible-runner/workspace
 sudo chmod 0755 ./data/ansible-runner ./data/ansible-runner/workspace
 
 sudo mkdir -p ./data/ansible-runner/secrets
@@ -44,46 +92,55 @@ sudo chown root:root ./data/ansible-runner/secrets
 sudo chmod 0700 ./data/ansible-runner/secrets
 
 sudo mkdir -p ./data/ansible-runner/build
-sudo chown deploy:docker ./data/ansible-runner/build
+sudo chown <username>:<pgid> ./data/ansible-runner/build
 sudo chmod 0755 ./data/ansible-runner/build
 ```
 
-**Explanation**: Ownership uid `1000` on `workspace` matches `claude_runner.uid` — the same uid the `claude_runner` role uses for its own shared data directories — so files the runner writes are readable/writable across containers that share the mount. `secrets` is deliberately `root:root 0700`: nothing inside a regular container process (even one running as root *inside* its own namespace) can read it unless the host's Docker daemon is explicitly told to mount an individual file, and only a caller with access to the Docker socket (i.e. `socket-proxy`, gated to Kestra behind Authelia) can issue that `docker run`.
+**Explanation**: `workspace` holds the checked-out project this image runs playbooks from, and it is
+bind-mounted so the checkout survives a task container being destroyed — the alternative, re-cloning on
+every run, would be slow and would hammer whatever hosts the repository. `<puid>` matches the uid the
+Claude Code sandbox's shared directories use, purely so that if the two images' bind mounts ever need to
+interoperate on the same host, file ownership lines up instead of one image writing files the other
+cannot read. `secrets` is deliberately `root:root 0700` and separate from `workspace` — nothing inside an
+ordinary container process can read it unless the Docker Engine is explicitly told, by a specific
+`docker run` invocation, to bind-mount one specific file out of it. The set of things that can even issue
+that `docker run` is itself narrow (typically only the orchestrator, reached only through its own
+authentication), so this directory has exactly one path in: someone with root on this host, doing it on
+purpose.
 
 ---
 
-#### Step 2: Manually place secrets (outside Ansible)
+#### Step 2: Place the SSH key and Vault password by hand
 
-**Purpose**: The runner needs an SSH private key to authenticate to every managed host as `ansible_private_key_file` in the inventory expects, plus the Ansible Vault password to decrypt any vaulted variables. Because these grant infrastructure-wide SSH access, this role deliberately does **not** template, copy, or otherwise manage them — you place them by hand, once, directly on the automation host.
+Do this from your own workstation, outside any automation — it is the one step in this whole guide that
+must never be scripted, because scripting it would mean the credential passed through some log or
+history along the way.
 
-**Commands** (run from your workstation, not through Ansible):
 ```bash
-scp <key-name>.ppk deploy@<ip-address>:/tmp/<key-name>.ppk
-scp pass.file deploy@<ip-address>:/tmp/pass.file
+scp <ssh-key-file> <username>@<ip-address>:/tmp/<ssh-key-file>
+scp <vault-password-file> <username>@<ip-address>:/tmp/<vault-password-file>
 
-# On the automation host:
-ssh deploy@<ip-address>
-sudo mv /tmp/<key-name>.ppk /tmp/pass.file ./data/ansible-runner/secrets/
-sudo chown root:root ./data/ansible-runner/secrets/<key-name>.ppk ./data/ansible-runner/secrets/pass.file
-sudo chmod 0600 ./data/ansible-runner/secrets/<key-name>.ppk ./data/ansible-runner/secrets/pass.file
+ssh <username>@<ip-address>
+sudo mv /tmp/<ssh-key-file> /tmp/<vault-password-file> ./data/ansible-runner/secrets/
+sudo chown root:root ./data/ansible-runner/secrets/<ssh-key-file> ./data/ansible-runner/secrets/<vault-password-file>
+sudo chmod 0600 ./data/ansible-runner/secrets/<ssh-key-file> ./data/ansible-runner/secrets/<vault-password-file>
 ```
 
-**Explanation**: `<key-name>.ppk` is the private key referenced by `ansible_private_key_file` in the production inventory for the hosts this runner will manage. `pass.file` is the same Ansible Vault password file used interactively (`--vault-password-file pass.file`) elsewhere in this repository's workflow. Both land in the root-only `secrets` directory created in Step 1 and are mounted read-only into individual task containers at run time (Step 5) — never baked into the image, never committed, never touched by a `copy`/`template` task.
+**Explanation**: These two files together grant whoever holds them the ability to log into and
+reconfigure every host your project manages. That is exactly why this image does not generate, copy or
+otherwise manage them the way it manages everything else — a credential with that much reach should have
+exactly one deliberate placement, done once by a person, not a repeatable automated step that could be
+re-triggered by mistake or read a stale copy from somewhere. They land in the root-only directory from
+Step 1 and are mounted read-only into individual task containers, one file at a time, at run time; they
+are never baked into the image itself, so rotating either one is just replacing the file on the host —
+no rebuild.
 
 ---
 
-#### Step 3: Build the runner image
+#### Step 3: Write the Dockerfile and build the image
 
-**Purpose**: Produce an image with `ansible-core`, the Galaxy collections this repository's roles depend on (`community.docker`, `community.general`, `community.postgresql`, `community.crypto`, `ansible.posix`), and the OS-level tools (`git`, `openssh-client`, `rsync`, `sshpass`) needed to clone the repo and connect to managed hosts over SSH.
-
-**Commands**:
 ```bash
-sudo cp update/roles/ansible_runner/files/Dockerfile ./data/ansible-runner/build/Dockerfile
-sudo docker build -t ansible-runner:latest ./data/ansible-runner/build
-```
-
-Dockerfile contents (for reference):
-```dockerfile
+sudo tee ./data/ansible-runner/build/Dockerfile >/dev/null <<'EOF'
 FROM python:3.12-slim
 
 RUN apt-get update \
@@ -97,7 +154,6 @@ RUN apt-get update \
 
 RUN pip install --no-cache-dir ansible-core passlib
 
-# Collections used across client/ and update/ playbooks.
 RUN ansible-galaxy collection install \
     community.docker \
     community.general \
@@ -105,141 +161,194 @@ RUN ansible-galaxy collection install \
     community.crypto \
     ansible.posix
 
-# Ephemeral container — no persistent known_hosts.
 ENV ANSIBLE_HOST_KEY_CHECKING=False
 
 WORKDIR /workspace
 
 CMD ["ansible-playbook", "--version"]
+EOF
+
+sudo docker build -t ansible-runner:latest ./data/ansible-runner/build
 ```
 
-**Explanation**: `passlib` is installed alongside `ansible-core` because some roles in this repository (e.g. user-creation tasks) use Ansible's `password_hash` Jinja2 filter, which depends on it. The five Galaxy collections cover every non-builtin module this repository's roles use (Docker, generic community modules, PostgreSQL, TLS/crypto, POSIX ACLs/mounts). `ENV ANSIBLE_HOST_KEY_CHECKING=False` disables strict host-key checking — each container is thrown away after one run and never accumulates a `known_hosts` file, so there is nothing to persist a TOFU (trust-on-first-use) fingerprint into; this trades host-key pinning for the ephemeral-container model (see Troubleshooting for the risk this accepts). There is no `USER` directive — the container runs as root by default so it can read the mounted key file and manage remote hosts as `{{ user.name }}` over SSH, but it is still confined by `--security-opt no-new-privileges` and the isolated `sandbox` network at run time (Step 5).
+**Explanation**: `passlib` sits alongside `ansible-core` because password-hashing filters in common use
+(for creating system user accounts, for instance) depend on it — without it, any playbook that hashes a
+password fails on a missing dependency instead of a missing feature. The five collections cover Docker,
+general-purpose community modules, PostgreSQL, TLS/crypto operations and POSIX-specific modules
+(permissions, mounts) — adjust this list to whatever modules your own project's playbooks actually
+import; this set is a reasonable starting point, not a universal one. `ANSIBLE_HOST_KEY_CHECKING=False`
+is a direct consequence of every container being thrown away after one run: strict host-key checking
+exists to catch a host's key changing unexpectedly (a sign of a man-in-the-middle), but that protection
+depends on a `known_hosts` file built up over repeated connections, and a container that never has a
+second run never builds one. Disabling the check trades that protection for the ephemeral-container
+model; the accepted mitigation is that this image only ever talks to hosts already reachable over routes
+this host's own network already trusts — see Troubleshooting if that trade-off is not acceptable to you,
+along with the alternative of mounting a pre-populated `known_hosts` file instead. There is no `USER`
+directive, so the container runs as root by default — it needs to be able to read the mounted private key
+and act as whatever account your project connects as; the containment here comes from `--cap-drop` and
+`--security-opt no-new-privileges` at run time (Step 5) and the isolated network, not from an unprivileged
+process inside the container.
 
 ---
 
-#### Step 4: Clone the repository into the shared workspace (one-time)
+#### Step 4: Clone your automation project into the shared workspace
 
-**Purpose**: `ansible-playbook` needs a checked-out copy of this repository to run against. Doing the initial clone once (rather than on every ephemeral run) means later runs only need a fast `git pull`, and the checkout survives container removal because it lives on the bind-mounted `workspace` volume.
-
-**Commands**:
 ```bash
 sudo docker run --rm \
   --network sandbox \
-  -v $(pwd)/data/ansible-runner/workspace:/workspace \
+  -v "$(pwd)/data/ansible-runner/workspace:/workspace" \
   -w /workspace \
   ansible-runner:latest \
-  git clone <repo-url> ansible_scripts
+  git clone <automation-repo-url> project
 ```
 
-**Explanation**: The clone lands at `./data/ansible-runner/workspace/ansible_scripts` on the host, which is why the reference invocation in Step 5 sets its working directory to `/workspace/ansible_scripts/update`. Subsequent updates (pulling in new roles/playbook changes before a run) are done the same way with `git -C ansible_scripts pull` in place of `git clone`.
+**Explanation**: This lands the checkout at `./data/ansible-runner/workspace/project` on the host, which
+is why every later invocation sets its working directory inside that checkout. Doing the clone once,
+rather than on every task run, means every future run is a fast `git pull` instead of a full clone; update
+it the same way:
+
+```bash
+sudo docker run --rm \
+  --network sandbox \
+  -v "$(pwd)/data/ansible-runner/workspace:/workspace" \
+  -w /workspace/project \
+  ansible-runner:latest \
+  git pull
+```
 
 ---
 
-#### Step 5: (Reference) how Kestra launches a playbook run
+#### Step 5: Confirm a playbook run actually completes
 
-**Purpose**: This role builds the image and prepares the network/directories; it does **not** run playbooks itself. This is documented here for operators debugging or manually reproducing what a Kestra `AnsibleCLI` / Docker task runner task does at runtime, via the socket proxy (`tcp://socket-proxy:2375`).
-
-**Commands**:
 ```bash
 docker run --rm \
   --network sandbox \
   --security-opt no-new-privileges \
-  -v <deploy-dir>/data/ansible-runner/workspace:/workspace \
-  -v <deploy-dir>/data/ansible-runner/secrets/<key-name>.ppk:/root/.ssh/<key-name>.ppk:ro \
-  -v <deploy-dir>/data/ansible-runner/secrets/pass.file:/secrets/pass.file:ro \
-  -w /workspace/ansible_scripts/update \
+  --cap-drop ALL \
+  -v "$(pwd)/data/ansible-runner/workspace:/workspace" \
+  -v "$(pwd)/data/ansible-runner/secrets/<ssh-key-file>:/root/.ssh/<ssh-key-file>:ro" \
+  -v "$(pwd)/data/ansible-runner/secrets/<vault-password-file>:/secrets/<vault-password-file>:ro" \
+  -w /workspace/project \
   ansible-runner:latest \
-  ansible-playbook <host>.yml --vault-password-file /secrets/pass.file
+  ansible-playbook <playbook>.yml --vault-password-file /secrets/<vault-password-file>
 ```
 
-**Explanation**:
-- `--network sandbox` — the same isolated bridge network `claude_runner` creates. It gives the container outbound reach to every managed host over SSH (via the automation host's normal NAT egress — there is no route to `<ip-address>`-space that isn't also reachable from the host itself) while keeping it off the `proxy` network like the Claude Code sandbox.
-- **Volume sources are host paths**, not the caller's paths — this only works because the call goes out through `socket-proxy`, which talks to the **host** Docker daemon; the daemon resolves `-v <deploy-dir>/...` against the host filesystem, not the Kestra container's filesystem. `<deploy-dir>` is the `update/` playbook's working directory on the automation host (e.g. `/home/deploy/update`).
-- `-v .../secrets/<key-name>.ppk:/root/.ssh/<key-name>.ppk:ro` — the key mounts specifically at `/root/.ssh/<key-name>.ppk` because the production inventory's `ansible_private_key_file` points there; this path must match whatever the inventory declares.
-- `-v .../secrets/pass.file:/secrets/pass.file:ro` — the Vault password file, mounted read-only and referenced with `--vault-password-file` exactly as it would be run interactively from a workstation.
-- `-w /workspace/ansible_scripts/update` — matches `update/ansible.cfg`'s default inventory path (`inventories/production/hosts.yml`), so the playbook picks it up automatically, same as running it by hand from that directory.
-- `<host>.yml` is whichever playbook the workflow targets (`nas.yml`, `server.yml`, `monitor.yml`, `postgres.yml`, `automation.yml`, etc.); `--limit`/`--tags` can be appended the same way they would be on the command line.
-- No `--memory`/`--cpus`/`--pids-limit` ceilings are baked into this role's reference command (unlike `claude_runner`) — a workflow author invoking this image should still consider adding them, since a full playbook run against several hosts can be longer-lived than a single Claude Code task.
+**Explanation**: `--network sandbox` gives the container outbound reach to whatever this host's own
+network already reaches over SSH, while keeping it off the network your other services live on — the same
+isolation the Claude Code sandbox uses, for the same reason. Volume sources are host paths, not paths
+relative to wherever an orchestrator's own container filesystem lives: if the orchestrator reaches the
+Docker Engine through a filtered API gateway rather than a socket mounted into itself, that gateway
+forwards to the **host's** daemon, and the host daemon always resolves a bind-mount source against the
+**host** filesystem. The private key is mounted at the exact path your project's own configuration
+expects a key to be found at — whatever that path is, it must match here, or the connection fails with a
+missing-identity error before it ever tries a password or asks the target host anything. The working
+directory matters for the same reason many Ansible projects pick up their default settings automatically
+from wherever you run the command — if your project defines its own configuration file for that, running
+from inside the checkout the way this command does reproduces exactly what running it by hand would do.
+No CPU, memory or process-count ceiling is set here, unlike the Claude Code sandbox — a full run against
+several hosts can legitimately run far longer than a single coding task, so size any limits you do add to
+the largest run you expect, not a fixed default.
 
----
+## Values to fill in
 
-## Configuration Reference
-
-### Default Variables
-
-| Variable | Default Value | Description |
-|----------|--------------|-------------|
-| `ansible_runner.image` | `ansible-runner:latest` | Image name:tag built by this role and referenced by Kestra flows |
-| `claude_runner.network` | `sandbox` | Name of the isolated bridge network (created by the `claude_runner` role; reused here, not owned by this role) |
-| `claude_runner.uid` | `1000` | In-container uid; owns `./data/ansible-runner/workspace` |
-| `user.name` / `user.group` | `deploy` / `docker` | Ownership for the build directory |
-
-### Templates & Configuration Files
-
-None. `files/Dockerfile` is a static file copied verbatim to `./data/ansible-runner/build/Dockerfile` (see Step 3) — there is no `templates/` directory for this role.
-
-## Handlers & Service Management
-
-This role defines no handlers and manages no long-lived service/container — there is nothing to "restart." Image rebuilds are driven by Ansible's `docker_image` `force_source` parameter, tied to the Dockerfile copy task (`ansible_runner_dockerfile.changed`) reporting a change (same pattern as `claude_runner`). After rebuilding the image, no running container needs to be recreated, since runs are always launched fresh from the current image tag by Kestra at flow-run time.
+| Placeholder | What it is | How to choose it | Used in |
+| --- | --- | --- | --- |
+| `<puid>` / `<pgid>` | Owner of the workspace directory | The same uid the Claude Code sandbox's shared directories use (`1000` by convention), and the `docker` group | Step 1 |
+| `<username>` | Account used to copy files onto the host, and the account your playbooks connect as | The deploy account for this infrastructure | Steps 1, 2, Before you start |
+| `<docker-subnet>` / `<docker-gateway-ip>` | Address range for the isolated `sandbox` network, only if it does not already exist | Any private range not already used by another Docker network on this host | Before you start |
+| `<ssh-key-file>` | The private key this image connects to managed hosts with | Whatever key is already authorized on every target host | Steps 2, 5 |
+| `<vault-password-file>` | The password file that decrypts any encrypted variables your project uses | The same file used interactively with `--vault-password-file` elsewhere | Steps 2, 5 |
+| `<ip-address>` | A target host's address | Whichever host you are testing connectivity to or managing | Before you start |
+| `<automation-repo-url>` | Where your Ansible project lives | A Git URL you can clone from this host | Step 4 |
+| `<playbook>.yml` | The playbook to run | Whatever your project calls the playbook you want this run to execute | Step 5 |
 
 ## Verification
 
 ```bash
-sudo docker images ansible-runner:latest
+# the image exists
+docker images ansible-runner:latest
 
-# Confirm the shared sandbox network exists (created by claude_runner, not this role)
-sudo docker network inspect sandbox --format '{{.IPAM.Config}}'
+# the shared sandbox network exists
+docker network inspect sandbox --format '{{.IPAM.Config}}'
 
-# Confirm the secrets directory is root-only
+# the secrets directory is root-only
 sudo stat -c '%a %U:%G' ./data/ansible-runner/secrets
 
-# Confirm the repo checkout is present after Step 4
-sudo ls ./data/ansible-runner/workspace/ansible_scripts
+# the checkout is present after Step 4
+sudo ls ./data/ansible-runner/workspace/project
 
-# Dry-run a playbook end-to-end using the same invocation Kestra would use
-sudo docker run --rm \
+# a full run completes end to end, the same way the orchestrator would invoke it
+docker run --rm \
   --network sandbox \
   --security-opt no-new-privileges \
-  -v $(pwd)/data/ansible-runner/workspace:/workspace \
-  -v $(pwd)/data/ansible-runner/secrets/<key-name>.ppk:/root/.ssh/<key-name>.ppk:ro \
-  -v $(pwd)/data/ansible-runner/secrets/pass.file:/secrets/pass.file:ro \
-  -w /workspace/ansible_scripts/update \
+  --cap-drop ALL \
+  -v "$(pwd)/data/ansible-runner/workspace:/workspace" \
+  -v "$(pwd)/data/ansible-runner/secrets/<ssh-key-file>:/root/.ssh/<ssh-key-file>:ro" \
+  -v "$(pwd)/data/ansible-runner/secrets/<vault-password-file>:/secrets/<vault-password-file>:ro" \
+  -w /workspace/project \
   ansible-runner:latest \
-  ansible-playbook <host>.yml --vault-password-file /secrets/pass.file --check
+  ansible-playbook <playbook>.yml --vault-password-file /secrets/<vault-password-file> --syntax-check
+```
+
+## Updating & day-to-day
+
+**Rebuild the image** after changing the Dockerfile, or to pick up a newer `ansible-core` release or an
+additional collection:
+
+```bash
+sudo docker build --pull --no-cache -t ansible-runner:latest ./data/ansible-runner/build
+```
+
+As with the Claude Code sandbox, nothing needs recreating afterward — the very next run uses whatever the
+tag currently points at.
+
+**Keep the checkout current.** Either `git pull` inside it by hand (Step 4's second command) before a
+run, or have whatever triggers a run do a pull as its first step, so a stale checkout never silently runs
+an old playbook.
+
+**Rotating the SSH key or Vault password.** Replace the file under `./data/ansible-runner/secrets` and
+set its permissions back to `0600` — nothing needs rebuilding, since neither file is ever baked into the
+image.
+
+```bash
+sudo cp <new-key> ./data/ansible-runner/secrets/<ssh-key-file>
+sudo chown root:root ./data/ansible-runner/secrets/<ssh-key-file>
+sudo chmod 0600 ./data/ansible-runner/secrets/<ssh-key-file>
+```
+
+**Reading a run's output after the fact.** A task container removes itself on exit, so capture output
+before that happens if you need to debug a failure — drop `--rm` temporarily:
+
+```bash
+docker run --network sandbox ... ansible-runner:latest ansible-playbook <playbook>.yml ...
+docker logs <container-id>
+docker rm <container-id>
 ```
 
 ## Rollback / Uninstall
 
 ```bash
 sudo docker rmi ansible-runner:latest
-# Does NOT remove the sandbox network — owned by claude_runner; only remove it
-# there if both roles are being torn down.
 
-# Destroys the repo checkout and any files left in the shared workspace:
 sudo rm -rf ./data/ansible-runner/workspace
 
-# Destroys the deploy key and vault password copy — irreversible, re-copy from Step 2 if needed:
 sudo rm -rf ./data/ansible-runner/secrets
 ```
 
-**Warning**: Removing `./data/ansible-runner/secrets` deletes the only copy of the deploy SSH key and vault password held on the automation host — confirm you can re-`scp` them from a trusted source before doing this. Removing `./data/ansible-runner/workspace` just costs a re-clone (Step 4).
+Do not remove the `sandbox` network here unless you are also retiring the Claude Code sandbox — it is
+shared, not owned by this image.
+
+**Warning**: removing `./data/ansible-runner/secrets` deletes the only copy of the SSH key and Vault
+password held on this host. Confirm you can re-copy them from a trusted source before doing this.
+Removing `./data/ansible-runner/workspace` only costs a re-clone (Step 4).
 
 ## Troubleshooting
 
-**Task container fails with `Permission denied (publickey)`**
-Confirm `./data/ansible-runner/secrets/<key-name>.ppk` exists, is `0600`, and matches the public key already authorized on the target host's `~/.ssh/authorized_keys` for `{{ user.name }}`. Confirm the `docker run` invocation mounts it at the exact path `ansible_private_key_file` expects in the inventory (typically `/root/.ssh/<key-name>.ppk`).
-
-**Task container fails with a Vault decryption error**
-`--vault-password-file /secrets/pass.file` must point at the in-container mount path, not the host path — confirm the `-v .../pass.file:/secrets/pass.file:ro` mount is present and the file's content matches the password used elsewhere with `--vault-password-file pass.file`.
-
-**`ansible-playbook: command not found` or module import errors**
-The image wasn't rebuilt after a Dockerfile change, or the build failed partway through the `pip`/`ansible-galaxy` layers silently in CI. Re-run Step 3 and check `docker build` output for errors; verify with `docker run --rm ansible-runner:latest ansible-playbook --version` and `ansible-galaxy collection list`.
-
-**Playbook can't find the inventory / uses the wrong hosts file**
-Confirm `-w /workspace/ansible_scripts/update` is set — `update/ansible.cfg` only auto-selects `inventories/production/hosts.yml` when the working directory is `update/`. Running from the workspace root or from inside `ansible_scripts/` (without `/update`) will silently use Ansible's built-in defaults instead.
-
-**No route to the managed host / SSH connection times out**
-The `sandbox` network is a normal (non-`internal`) bridge with NAT egress, so this is almost always a host-level firewall or routing issue rather than a Docker networking one — compare against `claude_runner`'s Troubleshooting section, which documents the same network. Confirm the target host's UFW rules (see the `common` role) permit SSH from the automation host's egress IP.
-
-**Known-host / MITM risk from `ANSIBLE_HOST_KEY_CHECKING=False`**
-This is an accepted trade-off of the ephemeral-container model (no container lives long enough to build a trustworthy `known_hosts`), not a bug — the mitigating control is that the `sandbox` network only reaches hosts inside this project's own infrastructure over routes the automation host's egress already trusts. Do not "fix" this by baking a `known_hosts` file into the image; if stronger guarantees are needed, mount a pre-populated `known_hosts` from the `secrets` directory instead and set `ANSIBLE_HOST_KEY_CHECKING=True`.
+| Symptom | Cause / fix |
+| --- | --- |
+| `Permission denied (publickey)` | Confirm `./data/ansible-runner/secrets/<ssh-key-file>` exists, is `0600`, and its public half is authorized on the target host for the account you are connecting as. Confirm the mount target matches exactly what your project's own connection settings expect. |
+| A Vault decryption error | `--vault-password-file` must point at the mount path **inside the container** (`/secrets/<vault-password-file>` above), not the host path — confirm the mount is present and the file's content matches what you use interactively elsewhere. |
+| `ansible-playbook: command not found`, or a module import error | The image was not rebuilt after a Dockerfile change, or a `pip`/`ansible-galaxy` step failed silently during a build. Rerun Step 3, watch the build output for errors, then confirm with `docker run --rm ansible-runner:latest ansible-playbook --version` and `ansible-galaxy collection list`. |
+| The playbook runs but does not pick up the project's own settings | Confirm the working directory (`-w`) is set to inside the checkout, at the same depth your project expects when run by hand — many Ansible projects only auto-load their own configuration from a specific directory. |
+| No route to a target host / SSH connection times out | The `sandbox` network is a normal bridge with NAT egress, so this is almost always a host firewall or routing issue rather than a Docker networking one. Confirm the target host's firewall permits SSH from this host's outbound address. |
+| Worried about the man-in-the-middle risk from disabled host-key checking | This is an accepted trade-off of the ephemeral-container model, not an oversight — no container lives long enough to build a trustworthy `known_hosts`. Do not "fix" it by baking a `known_hosts` file into the image (Step 3); if you need the guarantee back, mount a pre-populated `known_hosts` file from the `secrets` directory at run time instead and set `ANSIBLE_HOST_KEY_CHECKING=True`. |

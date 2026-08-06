@@ -27,9 +27,6 @@
     image: crowdsecurity/cloudflare-bouncer
     pull: true
     state: started
-    # cfg.yaml is a bind mount; a content change alone won't restart the
-    # container, so force a recreate when the rendered config changes,
-    # otherwise the bouncer keeps running its stale in-memory config.
     recreate: "{{ cloudflare_bouncer_cfg.changed | default(false) }}"
     restart_policy: unless-stopped
     networks:
@@ -37,8 +34,6 @@
         ipv4_address: "{{ ip['cloudflare-bouncer'] }}"
     volumes:
       - ./data/crowdsec/cfg.yaml:/etc/crowdsec/bouncers/crowdsec-cloudflare-bouncer.yaml
-    # Bouncer has no HTTP endpoint - liveness = its process is still running.
-    # Image is alpine and ships pgrep.
     healthcheck:
       test: ["CMD", "pgrep", "-f", "crowdsec-cloudflare-bouncer"]
       interval: 60s

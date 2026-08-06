@@ -10,9 +10,6 @@
     - "./data/ansible-runner"
     - "./data/ansible-runner/workspace"
 
-# Holds the deploy SSH private key and the vault pass.file — copied in
-# MANUALLY (scp), never by Ansible and never through git. Root-only: the
-# runner mounts individual files read-only at run time.
 - name: Create secrets directory
   ansible.builtin.file:
     path: "./data/ansible-runner/secrets"

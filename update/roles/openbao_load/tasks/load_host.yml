@@ -11,10 +11,6 @@
       skipped. Nothing reads these variables at deploy time either.
   when: (openbao_load_host_file | basename | splitext | first) not in groups['all']
 
-# Values come from hostvars, not from the file, so `{{ base_domain }}` and the
-# `_service` composition anchors are stored resolved. The key list still comes
-# from the file: hostvars also carries group_vars and Ansible's own magic
-# variables, and neither belongs under this host's scope.
 - name: Write the variables of {{ openbao_load_host_file | basename | splitext | first }}
   ansible.builtin.include_tasks: load_scope.yml
   vars:

@@ -11,7 +11,6 @@
         ipv4_address: "{{ ip['adminer'] }}"
     env:
       TZ: "Europe/Belgrade"
-    # Adminer serves its login page (200, no redirect) on 8080; image has curl.
     healthcheck:
       test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8080/"]
       interval: 30s
@@ -23,8 +22,5 @@
       traefik.http.routers.adminer.entrypoints: "https"
       traefik.http.routers.adminer.rule: "{{ adminer.host }}"
       traefik.http.routers.adminer.tls: "true"
-      # chain-tunnel is unusable on the public server: the IP-updater
-      # container only maintains default-whitelist.yml, so tunnel-whitelist
-      # never learns the current home IP → 403 for everyone.
       traefik.http.routers.adminer.middlewares: "chain-auth@file"
       traefik.http.services.adminer.loadbalancer.server.port: "{{ adminer.port }}"

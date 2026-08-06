@@ -33,8 +33,6 @@
   register: openbao_setup_admin_state
   changed_when: false
 
-# Only created, never updated: re-running must not silently reset the password
-# of a working account. Change it from the UI, or delete the user and re-run.
 - name: Create the admin userpass account
   ansible.builtin.uri:
     url: "{{ openbao_setup_addr }}/v1/auth/userpass/users/{{ openbao_setup_admin_user }}"

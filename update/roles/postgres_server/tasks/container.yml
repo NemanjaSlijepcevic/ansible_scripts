@@ -22,9 +22,6 @@
     image: pgvector/pgvector:pg18
     pull: true
     restart_policy: unless-stopped
-    # SIGTERM = postgres "smart" shutdown that waits forever for idle clients
-    # → docker's 10s default then SIGKILLs → crash recovery and pg_stat wipe
-    # on every stop. SIGINT = fast shutdown with clean checkpoint.
     stop_signal: SIGINT
     stop_timeout: 90
     networks:

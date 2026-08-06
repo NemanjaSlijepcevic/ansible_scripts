@@ -16,9 +16,6 @@
       {{ openbao_setup_seal.t }} different shares at the prompt.
   when: openbao_setup_keys | length == 0
 
-# Each share is POSTed on its own; OpenBao counts them until the threshold is
-# met. A duplicate share does not advance the count, so the assert below is
-# what catches "I pasted the same key twice".
 - name: Submit the unseal keys
   ansible.builtin.uri:
     url: "{{ openbao_setup_addr }}/v1/sys/unseal"

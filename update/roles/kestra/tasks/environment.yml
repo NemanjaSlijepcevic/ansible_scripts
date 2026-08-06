@@ -1,7 +1,4 @@
 ---
-# Fail here with a readable message rather than deep inside a `lookup('file')`
-# further down. These live on the control node, never in the inventory: two are
-# issued by openbao_setup, two are values only the flows use.
 - name: Check the control-node secret files Kestra needs
   ansible.builtin.stat:
     path: "{{ item }}"
@@ -25,8 +22,6 @@
       others hold values used only by flows — see docs/update/kestra.md.
     success_msg: "All {{ kestra_required_secret_files | length }} secret files present."
 
-# Read once here so the container task below is a plain variable reference and
-# a failure points at this task rather than at a docker_container arg.
 - name: Read the flow secrets from OpenBao
   block:
     - name: Fetch the plugin-property secrets
@@ -43,7 +38,6 @@
                      secret_id=kestra_vault_secret_id)).secret[kestra_rsync_ssh_key_key] }}
       no_log: true
 
-    # One KV read covers every webhook key: `.secret` is the whole data dict.
     - name: Fetch the webhook trigger keys
       ansible.builtin.set_fact:
         kestra_webhooks: >-
@@ -53,8 +47,6 @@
                      secret_id=kestra_vault_secret_id)).secret }}
       no_log: true
 
-    # <namespace>_<flow_id> -> SECRET_WH_<NAMESPACE>_<FLOW_ID>, base64 as the
-    # OSS secrets backend expects. Flows read it as secret('WH_<NAME>').
     - name: Build the webhook-key container env
       ansible.builtin.set_fact:
         kestra_webhook_env: >-

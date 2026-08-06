@@ -13,4 +13,8 @@
   when: postgres_service_users | length > 0
 
 - name: Verify databases, tables and client certs
-  ansible.builtin.include_tasks: verify.yml
+  ansible.builtin.include_tasks:
+    file: verify.yml
+    apply:
+      tags: ['verify']
+  tags: ['verify']

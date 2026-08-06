@@ -1,118 +1,159 @@
-# Role: prepare_firewall
+# Setting Up the Firewall
 
-## Purpose
+## What this is
 
-This role configures the host firewall using UFW (Uncomplicated Firewall). It enforces a default-deny inbound policy, explicitly allows only the ports declared in the `ufw_rules` inventory variable, enables UFW logging, and sets up log rotation for UFW log files. A safety assertion runs first to confirm that an SSH rule exists so you cannot accidentally lock yourself out.
+Configures the host firewall with UFW: everything inbound is denied, everything outbound is allowed, and a short explicit list of ports is opened. Logging is switched on and the resulting log file is given a rotation policy.
 
-## Prerequisites
+The rule set is wiped and rebuilt from scratch rather than adjusted in place, so the firewall on a machine is always exactly the list you have in front of you — no leftovers from an experiment six months ago. That makes one thing critical: **the list must contain a rule for SSH**, or the moment the firewall comes up you lose the machine.
 
-- `install_packages` role must have run (provides `ufw`).
-- The `ufw_rules` variable must be defined in the inventory and must contain at least one rule with `comment: "SSH"`.
-- Root or sudo access on the target machine.
+Every machine gets this. The baseline is SSH plus whatever that machine actually serves.
 
-## Manual Execution Guide
+## Before you start
+
+- Root or `sudo` on the machine.
+- `ufw` installed:
+
+  ```bash
+  command -v ufw || sudo apt-get install -y ufw
+  ```
+
+- **Know your SSH port.** Everything below hangs on getting this right:
+
+  ```bash
+  sudo sshd -T | grep '^port '
+  ```
+
+- Console or out-of-band access to the machine (hypervisor console, IPMI, physical keyboard), or at minimum the certainty that you can get it. This is the one procedure in the bootstrap that can cut your own connection mid-command.
+- `logrotate` installed:
+
+  ```bash
+  command -v logrotate || sudo apt-get install -y logrotate
+  ```
+
+- Decide the full port list before you start, not while the firewall is down. Write it out — Step 1 is checking it.
+
+## Setup
 
 ### Overview
 
-1. Assert that an SSH rule is defined (safety check).
-2. Reset UFW to factory defaults.
-3. Set default inbound policy to deny.
-4. Set default outbound policy to allow.
-5. Apply all rules from `ufw_rules`.
-6. Enable UFW with logging.
-7. Configure log rotation for `/var/log/ufw.log`.
+1. Write out the rule list and confirm it contains SSH.
+2. Reset the firewall to a clean state.
+3. Set the default policies: deny inbound, allow outbound.
+4. Add each allow rule.
+5. Enable the firewall with logging.
+6. Install rotation for the firewall log.
 
 ---
 
-### Step-by-Step Instructions
-
-#### Step 1: Safety check — confirm SSH rule exists
-
-**Purpose**: Prevent a situation where UFW is enabled with no SSH rule, cutting off remote access.
-
-Before making any changes, verify your rule list contains an SSH entry:
+#### Step 1: Write out the rules and check for SSH
 
 ```bash
-# Review the rules you are about to apply
 cat <<'EOF'
-ufw_rules:
-  - { port: "22", protocol: "tcp", comment: "SSH" }
-  - { port: "80", protocol: "tcp", comment: "HTTP" }
-  - { port: "443", protocol: "tcp", comment: "HTTPS" }
+port   proto  comment
+<ssh-port>  tcp    SSH
+80          tcp    HTTP
+443         tcp    HTTPS
 EOF
 ```
 
-If there is no SSH rule, add one before proceeding.
-
----
-
-#### Step 2: Reset UFW to defaults
-
-**Purpose**: Wipe any previously applied rules to ensure a clean, predictable state.
+Confirm the port you are about to allow is the port the daemon is really on:
 
 ```bash
-sudo ufw reset
+sudo sshd -T | grep '^port '
+sudo ss -tlnp | grep sshd
 ```
 
-**Warning**: This disables UFW and removes all rules. You will be prompted to confirm. Ensure you have console access or the SSH session will not drop (UFW is disabled after reset, so traffic flows freely until re-enabled).
+**Explanation**: This is not busywork — it is the check that makes the rest of the procedure survivable. The next step deletes every rule on the machine, and the step after that sets the default inbound policy to deny. If SSH is not in the list you are about to apply, the firewall comes up correct, complete, and completely closed to you.
+
+The mistake is almost never "forgot SSH entirely". It is allowing 22 on a machine whose daemon was moved to another port, or the reverse. Read the port out of the running daemon rather than from memory.
+
+The three rules above are the common baseline: SSH so you can administer the machine, and 80/443 for a machine that terminates HTTP. A machine that serves file shares, a database, or anything else adds its own entries to the same list — one line per port, each with a comment saying what it is for, so the next person reading `ufw status` does not have to guess.
 
 ---
 
-#### Step 3: Set default policies
+#### Step 2: Reset to a clean state
 
-**Purpose**: All traffic not explicitly permitted should be blocked inbound; all outbound traffic is allowed.
+```bash
+sudo ufw --force reset
+```
+
+**Explanation**: Wipes every rule and disables the firewall, giving a known starting point. Rebuilding from empty is what makes the final state predictable: `ufw status` afterwards shows exactly the list from Step 1 and nothing else. Editing an existing rule set in place accumulates rules nobody remembers adding, and a stale `allow` is a hole that no audit of your intended list would ever reveal.
+
+`--force` skips the interactive confirmation. Note the window this opens: from here until Step 5 the firewall is **off** and the machine is unfiltered. Do not stop halfway. Run Steps 2 through 5 back to back.
+
+The old rules are saved as `.rules.<timestamp>` backups in `/etc/ufw/`, which is worth knowing if you need to see what was there before.
+
+---
+
+#### Step 3: Set the default policies
 
 ```bash
 sudo ufw default deny incoming
 sudo ufw default allow outgoing
 ```
 
+**Explanation**: Default-deny inbound is the entire point of the firewall. Anything not explicitly allowed in Step 4 is dropped, so a service that starts listening on an unexpected port — a container publishing to `0.0.0.0`, a package that enables a daemon on install — is not reachable from outside until someone deliberately opens it.
+
+Outbound stays open. These machines pull container images, fetch package updates, push metrics and logs to a collector, and reach external APIs; enumerating all of that would be a large, brittle list that breaks on the first new service. The inbound direction is where the exposure is.
+
+Established and related traffic is allowed back in regardless — UFW's default rule set is stateful, which is why "deny all inbound" does not break your outbound connections.
+
 ---
 
-#### Step 4: Apply UFW rules from inventory
-
-**Purpose**: Open exactly the ports declared in the `ufw_rules` inventory variable.
-
-For the default client inventory (`client/inventories/production/group_vars/all.yml`), the rules are:
+#### Step 4: Add the allow rules
 
 ```bash
-sudo ufw allow proto tcp from any to any port 22 comment 'SSH'
+sudo ufw allow proto tcp from any to any port <ssh-port> comment 'SSH'
 sudo ufw allow proto tcp from any to any port 80 comment 'HTTP'
 sudo ufw allow proto tcp from any to any port 443 comment 'HTTPS'
 ```
 
-The general pattern for each rule is:
+The pattern for any additional rule:
 
 ```bash
-sudo ufw allow proto <protocol> from any to any port <port> comment '<comment>'
+sudo ufw allow proto <tcp|udp> from any to any port <port> comment '<what it is for>'
 ```
+
+**Explanation**: Each rule is written in the long form on purpose. `ufw allow 80` guesses at the protocol and records nothing about why; the explicit form pins the protocol and attaches a comment that shows up in `ufw status` forever. When you come back to a machine with fifteen rules on it, the comment is the difference between confidently removing one and leaving it there because you are not sure.
+
+`from any to any` keeps the rule address-agnostic. Narrow the source when a port genuinely only serves one network — for example a database or file-share port that should never be reachable from outside the LAN:
+
+```bash
+sudo ufw allow proto tcp from <docker-subnet> to any port <port> comment '<service> (internal only)'
+```
+
+A machine serving SMB file shares, for instance, adds UDP 137 and 138 and TCP 139 and 445, and those belong scoped to the local network rather than open to the world.
+
+Rules are applied while the firewall is still disabled. That is deliberate: the entire set is in place before anything starts enforcing, so there is no moment where a partial rule set is live.
 
 ---
 
-#### Step 5: Enable UFW with logging
-
-**Purpose**: Activate the firewall and turn on logging so blocked packets are recorded.
+#### Step 5: Enable, with logging
 
 ```bash
-sudo ufw enable
+sudo ufw --force enable
 sudo ufw logging on
+sudo ufw status verbose
 ```
 
-When prompted "Command may disrupt existing ssh connections. Proceed with operation (y|n)?", type `y`.
+**Explanation**: This is the moment enforcement starts. Because the rules were loaded first, an SSH session on an allowed port stays up across the transition.
+
+`--force` suppresses the *"Command may disrupt existing ssh connections. Proceed with operation (y|n)?"* prompt. If you would rather see the prompt and answer it yourself, drop the flag — but do not run it non-interactively without having done the Step 1 check.
+
+Logging on means blocked packets are recorded in `/var/log/ufw.log`. The default level logs blocked traffic and rate-limits repeats; it is what turns "the service is not reachable" into a two-second answer, because you can see the packet arriving and being dropped instead of guessing between a firewall problem, a routing problem and a dead daemon.
+
+**Verify from a second terminal right now**, before doing anything else:
+
+```bash
+ssh -p <ssh-port> <username>@<ip-address> 'echo still-here'
+```
 
 ---
 
-#### Step 6: Configure UFW log rotation
-
-**Purpose**: Prevent `/var/log/ufw.log` from growing indefinitely.
-
-Create `/etc/logrotate.d/uwf`:
+#### Step 6: Rotate the firewall log
 
 ```bash
-sudo nano /etc/logrotate.d/uwf
-```
-
-```
+sudo tee /etc/logrotate.d/uwf >/dev/null <<'EOF'
 /var/log/ufw.log {
     size 50M
     rotate 3
@@ -123,107 +164,154 @@ sudo nano /etc/logrotate.d/uwf
     create 0640 root adm
     sharedscripts
     postrotate
-        systemctl reload rsyslog
+        systemctl reload rsyslog > /dev/null 2>&1 || true
     endscript
 }
-```
-
-```bash
-sudo chmod 0644 /etc/logrotate.d/uwf
+EOF
 sudo chown root:root /etc/logrotate.d/uwf
+sudo chmod 0644 /etc/logrotate.d/uwf
 ```
 
-> **Note**: The file is named `uwf` (not `ufw`) — this is the spelling used in the playbook.
+**Explanation**: A machine reachable from the internet gets scanned continuously, and every dropped packet is a line. Unbounded, `/var/log/ufw.log` is one of the more reliable ways to fill a root filesystem on an otherwise idle host.
+
+| Option | Why |
+|--------|-----|
+| `size 50M` | Rotate on size, not on a calendar. A quiet machine keeps long history; a machine under a scan flood rotates as often as it needs to and cannot fill the disk between nightly runs. |
+| `rotate 3` | Three generations, bounded at roughly 150 MB before compression — enough to look back at a recent incident. |
+| `compress` / `delaycompress` | Old generations are gzipped; the newest is left uncompressed for a cycle because the logging daemon may still hold a descriptor on it. |
+| `missingok` | With logging freshly enabled the file may not exist yet; do not fail the nightly run over it. |
+| `notifempty` | Do not burn a generation rotating an empty file. |
+| `create 0640 root adm` | Recreate immediately with the right mode. The log contains source addresses and port scan patterns and should not be world-readable. `adm` is the distribution's group for log readers. |
+| `sharedscripts` / `postrotate` | Reload the logging daemon once, after rotation, so it releases the old inode and starts writing to the new file. Without it the new log stays empty while the rotated one keeps growing. |
+
+The reload is written as `> /dev/null 2>&1 \|\| true` so a machine running only `systemd-journald`, with no `rsyslog` installed, does not fail its nightly rotation on a service that was never there.
+
+The filename is `uwf`, not `ufw`. That is a transposition that has been carried in this setup for a while; `logrotate` does not care what the file is called, only what is inside it. If you go looking for `/etc/logrotate.d/ufw` and find nothing, this is why.
+
+Note that Debian and Ubuntu also ship `/etc/logrotate.d/ufw` with the package. If both exist and both list `/var/log/ufw.log`, `logrotate` complains that the file appears twice and skips it — see Troubleshooting.
 
 ---
 
-## Configuration Reference
+## Values to fill in
 
-### Variables
-
-| Variable | Example | Description |
-|----------|---------|-------------|
-| `ufw_rules` | See below | List of firewall rules to apply |
-
-**`ufw_rules` structure** (from `client/inventories/production/group_vars/all.yml`):
-
-```yaml
-ufw_rules:
-  - { port: "22", protocol: "tcp", comment: "SSH" }
-  - { port: "80", protocol: "tcp", comment: "HTTP" }
-  - { port: "443", protocol: "tcp", comment: "HTTPS" }
-```
-
-Each entry must have `port`, `protocol`, and `comment`. At least one entry must have `comment: "SSH"` or the role will fail the safety assertion.
-
-**NAS-specific additional rules** (from `update/inventories/production/host_vars/primary_nas.yml`):
-
-```yaml
-ufw_rules:
-  - { port: "137", protocol: "udp", comment: "Samba NetBIOS Name Service" }
-  - { port: "138", protocol: "udp", comment: "Samba NetBIOS Datagram" }
-  - { port: "139", protocol: "tcp", comment: "Samba NetBIOS Session" }
-  - { port: "445", protocol: "tcp", comment: "Samba SMB over TCP" }
-```
-
----
-
-## Handlers & Service Management
-
-This role has no Ansible handlers. UFW is enabled directly in the task, not through a handler.
-
----
+| Placeholder | What it is | How to choose it |
+|-------------|-----------|------------------|
+| `<ssh-port>` | Port the SSH daemon listens on | Read it from the running daemon with `sudo sshd -T \| grep '^port '`. Never from memory. Used in Steps 1 and 4. |
+| `<port>` | Any additional port to open | One rule per port the machine actually serves. If nothing listens on it, do not open it. Used in Step 4. |
+| `<tcp\|udp>` | Protocol for the rule | Match what the service uses. `sudo ss -tulnp` shows what is listening and on which protocol. |
+| `<what it is for>` | Rule comment | A short service name. It is displayed in `ufw status` and is what makes future cleanup possible. |
+| `<docker-subnet>` | A source network, when a rule should not be world-open | CIDR of the network allowed to reach the port, e.g. the container bridge or the LAN. Used in the scoped form in Step 4. |
+| `<username>` / `<ip-address>` | Login and address for the post-enable check | Used in Step 5 only. |
 
 ## Verification
 
 ```bash
-# Check UFW status and all rules
+# Full rule set with defaults and logging state
 sudo ufw status verbose
 
-# Check default policies
-sudo ufw status verbose | grep Default
+# Numbered form, for deleting a specific rule later
+sudo ufw status numbered
 
-# Confirm SSH is reachable (from another machine)
-ssh <username>@<host>
+# Confirm the defaults specifically
+sudo ufw status verbose | grep Default    # deny (incoming), allow (outgoing)
 
-# Check logs
+# Confirm it survives a reboot
+systemctl is-enabled ufw
+
+# Rotation policy parses
+sudo logrotate --debug /etc/logrotate.d/uwf
+
+# Something is actually being logged
 sudo tail -20 /var/log/ufw.log
 ```
 
----
+From another machine, prove the policy in both directions:
+
+```bash
+# Allowed port answers
+nc -z -w3 <ip-address> <ssh-port> && echo "open"
+
+# A port you did not allow does not
+nc -z -w3 <ip-address> 12345 || echo "closed as expected"
+```
+
+Cross-check that every listening socket is either firewalled or deliberately allowed:
+
+```bash
+sudo ss -tulnp
+```
+
+Anything bound to `0.0.0.0` or `::` that is not in your rule list is only protected by the firewall — which is fine, as long as you know it.
+
+## Updating & day-to-day
+
+- Add a port:
+
+  ```bash
+  sudo ufw allow proto tcp from any to any port <port> comment '<what it is for>'
+  ```
+
+- Remove one:
+
+  ```bash
+  sudo ufw status numbered
+  sudo ufw delete <number>
+  ```
+
+  Delete from the highest number downwards — removing a rule renumbers everything below it.
+
+- Keep the written rule list in sync with the machine. The next rebuild starts from a reset, and a rule that only ever existed as a one-off `ufw allow` will not survive it.
+- Watch what is being dropped:
+
+  ```bash
+  sudo tail -f /var/log/ufw.log
+  sudo grep -c 'BLOCK' /var/log/ufw.log
+  ```
+
+- Docker publishes container ports by writing directly into `iptables`, below the layer UFW manages. A container started with `-p 8080:80` is reachable from the network **even though `ufw status` does not list it**. Do not assume `ufw status` is the complete picture of what is exposed — `sudo ss -tulnp` is. Bind container ports to `127.0.0.1` when they are only meant to be local.
 
 ## Rollback / Uninstall
 
-To disable UFW entirely (open firewall — emergency access):
+Turn the firewall off, leaving the rules stored:
 
 ```bash
 sudo ufw disable
 ```
 
-To remove specific rules:
+Wipe every rule and start over:
 
 ```bash
-sudo ufw delete allow 80/tcp
+sudo ufw --force reset
 ```
 
-To fully reset:
+Remove it entirely:
 
 ```bash
-sudo ufw reset
+sudo ufw disable
+sudo apt-get purge -y ufw
+sudo rm -f /etc/logrotate.d/uwf
 ```
 
----
+**Emergency, from the console, when you have locked yourself out**:
+
+```bash
+sudo ufw disable
+sudo ufw allow proto tcp from any to any port <ssh-port> comment 'SSH'
+sudo ufw --force enable
+```
+
+Disabling first gets you back in; then fix the rule and re-enable. Do not leave the firewall disabled on a machine reachable from outside.
 
 ## Troubleshooting
 
-**SSH connection dropped after ufw enable**
-This should not happen if the SSH rule was applied before enabling UFW. If it does, use console access to run `sudo ufw allow 22/tcp` and `sudo ufw enable`.
-
-**ufw reset asks for confirmation but script is non-interactive**
-In Ansible, the `community.general.ufw` module with `state: reset` handles this without a prompt. Manually, confirm with `y`.
-
-**Rules not applying in expected order**
-UFW processes rules in the order they were added. After `ufw reset`, rules are applied fresh from the list. Use `sudo ufw status numbered` to see the current order.
-
-**Blocked traffic not appearing in /var/log/ufw.log**
-Check that `logging on` was set: `sudo ufw status verbose | grep Logging`. Also check rsyslog is running: `sudo systemctl status rsyslog`.
+| Symptom | Cause / fix |
+|---------|-------------|
+| SSH dropped the instant the firewall was enabled | The allowed port is not the port the daemon listens on. From the console: `sudo ufw disable`, check `sudo sshd -T \| grep '^port '`, add the correct rule, re-enable. |
+| A service is unreachable but the daemon is running | Check the rule exists and matches the protocol: `sudo ufw status verbose`. Then check the drop is really happening: `sudo tail -f /var/log/ufw.log` while you retry the connection. |
+| A container port is reachable although UFW does not list it | Docker writes its own `iptables` rules below UFW. Publish to `127.0.0.1:<port>:<port>` instead of `<port>:<port>`, or put the container behind a reverse proxy. |
+| `/var/log/ufw.log` is empty | Logging is off (`sudo ufw status verbose \| grep Logging`), or `rsyslog` is not running (`systemctl status rsyslog`). On a journald-only machine the traffic is in `sudo journalctl -k \| grep UFW` instead. |
+| `logrotate` reports `/var/log/ufw.log` appears twice | Both this policy and the distribution's `/etc/logrotate.d/ufw` list the file. Keep one; remove the entry from the other. |
+| Rules come back after a reboot that you had deleted | You deleted them from a running firewall but the change was not persisted, or the machine was rebuilt from the written list. Re-check `sudo ufw status numbered`. |
+| The firewall is not active after a reboot | `sudo systemctl enable ufw`. `ufw enable` normally handles this, but a manually disabled unit stays disabled. |
+| Rules seem to be evaluated in the wrong order | UFW matches in listed order and the first match wins. `sudo ufw status numbered` shows the real order; use `sudo ufw insert <number> allow …` to place a rule ahead of another. |
+| `ufw reset` hangs waiting for input | It is asking for confirmation. Use `sudo ufw --force reset`. |

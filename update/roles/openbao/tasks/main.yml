@@ -8,11 +8,9 @@
     image: "{{ openbao_image }}"
     pull: true
     state: started
-    # Config changes need a restart; the entrypoint re-reads config.hcl on boot.
     recreate: "{{ openbao_config is defined and openbao_config.changed }}"
     restart_policy: unless-stopped
     user: "{{ openbao_uid }}:{{ openbao_gid }}"
-    # OpenBao seals on stop; give it a clean shutdown window.
     stop_signal: SIGTERM
     stop_timeout: 30
     networks:
@@ -20,8 +18,6 @@
         ipv4_address: "{{ ip['openbao'] }}"
         aliases:
           - openbao
-    # Bind API to localhost only for `bao` CLI / unseal via SSH; LAN reaches it
-    # through Traefik. Drop this to keep it purely internal.
     ports:
       - "127.0.0.1:8200:8200"
     env:
@@ -29,7 +25,6 @@
     volumes:
       - ./data/openbao/config:/openbao/config:ro
       - ./data/openbao/data:/openbao/data
-      # Target of the file audit device (enabled once, by hand — see docs).
       - ./data/openbao/audit:/openbao/audit
     command: "server -config=/openbao/config/config.hcl"
     labels:
@@ -37,24 +32,16 @@
       traefik.http.routers.openbao.entrypoints: "https"
       traefik.http.routers.openbao.rule: "{{ openbao.host }}"
       traefik.http.routers.openbao.tls: "true"
-      # OpenBao has its own auth + UI — do not front it with Authelia.
       traefik.http.routers.openbao.middlewares: "chain-no-auth@file"
       traefik.http.routers.openbao.service: "openbao"
       traefik.http.services.openbao.loadbalancer.server.port: "{{ openbao.port }}"
     healthcheck:
-      # rc 0 = unsealed, rc 2 = sealed (still "up", awaiting unseal), else error.
       test: ["CMD-SHELL", "bao status -address=http://127.0.0.1:8200 >/dev/null 2>&1 || test $? -eq 2"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 20s
 
-# Kept off the deploy path: a fresh node is legitimately uninitialized and a
-# rebooted one is legitimately sealed, and neither should fail a deploy. The
-# `never` tag alone is not enough — the role's own tags are inherited here, so
-# `--tags openbao` would still select it; the explicit ansible_run_tags check
-# is what limits this to a deliberate `--tags verify`. Nothing to check in
-# check mode either: every task in verify.yml is read-only.
 - name: Verify OpenBao is initialized, unsealed and audited
   ansible.builtin.include_tasks:
     file: verify.yml

@@ -1,6 +1,4 @@
 ---
-# Only timestamp-shaped directories are candidates — never the parent
-# ./data/backups directory or anything else that ends up under it.
 - name: Find expired backup directories
   ansible.builtin.find:
     paths: "{{ db_backup_dir }}"

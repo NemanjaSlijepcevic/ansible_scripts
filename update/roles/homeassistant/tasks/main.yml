@@ -36,7 +36,6 @@
   community.docker.docker_container:
     name: homeassistant
     image: ghcr.io/home-assistant/home-assistant:stable
-    # privileged: true
     restart: "{{ ha_config.changed or ha_automations.changed }}"
     restart_policy: unless-stopped
     networks:
@@ -56,8 +55,6 @@
       traefik.http.routers.homeassistant.tls: "true"
       traefik.http.routers.homeassistant.middlewares: "chain-no-auth@file"
       traefik.http.services.homeassistant.loadbalancer.server.port: "{{ homeassistant.port }}"
-    # /manifest.json is an unauthenticated static 200 (unlike / which can
-    # redirect to onboarding). Image ships curl.
     healthcheck:
       test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8123/manifest.json"]
       interval: 30s
