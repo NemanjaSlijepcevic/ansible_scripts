@@ -522,8 +522,11 @@ tasks:
         - <deploy-dir>/data/ansible-runner/workspace:/workspace
         - <deploy-dir>/data/ansible-runner/secrets/<ssh-key-file>:/root/.ssh/<ssh-key-file>:ro
         - <deploy-dir>/data/ansible-runner/secrets/<vault-password-file>:/secrets/<vault-password-file>:ro
+        - <deploy-dir>/data/ansible-runner/secrets/approle:/secrets/approle:ro
+    env:
+      ANSIBLE_SECRETS_DIR: /secrets/approle
     commands:
-      - cd /workspace/project && ansible-playbook <playbook>.yml --vault-password-file /secrets/<vault-password-file>
+      - cd /workspace/project && ansible-playbook <playbook>.yml --vault-password-file /secrets/<vault-password-file> --skip-tags <this-service>
 ```
 
 Every volume source above is a **host** path, not a path inside Kestra's own container — the task runner's
@@ -531,6 +534,23 @@ calls go out through the filtered Docker API endpoint, which forwards to the hos
 daemon always resolves a bind-mount source against the host filesystem. `host: tcp://socket-proxy:2375`
 and `fileHandlingStrategy: VOLUME` do not need repeating in either task — they come from the plugin
 defaults written in Step 5.
+
+The last two additions exist for reasons a first run finds out the hard way.
+
+A project that reads values out of a secret store at deploy time keeps that store's login credentials
+outside version control, so a container that obtains the project by cloning it never receives them — the
+directory holding them is mounted from the host and named by an environment variable, so the run looks
+there instead of at a path that only exists on a workstation. Place those files as the sandbox image's
+own setup describes, and mount the whole directory rather than one file at a time; a run that reaches the
+store as two different identities needs both pairs present.
+
+**A job running here must never redeploy this orchestrator itself.** Recreating the container is what
+deploying it means, and that container is running the job — the execution dies mid-task, the work it
+started keeps going unsupervised, and what the history records is a failure that may or may not reflect
+what actually happened on the host. Exclude this service explicitly on every automated run, as
+`--skip-tags` does above, and deploy this one service from an operator's own machine. The same caution
+applies to anything else the orchestrator depends on to survive a run: recreating the database it stores
+executions in, or the reverse proxy in front of it, cuts the same thread.
 
 ## Monitoring what is running
 
@@ -568,6 +588,7 @@ sudo docker run --rm --network proxy curlimages/curl -sf http://kestra:8081/prom
 | `your-domain.com` | Base domain | Kestra's own login domain and webhook base URL | Steps 5, 6 |
 | `<ssh-key-file>` / `<vault-password-file>` | Credentials mounted into an Ansible sandbox task | Whatever files you placed for that image | "Using the sandbox images" |
 | `<playbook>.yml` | Playbook an Ansible sandbox task runs | Whatever your project calls it | "Using the sandbox images" |
+| `<this-service>` | Whatever your project calls this orchestrator, so a deploy run can exclude it | The name it is grouped under in your project, not the container name | "Using the sandbox images" |
 | `<task>` | Prompt given to a Claude Code sandbox task | Whatever the flow needs done | "Using the sandbox images" |
 
 ## Verification
@@ -661,6 +682,8 @@ there if you want a true wipe, and understand that doing so is not reversible.
 | Webhook calls redirect to a login page | The reverse proxy's bypass rule and Kestra's own `open-urls` entry must match the webhook path exactly; a mismatch in either means one layer still demands a login the caller cannot complete. |
 | A flow's `volumes:` entries are silently missing inside its task container | `volume-enabled: true` under `plugins.configurations` in `application.yml` is missing, misspelled, or written in camelCase. There is no error — the task just runs without the file it expected and fails downstream with whatever error that absence causes. Confirm the key is exactly `volume-enabled` and re-check the paths exist on the **host**, not inside any container. |
 | A flow reading a secret gets an unable-to-find-variable error | Either the value was passed with a `KESTRA_` prefix (claimed by Kestra's own configuration system, never reaches flows) instead of `ENV_` or `SECRET_`, or the container was never restarted after the value was added. |
+| An execution that deploys infrastructure dies partway through, with no error from the task itself | The run redeployed this service, the database behind it, or the proxy in front of it, and killed its own execution. Check what the run actually touched, confirm on the host whether the change completed, and exclude those services from every automated run. |
+| A deploy run stops complaining about missing credential files | The run has no mounted credential directory, or the environment variable naming it was not set, so the project looked at a path that exists only on a workstation. Add both to the task. |
 | Task containers can't reach each other, or a task hangs pulling an image | Confirm the filtered Docker API endpoint is up, and that the image a task references was actually built locally rather than expected to be pulled — the sandbox images in this stack are never pulled from a registry. |
 | Basic-auth login fails with a validation error on the username | The admin login must be a well-formed email address; anything else is rejected before the password is even checked. |
 | Health check never goes healthy, container keeps restarting | If this happens during the very first start, migrations can legitimately take longer than the default start period on a slow disk — watch `docker logs kestra` for migration progress rather than assuming failure immediately. If it happens on every start, the database connection itself is failing; check the certificate and JDBC URL first. |

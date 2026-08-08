@@ -1,0 +1,10 @@
+[Unit]
+Description=Scheduled out-of-band deploy of the Kestra container
+
+[Timer]
+OnCalendar={{ ansible_runner.update_schedule }}
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target

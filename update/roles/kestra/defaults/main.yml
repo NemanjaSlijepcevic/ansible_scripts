@@ -42,17 +42,33 @@ default:
 kestra_openbao_url: >-
   {{ hostvars[groups['openbaos'] | first]['openbao']['url'] | default('https://openbao.example.com') }}
 
-# AppRole credentials issued by openbao_setup into .secrets/ on the control
-# node (gitignored, 0600). Read at deploy time and passed to the container as
-# base64 SECRET_* env, which is how Kestra OSS exposes secret().
-kestra_openbao_role_id_path: "{{ playbook_dir }}/../.secrets/kestra_role_id"
-kestra_openbao_secret_id_path: "{{ playbook_dir }}/../.secrets/kestra_secret_id"
+# Control-node directory holding the AppRole files. Default is the repo's
+# gitignored .secrets/. The ansible-runner sandbox has no such directory — the
+# repo arrives there as a fresh git clone — so a run from Kestra sets
+# ANSIBLE_SECRETS_DIR to the read-only mount instead.
+kestra_secrets_dir: >-
+  {{ lookup('ansible.builtin.env', 'ANSIBLE_SECRETS_DIR')
+     | default(playbook_dir ~ '/../.secrets', true) }}
+
+# AppRole credentials issued by openbao_setup into that directory (0600). Read
+# at deploy time and passed to the container as base64 SECRET_* env, which is
+# how Kestra OSS exposes secret().
+kestra_openbao_role_id_path: "{{ kestra_secrets_dir }}/kestra_role_id"
+kestra_openbao_secret_id_path: "{{ kestra_secrets_dir }}/kestra_secret_id"
+
+# The control node's own AppRole (ansible-read), used for the deploy-time reads
+# below. A missing file here fails inside a lookup with an opaque error, so it
+# is asserted up front with the other two.
+kestra_vault_role_id_path: "{{ kestra_secrets_dir }}/bao_role_id"
+kestra_vault_secret_id_path: "{{ kestra_secrets_dir }}/bao_secret_id"
 
 # Only the AppRole bootstrap lives on disk — "secret zero", which by definition
 # cannot be stored in the thing it unlocks. Everything else comes from OpenBao.
 kestra_required_secret_files:
   - "{{ kestra_openbao_role_id_path }}"
   - "{{ kestra_openbao_secret_id_path }}"
+  - "{{ kestra_vault_role_id_path }}"
+  - "{{ kestra_vault_secret_id_path }}"
 
 # --- Deploy-time reads from OpenBao ----------------------------------------
 # Two flow secrets cannot be fetched at *runtime*: they are consumed as plugin
@@ -64,8 +80,8 @@ kestra_required_secret_files:
 # Read with the *ansible* AppRole (ansible-read), not Kestra's own — this is a
 # control-node operation. Requires `pip install hvac` and an unsealed OpenBao:
 # deploying this one role is the only thing that gains that dependency.
-kestra_vault_role_id: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/../.secrets/bao_role_id') | trim }}"
-kestra_vault_secret_id: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/../.secrets/bao_secret_id') | trim }}"
+kestra_vault_role_id: "{{ lookup('ansible.builtin.file', kestra_vault_role_id_path) | trim }}"
+kestra_vault_secret_id: "{{ lookup('ansible.builtin.file', kestra_vault_secret_id_path) | trim }}"
 kestra_vault_mount: "kv"
 
 kestra_bridge_bot_token_kv: "homelab/kestra/telegram_bridge"

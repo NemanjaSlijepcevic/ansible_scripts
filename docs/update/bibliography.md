@@ -249,6 +249,7 @@ docker run -d \
   -e EXTRA_DOMAIN=library.your-domain.com \
   -e INTERNAL_HOSTS=bibliography \
   -e SECRET_KEY='<secret>' \
+  -e EMBED_PARENT_ORIGIN=https://your-domain.com \
   -v "$(pwd)/data/bibliography/db.sqlite3:/app/db.sqlite3" \
   -v "$(pwd)/data/bibliography/staticfiles:/app/staticfiles" \
   --label 'traefik.enable=true' \
@@ -278,6 +279,14 @@ serving the public site perfectly. Docker's embedded DNS on a user-defined netwo
 container's own name from inside itself, so the container-name probe works with no extra
 configuration. `--spider` makes `wget` issue the request and discard the body, and a non-2xx status
 makes it exit non-zero, which is exactly the signal the health check wants.
+
+`EMBED_PARENT_ORIGIN` is the origin of the site that shows this page inside a frame. The page
+reports its own height to that parent so the frame can be sized to fit, and it accepts the
+parent's script (Cyrillic/Latin) and light/dark choices so a visitor who picks one on the outer
+site sees it applied here too. Give it scheme and host only — it is compared against the
+browser's report of who sent a message, which never includes a path, so a trailing slash makes
+it match nothing. Leave it unset and the page still works: the height report goes to any parent
+rather than a named one, and the outer site's two toggles stop reaching inside the frame.
 
 `SECRET_KEY` signs session cookies and any signed URL the application generates. Changing it
 invalidates every existing session; leaking it lets someone forge them. `--dns <ip-address>` points
@@ -327,6 +336,7 @@ should reach `healthy` within about a minute of the container starting.
 | `<secret>` | Django `SECRET_KEY` | `openssl rand -base64 48`; store it somewhere you can retrieve | Step 3 |
 | `books.your-domain.com` | the catalogue's public domain | DNS record pointing at this host or at Cloudflare | Before you start, Step 3 |
 | `library.your-domain.com` | a second name the site answers to | optional; drop `EXTRA_DOMAIN` if unused | Step 3 |
+| `https://your-domain.com` | origin of the site that embeds this page in a frame | scheme and host only, no trailing slash | Step 3 |
 | `<path-to-seed-db>` | directory holding an existing `db.sqlite3` | only when migrating an existing catalogue | Step 2 |
 | `<backup-mount>` | directory backups are written to | any path with room for a copy of the database | Updating & day-to-day |
 

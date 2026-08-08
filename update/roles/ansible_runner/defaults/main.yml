@@ -2,11 +2,28 @@
 user:
   name: "deploy"
   group: "docker"
+  # Control-node path of the deploy key. Only its basename is used here: the
+  # out-of-band deploy script mounts the copy of that same key sitting in the
+  # runner's secrets directory, so the two never drift apart in name.
+  private_key_path: "~/.ssh/changeme.pem"
 
 # Runner image tag; containers are ephemeral, spawned by Kestra via the
 # socket proxy on the claude_runner sandbox network.
+#
+# The update_* keys drive the host-side kestra-update script and its timer.
+# Kestra cannot deploy itself — recreating the container kills the execution
+# doing it — so that one deploy runs from systemd here instead, cloning the
+# repo exactly as a flow would.
 ansible_runner:
   image: "ansible-runner:latest"
+  repo_url: "https://github.com/<org-name>/ansible_scripts"
+  update_branch: "main"
+  update_playbook: "automation.yml"
+  update_tags: "kestra"
+  update_vault_pass_file: "pass.file"
+  update_schedule: "Thu *-*-* 10:00:00"
+  update_timeout: "30min"
+  update_log_retention_days: 14
 
 # Sandbox network shared with the claude-runner role; uid owns the shared
 # workspace volume.

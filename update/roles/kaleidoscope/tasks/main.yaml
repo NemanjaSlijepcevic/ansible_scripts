@@ -43,6 +43,7 @@
       INTERNAL_HOSTS: "{{ kaleidoscope.internal_hosts }}"
       SECRET_KEY: "{{ kaleidoscope.secret_key }}"
       IMAGE_WATERMARK_TEXT: "{{ kaleidoscope.watermark }}"
+      EMBED_PARENT_ORIGIN: "{{ kaleidoscope.embed_parent_origin | default('') }}"
     volumes:
       - "./data/kaleidoscope/db.sqlite3:/app/db.sqlite3"
       - "./data/kaleidoscope/staticfiles:/app/staticfiles"

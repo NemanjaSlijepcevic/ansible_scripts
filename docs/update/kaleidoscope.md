@@ -259,6 +259,7 @@ docker run -d \
   -e EXTRA_DOMAIN=your-domain.com \
   -e INTERNAL_HOSTS=kaleidoscope \
   -e SECRET_KEY='<secret>' \
+  -e EMBED_PARENT_ORIGIN=https://your-domain.com \
   -e IMAGE_WATERMARK_TEXT='<org-name>' \
   -v "$(pwd)/data/kaleidoscope/db.sqlite3:/app/db.sqlite3" \
   -v "$(pwd)/data/kaleidoscope/staticfiles:/app/staticfiles" \
@@ -291,7 +292,15 @@ container's own name from inside itself, so the container-name probe needs no ex
 `--spider` makes `wget` fetch the headers and drop the body, exiting non-zero on a non-2xx status.
 
 `IMAGE_WATERMARK_TEXT` is stamped onto the images the gallery serves; set it to whatever attribution
-you want on the pictures. `SECRET_KEY` signs session cookies and signed URLs — keep it stable across
+you want on the pictures. `EMBED_PARENT_ORIGIN` is the origin of the site that shows this page inside a frame. The page
+reports its own height to that parent so the frame can be sized to fit, and it accepts the
+parent's script (Cyrillic/Latin) and light/dark choices so a visitor who picks one on the outer
+site sees it applied here too. Give it scheme and host only — it is compared against the
+browser's report of who sent a message, which never includes a path, so a trailing slash makes
+it match nothing. Leave it unset and the page still works: the height report goes to any parent
+rather than a named one, and the outer site's two toggles stop reaching inside the frame.
+
+`SECRET_KEY` signs session cookies and signed URLs — keep it stable across
 redeploys or every logged-in session is invalidated. `--dns <ip-address>` points the container at
 the local resolver so internal names resolve internally. TLS is terminated at Traefik, so gunicorn
 only ever speaks plain HTTP on 8000: that is what the service port label advertises while the router
@@ -351,6 +360,7 @@ Back up the first two together. The third can always be rebuilt with `collectsta
 | `<org-name>` | watermark text stamped on served images | the attribution you want on the pictures | Step 3 |
 | `gallery.your-domain.com` | the gallery's public domain | DNS record pointing at this host or at Cloudflare | Before you start, Step 3 |
 | `your-domain.com` | a second name the site answers to | optional; drop `EXTRA_DOMAIN` if unused | Step 3 |
+| `https://your-domain.com` | origin of the site that embeds this page in a frame | scheme and host only, no trailing slash | Step 3 |
 | `<path-to-seed-db>` | directory holding an existing `db.sqlite3` | only when migrating an existing gallery | Step 2 |
 | `<backup-mount>` | directory backups are written to | needs room for the database and the whole media tree | Updating & day-to-day |
 
