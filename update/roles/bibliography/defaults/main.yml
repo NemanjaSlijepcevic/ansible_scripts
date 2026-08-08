@@ -14,6 +14,14 @@ bibliography:
   static: "172.20.0.140"
   domain: "books.example.com"
   extra_domain: "library.example.com"
+  internal_hosts: "bibliography"
   secret_key: "changeme"
   host: "Host(`books.example.com`)"
   port: "8000"
+  # Origin of the page that embeds this app in an iframe (the Ghost site).
+  # A bare origin: scheme, host, optional port - no trailing slash or path,
+  # because it is compared against event.origin, which never carries one.
+  # Leave empty and the app still works: it falls back to posting its height
+  # to "*", but the script and dark-mode toggles in the Ghost header stop
+  # reaching inside the frame.
+  embed_parent_origin: "https://blog.example.com"

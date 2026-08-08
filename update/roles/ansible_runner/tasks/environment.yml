@@ -10,13 +10,16 @@
     - "./data/ansible-runner"
     - "./data/ansible-runner/workspace"
 
-- name: Create secrets directory
+- name: Create secrets directories
   ansible.builtin.file:
-    path: "./data/ansible-runner/secrets"
+    path: "{{ item }}"
     state: directory
     owner: root
     group: root
     mode: "0700"
+  loop:
+    - "./data/ansible-runner/secrets"
+    - "./data/ansible-runner/secrets/approle"
 
 - name: Create build directory
   ansible.builtin.file:
@@ -25,6 +28,39 @@
     owner: "{{ user.name }}"
     group: "{{ user.group }}"
     mode: "0755"
+
+- name: Install the out-of-band Kestra deploy script
+  ansible.builtin.template:
+    src: kestra-update.sh.j2
+    dest: /usr/local/sbin/kestra-update
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Deploy kestra-update systemd service
+  ansible.builtin.template:
+    src: kestra-update.service.j2
+    dest: /etc/systemd/system/kestra-update.service
+    owner: root
+    group: root
+    mode: "0644"
+  register: kestra_update_service
+
+- name: Deploy kestra-update systemd timer
+  ansible.builtin.template:
+    src: kestra-update.timer.j2
+    dest: /etc/systemd/system/kestra-update.timer
+    owner: root
+    group: root
+    mode: "0644"
+  register: kestra_update_timer
+
+- name: Enable and start kestra-update timer
+  ansible.builtin.systemd:
+    name: kestra-update.timer
+    enabled: true
+    state: started
+    daemon_reload: "{{ kestra_update_service.changed or kestra_update_timer.changed }}"
 
 - name: Copy Dockerfile
   ansible.builtin.copy:

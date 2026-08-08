@@ -1,0 +1,9 @@
+[Unit]
+Description=Deploy the Kestra container out of band (Kestra cannot deploy itself)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/kestra-update
+TimeoutStartSec={{ ansible_runner.update_timeout }}

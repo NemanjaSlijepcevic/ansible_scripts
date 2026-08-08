@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+#
+# Deploy the Kestra container from this host, out of band.
+#
+# Kestra cannot run this itself: deploying it recreates the container running
+# the execution, which kills the execution mid-task. Everything here mirrors
+# what the run_ansible flow does — fresh clone, same image, same mounts — minus
+# the orchestrator.
+#
+#   kestra-update                 # deploy Kestra from the default branch
+#   CHECK=1 kestra-update         # dry run, changes nothing
+#   BRANCH=x TAGS=y kestra-update # any branch, any tag of the playbook
+#
+# Rendered from a template — edit the role, not this file.
+#
+set -euo pipefail
+
+REPO_URL="${REPO_URL:-{{ ansible_runner.repo_url }}}"
+BRANCH="${BRANCH:-{{ ansible_runner.update_branch }}}"
+PLAYBOOK="${PLAYBOOK:-{{ ansible_runner.update_playbook }}}"
+TAGS="${TAGS:-{{ ansible_runner.update_tags }}}"
+IMAGE="${IMAGE:-{{ ansible_runner.image }}}"
+DEPLOY_DIR="${DEPLOY_DIR:-{{ ansible_facts.env.PWD }}}"
+
+KEY="{{ user.private_key_path | basename }}"
+VAULT_PASS="{{ ansible_runner.update_vault_pass_file }}"
+SECRETS="${DEPLOY_DIR}/data/ansible-runner/secrets"
+LOG_DIR="${DEPLOY_DIR}/data/ansible-runner/logs"
+LOG="${LOG_DIR}/kestra-update-$(date +%Y%m%d-%H%M%S).log"
+
+mkdir -p "$LOG_DIR"
+find "$LOG_DIR" -name 'kestra-update-*.log' -mtime +{{ ansible_runner.update_log_retention_days }} -delete
+
+exec > >(tee -a "$LOG") 2>&1
+trap 'rc=$?; [ "$rc" -eq 0 ] || echo "=== $(date -Is) kestra-update FAILED rc=$rc"' EXIT
+
+echo "=== $(date -Is) branch=${BRANCH} playbook=${PLAYBOOK} tags=${TAGS} check=${CHECK:-0}"
+
+for f in "${SECRETS}/${KEY}" "${SECRETS}/${VAULT_PASS}" "${SECRETS}"/approle/*; do
+    [ -r "$f" ] || { echo "unreadable or missing: $f"; exit 1; }
+done
+
+docker run --rm \
+    --network {{ claude_runner.network }} \
+    -v "${SECRETS}/${KEY}:/root/${KEY}:ro" \
+    -v "${SECRETS}/${KEY}:/root/.ssh/${KEY}:ro" \
+    -v "${SECRETS}/${VAULT_PASS}:/secrets/${VAULT_PASS}:ro" \
+    -v "${SECRETS}/approle:/secrets/approle:ro" \
+    -e ANSIBLE_HOST_KEY_CHECKING=false \
+    -e ANSIBLE_SECRETS_DIR=/secrets/approle \
+    "$IMAGE" \
+    sh -c "git clone --depth 1 --branch '${BRANCH}' '${REPO_URL}' /tmp/repo \
+           && cd /tmp/repo/update \
+           && ansible-playbook '${PLAYBOOK}' --tags '${TAGS}' \
+              --vault-password-file /secrets/${VAULT_PASS} ${CHECK:+--check}"
+
+echo "=== $(date -Is) kestra-update done rc=0"

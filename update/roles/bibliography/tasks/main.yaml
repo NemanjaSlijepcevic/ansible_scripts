@@ -41,6 +41,7 @@
       EXTRA_DOMAIN: "{{ bibliography.extra_domain }}"
       SECRET_KEY: "{{ bibliography.secret_key }}"
       INTERNAL_HOSTS: "{{ bibliography.internal_hosts }}"
+      EMBED_PARENT_ORIGIN: "{{ bibliography.embed_parent_origin | default('') }}"
     volumes:
       - "./data/bibliography/db.sqlite3:/app/db.sqlite3"
       - "./data/bibliography/staticfiles:/app/staticfiles"
